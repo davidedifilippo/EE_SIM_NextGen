@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { waveformStats } from '../realtime/waveform';
-import { sourceAcSpec, sourceLabel, sourceShape, sourceSpec } from './source';
+import { sourceAcSpec, sourceDcSpec, sourceLabel, sourceShape, sourceSpec } from './source';
 
 const sine = { shape: 'sin', amplitude: '10', offset: '0', frequency: '50', phase: '0', spec: '' };
 
@@ -103,6 +103,15 @@ describe('sourceAcSpec', () => {
 
   it('passes on what is not valid', () => {
     expect(sourceAcSpec({ ...sine, frequency: 'x' })).toBeNull();
+  });
+});
+
+describe('sourceDcSpec', () => {
+  it('keeps only the DC level', () => {
+    expect(sourceDcSpec({ ...sine, offset: '2' })).toBe('DC 2');
+    expect(sourceDcSpec({ ...sine, shape: 'dc', amplitude: '12' })).toBe('DC 12');
+    expect(sourceDcSpec({ spec: 'SIN(3 5 50)' })).toBe('DC 3');
+    expect(sourceDcSpec({ ...sine, amplitude: 'x' })).toBeNull();
   });
 });
 

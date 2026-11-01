@@ -84,6 +84,11 @@ export function sourceAcSpec(props: SourceProps): string | null {
   return `DC ${first ?? 0} AC 1`;
 }
 
+/** The source for a DC sweep: only its DC level matters, signal or not. */
+export function sourceDcSpec(props: SourceProps): string | null {
+  return sourceAcSpec(props)?.replace(' AC 1', '') ?? null;
+}
+
 /** What the schematic shows next to the source. */
 export function sourceLabel(props: SourceProps): string {
   const shape = sourceShape(props);

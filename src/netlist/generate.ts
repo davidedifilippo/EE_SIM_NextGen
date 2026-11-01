@@ -2,7 +2,7 @@ import { Circuit, ModelType, SpiceModel } from '../model/types';
 import { getDevice } from '../library/devices';
 import { findModel, isVdmos, modelType } from '../library/models';
 import { computeConnectivity, terminalKey } from './connectivity';
-import { sourceAcSpec, sourceSpec } from './source';
+import { sourceAcSpec, sourceDcSpec, sourceSpec } from './source';
 import { parseSpiceValue } from './values';
 
 export interface TranAnalysis {
@@ -19,7 +19,31 @@ export interface AcAnalysis {
   pointsPerDecade: number;
 }
 
-export type Analysis = TranAnalysis | AcAnalysis;
+/** Sweeps a generator, and optionally another one around it for a family of curves. Generators by element id. */
+export interface DcAnalysis {
+  type: 'dc';
+  source: string;
+  from: string;
+  to: string;
+  step: string;
+  familySource?: string;
+  familyFrom?: string;
+  familyTo?: string;
+  familyStep?: string;
+}
+
+export type Analysis = TranAnalysis | AcAnalysis | DcAnalysis;
+
+/** Enough for any curve; beyond it a mistyped step would only freeze the page. */
+const MAX_DC_POINTS = 5000;
+const MAX_DC_CURVES = 12;
+
+/** How many values go from one end to the other, or null if that does not make sense. */
+export function sweepCount(from: string, to: string, step: string): number | null {
+  const [a, b, s] = [parseSpiceValue(from), parseSpiceValue(to), parseSpiceValue(step)];
+  if (a === null || b === null || s === null || s <= 0 || b < a) return null;
+  return Math.floor((b - a) / s + 1e-9) + 1;
+}
 
 export interface NetlistResult {
   /** Empty when errors is not empty. */
@@ -145,7 +169,7 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         break;
       }
       case 'vsource': {
-        const spec = analysis.type === 'ac' ? sourceAcSpec(el.props) : sourceSpec(el.props);
+        const spec = analysis.type === 'ac' ? sourceAcSpec(el.props) : analysis.type === 'dc' ? sourceDcSpec(el.props) : sourceSpec(el.props);
         if (!spec) {
           errors.push(`${el.tag}: sorgente non valida`);
           break;
@@ -221,9 +245,23 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
     if (!isSingleLine(m.card)) errors.push(`Modello ${m.name}: la card deve stare su una riga`);
   }
   if (!isSingleLine(circuit.title)) errors.push('Il titolo deve stare su una riga');
-  const checks = analysis.type === 'tran'
-    ? [['Durata', analysis.stop], ['Passo', analysis.step], ['Passo massimo', analysis.maxStep ?? '1']]
-    : [['Da', analysis.from], ['A', analysis.to]];
+  const checks =
+    analysis.type === 'tran'
+      ? [['Durata', analysis.stop], ['Passo', analysis.step], ['Passo massimo', analysis.maxStep ?? '1']]
+      : analysis.type === 'ac'
+        ? [['Da', analysis.from], ['A', analysis.to]]
+        : [
+            ['Da', analysis.from],
+            ['A', analysis.to],
+            ['Passo', analysis.step],
+            ...(analysis.familySource
+              ? [
+                  ['Famiglia, da', analysis.familyFrom ?? ''],
+                  ['Famiglia, a', analysis.familyTo ?? ''],
+                  ['Famiglia, passo', analysis.familyStep ?? ''],
+                ]
+              : []),
+          ];
   for (const [label, value] of checks) {
     if (!SPICE_VALUE.test(value.trim())) errors.push(`${label}: valore non valido "${value}"`);
   }
@@ -233,15 +271,37 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
     if (!hasAcSource) errors.push("Per l'analisi AC serve un generatore di segnale: sinusoide, onda quadra o avanzato");
   }
 
+  // The name a generator has in the netlist, for the sweep command to refer to it
+  const sweptName = (id: string | undefined) => {
+    const el = circuit.elements.find((e) => e.id === id && e.def === 'vsource');
+    return el ? cardName('V', el.tag) : null;
+  };
+  if (analysis.type === 'dc' && errors.length === 0) {
+    const name = sweptName(analysis.source);
+    const count = sweepCount(analysis.from, analysis.to, analysis.step);
+    if (!name) errors.push('Scegli il generatore da far variare');
+    if (count === null) errors.push('Il DC sweep vuole "A" non minore di "Da" e un passo positivo');
+    const familyCount = analysis.familySource ? sweepCount(analysis.familyFrom ?? '', analysis.familyTo ?? '', analysis.familyStep ?? '') : 1;
+    if (analysis.familySource) {
+      if (!sweptName(analysis.familySource) || analysis.familySource === analysis.source) errors.push('La famiglia vuole un secondo generatore, diverso dal primo');
+      if (familyCount === null) errors.push('La famiglia vuole "A" non minore di "Da" e un passo positivo');
+      else if (familyCount > MAX_DC_CURVES) errors.push(`La famiglia ha ${familyCount} curve: il massimo è ${MAX_DC_CURVES}`);
+    }
+    if (count !== null && familyCount !== null && count * familyCount > MAX_DC_POINTS) errors.push(`Il DC sweep ha ${count * familyCount} punti: il massimo è ${MAX_DC_POINTS}, aumenta il passo`);
+  }
+
   const nodeOf = new Map<string, string>();
   for (const [key, net] of netOf) nodeOf.set(key, nodeName(net));
 
   if (errors.length > 0) return { text: '', errors, nodeOf };
 
+  const familyPart = analysis.type === 'dc' && analysis.familySource ? ` ${sweptName(analysis.familySource)} ${analysis.familyFrom} ${analysis.familyTo} ${analysis.familyStep}` : '';
   const command =
     analysis.type === 'ac'
       ? `.ac dec ${analysis.pointsPerDecade} ${analysis.from} ${analysis.to}`
-      : `.tran ${analysis.step} ${analysis.stop}${analysis.maxStep ? ` 0 ${analysis.maxStep}` : ''}`;
+      : analysis.type === 'dc'
+        ? `.dc ${sweptName(analysis.source)} ${analysis.from} ${analysis.to} ${analysis.step}${familyPart}`
+        : `.tran ${analysis.step} ${analysis.stop}${analysis.maxStep ? ` 0 ${analysis.maxStep}` : ''}`;
   const text = [circuit.title, ...lines, ...modelCards.map((m) => m.card), command, '.end', ''].join('\n');
   return { text, errors, nodeOf };
 }

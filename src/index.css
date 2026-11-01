@@ -58,6 +58,10 @@ body,
   width: auto;
 }
 
+.analysis select {
+  min-width: 56px;
+}
+
 .bode-legend .viz-legend-item {
   flex-wrap: wrap;
   text-align: left;

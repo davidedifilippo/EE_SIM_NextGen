@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Circuit, ComponentDef, Rotation, SpiceModel } from './model/types';
 import { canMirror, DEVICES, getDevice } from './library/devices';
 import { circuitForSaving, withLibraryModels } from './library/models';
-import { Analysis, describeNodes, generateNetlist } from './netlist/generate';
+import { Analysis, describeNodes, generateNetlist, sweepCount } from './netlist/generate';
+import { parseSpiceValue } from './netlist/values';
 import { isDcSource } from './netlist/source';
 import { halfWaveRectifier } from './samples/halfWaveRectifier';
 import { SchematicCanvas } from './editor/SchematicCanvas';
@@ -10,11 +11,12 @@ import { libraryAtStart, mergeModels, saveLibrary } from './storage/modelLibrary
 import { downloadCircuit, INVALID_FILE, loadAutosave, MAX_FILE_BYTES, parseCircuitFile, saveAutosave } from './storage/circuitFile';
 import { PropertiesPanel } from './ui/PropertiesPanel';
 import { Series, TransientChart } from './ui/TransientChart';
-import { AcResult, TranResult } from './engine/ngspice';
-import { isEngineReady, preloadEngine, simulate, simulateAc } from './engine/ngspiceClient';
+import { AcResult, DcResult, TranResult } from './engine/ngspice';
+import { isEngineReady, preloadEngine, simulate, simulateAc, simulateDc } from './engine/ngspiceClient';
 import { LiveFrame, opAmpsToKick, ScopeProbe } from './realtime/liveSimulation';
 import { AcSeries, BodeChart } from './ui/BodeChart';
 import { hasSignal } from './ui/bode';
+import { DcFamily, DcSeries, DcSweepChart } from './ui/DcSweepChart';
 import { DcValues } from './ui/DcValues';
 import { LiveOverlay } from './ui/LiveOverlay';
 import { LiveLegend, LiveLegendHandle, SourceStats, SPEEDS } from './ui/LiveControls';
@@ -24,7 +26,8 @@ import { useLiveSimulation } from './ui/useLiveSimulation';
 
 type Run =
   | { kind: 'tran'; result: TranResult; series: Series[]; netlist: string }
-  | { kind: 'ac'; result: AcResult; series: AcSeries[]; netlist: string };
+  | { kind: 'ac'; result: AcResult; series: AcSeries[]; netlist: string }
+  | { kind: 'dc'; result: DcResult; series: DcSeries[]; xLabel: string; family: DcFamily | null; netlist: string };
 
 /** Enough for a smooth curve and a cutoff read to three figures, without weighing on the chart. */
 const AC_POINTS_PER_DECADE = 100;
@@ -46,9 +49,17 @@ export const App: React.FC = () => {
   const [activeDef, setActiveDef] = useState<ComponentDef | null>(null);
   const [stop, setStop] = useState('100m');
   const [step, setStep] = useState('20u');
-  const [analysisKind, setAnalysisKind] = useState<'tran' | 'ac'>('tran');
+  const [analysisKind, setAnalysisKind] = useState<'tran' | 'ac' | 'dc'>('tran');
   const [acFrom, setAcFrom] = useState('10');
   const [acTo, setAcTo] = useState('100k');
+  const [dcSource, setDcSource] = useState('');
+  const [dcFrom, setDcFrom] = useState('0');
+  const [dcTo, setDcTo] = useState('10');
+  const [dcStep, setDcStep] = useState('0.1');
+  const [dcFamilySource, setDcFamilySource] = useState('');
+  const [dcFamilyFrom, setDcFamilyFrom] = useState('0');
+  const [dcFamilyTo, setDcFamilyTo] = useState('5');
+  const [dcFamilyStep, setDcFamilyStep] = useState('1');
   const [running, setRunning] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [run, setRun] = useState<Run | null>(null);
@@ -212,10 +223,22 @@ export const App: React.FC = () => {
     });
   }, [circuit, selectedIds, handleChange]);
 
-  const analysis = useMemo<Analysis>(
-    () => (analysisKind === 'ac' ? { type: 'ac', from: acFrom, to: acTo, pointsPerDecade: AC_POINTS_PER_DECADE } : { type: 'tran', step, stop, maxStep: step }),
-    [analysisKind, acFrom, acTo, step, stop],
-  );
+  const generators = useMemo(() => circuit.elements.filter((el) => el.def === 'vsource'), [circuit]);
+  // A choice whose generator has gone falls back on the first one, or on no family
+  const sweptId = generators.some((g) => g.id === dcSource) ? dcSource : (generators[0]?.id ?? '');
+  const familyId = generators.some((g) => g.id === dcFamilySource) && dcFamilySource !== sweptId ? dcFamilySource : '';
+  const analysis = useMemo<Analysis>(() => {
+    if (analysisKind === 'ac') return { type: 'ac', from: acFrom, to: acTo, pointsPerDecade: AC_POINTS_PER_DECADE };
+    if (analysisKind === 'tran') return { type: 'tran', step, stop, maxStep: step };
+    return {
+      type: 'dc',
+      source: sweptId,
+      from: dcFrom,
+      to: dcTo,
+      step: dcStep,
+      ...(familyId ? { familySource: familyId, familyFrom: dcFamilyFrom, familyTo: dcFamilyTo, familyStep: dcFamilyStep } : {}),
+    };
+  }, [analysisKind, acFrom, acTo, step, stop, sweptId, familyId, dcFrom, dcTo, dcStep, dcFamilyFrom, dcFamilyTo, dcFamilyStep]);
   const netlist = useMemo(() => generateNetlist(resolved, analysis, analysis.type === 'tran' ? opAmpsToKick(resolved) : undefined), [resolved, analysis]);
 
   const runSimulation = async () => {
@@ -232,7 +255,21 @@ export const App: React.FC = () => {
           .filter((node) => labels.has(node))
           .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
           .map((node) => ({ node, label: `${node} (${labels.get(node)})` }));
-      if (analysis.type === 'ac') {
+      if (analysis.type === 'dc') {
+        const result = await simulateDc(netlist.text);
+        const tagOf = (id: string | undefined) => circuit.elements.find((el) => el.id === id)?.tag ?? '?';
+        const nodes: DcSeries[] = seriesOf([...result.voltages.keys()]).map((s) => ({ key: s.node, label: s.label, unit: 'V', curves: result.voltages.get(s.node)! }));
+        const currents: DcSeries[] = [...result.currents].map(([name, curves]) => ({ key: name, label: `I(${name})`, unit: 'A', curves }));
+        const familyValues = analysis.familySource ? Array.from({ length: sweepCount(analysis.familyFrom!, analysis.familyTo!, analysis.familyStep!) ?? 0 }, (_, k) => parseSpiceValue(analysis.familyFrom!)! + k * parseSpiceValue(analysis.familyStep!)!) : null;
+        setRun({
+          kind: 'dc',
+          result,
+          series: [...currents, ...nodes],
+          xLabel: tagOf(analysis.source),
+          family: familyValues && { name: tagOf(analysis.familySource), values: familyValues },
+          netlist: netlist.text,
+        });
+      } else if (analysis.type === 'ac') {
         const result = await simulateAc(netlist.text);
         // A node with no signal at all, such as a DC supply, has no gain to draw
         const nodes = [...result.voltages].filter(([, v]) => hasSignal(v.re, v.im)).map(([node]) => node);
@@ -300,9 +337,10 @@ export const App: React.FC = () => {
         <div className="analysis">
           <label>
             Analisi
-            <select className="analysis-kind" value={analysisKind} onChange={(e) => setAnalysisKind(e.target.value as 'tran' | 'ac')}>
+            <select className="analysis-kind" value={analysisKind} onChange={(e) => setAnalysisKind(e.target.value as 'tran' | 'ac' | 'dc')}>
               <option value="tran">Nel tempo</option>
               <option value="ac">In frequenza (AC)</option>
+              <option value="dc">In continua (DC sweep)</option>
             </select>
           </label>
           {analysisKind === 'tran' ? (
@@ -315,6 +353,60 @@ export const App: React.FC = () => {
                 Passo
                 <input value={step} onChange={(e) => setStep(e.target.value)} />
               </label>
+            </>
+          ) : analysisKind === 'dc' ? (
+            <>
+              <label>
+                Varia
+                <select value={sweptId} onChange={(e) => setDcSource(e.target.value)}>
+                  {generators.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.tag}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Da (V)
+                <input value={dcFrom} onChange={(e) => setDcFrom(e.target.value)} />
+              </label>
+              <label>
+                A (V)
+                <input value={dcTo} onChange={(e) => setDcTo(e.target.value)} />
+              </label>
+              <label>
+                Passo
+                <input value={dcStep} onChange={(e) => setDcStep(e.target.value)} />
+              </label>
+              <label title="Una curva per ogni valore di un secondo generatore">
+                Famiglia
+                <select value={familyId} onChange={(e) => setDcFamilySource(e.target.value)}>
+                  <option value="">Nessuna</option>
+                  {generators
+                    .filter((g) => g.id !== sweptId)
+                    .map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.tag}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {familyId && (
+                <>
+                  <label>
+                    Da (V)
+                    <input value={dcFamilyFrom} onChange={(e) => setDcFamilyFrom(e.target.value)} />
+                  </label>
+                  <label>
+                    A (V)
+                    <input value={dcFamilyTo} onChange={(e) => setDcFamilyTo(e.target.value)} />
+                  </label>
+                  <label>
+                    Passo
+                    <input value={dcFamilyStep} onChange={(e) => setDcFamilyStep(e.target.value)} />
+                  </label>
+                </>
+              )}
             </>
           ) : (
             <>
@@ -423,6 +515,7 @@ export const App: React.FC = () => {
           {isStale && <p className="stale">Il circuito o l'analisi sono cambiati: il grafico mostra la simulazione precedente.</p>}
           {run?.kind === 'tran' && <TransientChart result={run.result} series={run.series} />}
           {run?.kind === 'ac' && <BodeChart key={run.netlist} result={run.result} series={run.series} />}
+          {run?.kind === 'dc' && <DcSweepChart key={run.netlist} result={run.result} series={run.series} xLabel={run.xLabel} family={run.family} />}
         </section>
       )}
     </div>

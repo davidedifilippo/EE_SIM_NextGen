@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { circuitFromNets } from '../realtime/testCircuits';
 import { Circuit } from '../model/types';
 import { halfWaveRectifier } from '../samples/halfWaveRectifier';
-import { describeNodes, generateNetlist } from './generate';
+import { describeNodes, generateNetlist, sweepCount } from './generate';
 
 const TRAN = { type: 'tran', step: '1u', stop: '1m' } as const;
 
@@ -157,6 +157,56 @@ describe('generateNetlist', () => {
       [{ from: '100', to: '10' }, 'La frequenza "A" deve essere maggiore di "Da", ed entrambe positive'],
     ])('checks the range %o', (change, message) => {
       expect(generateNetlist(halfWaveRectifier(), { ...AC, ...change }).errors).toContain(message);
+    });
+  });
+
+  describe('DC sweep', () => {
+    const DC = { type: 'dc', source: 'v1', from: '0', to: '10', step: '0.1' } as const;
+
+    it('sweeps the generator by its name in the netlist, at its DC level', () => {
+      const { text, errors } = generateNetlist(halfWaveRectifier(), DC);
+      expect(errors).toEqual([]);
+      expect(text).toContain('.dc V1 0 10 0.1');
+      expect(text).toContain('V1 n1 0 DC 0');
+      expect(text).not.toContain('SIN(');
+    });
+
+    it('adds a family around it', () => {
+      const c = circuitFromNets('t', [
+        { def: 'vsource', tag: 'A', nets: ['x', '0'], props: { spec: 'DC 1' } },
+        { def: 'vsource', tag: 'V2', nets: ['y', '0'], props: { spec: 'DC 1' } },
+        { def: 'resistor', tag: 'R1', nets: ['x', 'y'], props: { value: '1k' } },
+      ]);
+      const { text } = generateNetlist(c, { type: 'dc', source: 'a', from: '0', to: '5', step: '1', familySource: 'v2', familyFrom: '0', familyTo: '2', familyStep: '1' });
+      expect(text).toContain('.dc VA 0 5 1 V2 0 2 1');
+    });
+
+    it.each([
+      [{ source: 'x' }, 'Scegli il generatore da far variare'],
+      [{ source: 'r1' }, 'Scegli il generatore da far variare'],
+      [{ to: '-1' }, 'Il DC sweep vuole "A" non minore di "Da" e un passo positivo'],
+      [{ step: '0' }, 'Il DC sweep vuole "A" non minore di "Da" e un passo positivo'],
+      [{ step: '0.001' }, 'Il DC sweep ha 10001 punti: il massimo è 5000, aumenta il passo'],
+      [{ familySource: 'v1', familyFrom: '0', familyTo: '1', familyStep: '1' }, 'La famiglia vuole un secondo generatore, diverso dal primo'],
+      [{ step: 'abc' }, 'Passo: valore non valido "abc"'],
+    ])('checks %o', (change, message) => {
+      expect(generateNetlist(halfWaveRectifier(), { ...DC, ...change }).errors).toContain(message);
+    });
+
+    it('limits the number of curves', () => {
+      const c = circuitFromNets('t', [
+        { def: 'vsource', tag: 'V1', nets: ['x', '0'], props: { spec: 'DC 1' } },
+        { def: 'vsource', tag: 'V2', nets: ['y', '0'], props: { spec: 'DC 1' } },
+        { def: 'resistor', tag: 'R1', nets: ['x', 'y'], props: { value: '1k' } },
+      ]);
+      expect(generateNetlist(c, { ...DC, familySource: 'v2', familyFrom: '0', familyTo: '20', familyStep: '1' }).errors).toContain('La famiglia ha 21 curve: il massimo è 12');
+    });
+
+    it('counts the values of a sweep', () => {
+      expect(sweepCount('0', '10', '0.1')).toBe(101);
+      expect(sweepCount('1', '1', '1')).toBe(1);
+      expect(sweepCount('1', '0', '1')).toBeNull();
+      expect(sweepCount('0', '1', '-1')).toBeNull();
     });
   });
 
