@@ -1,0 +1,19 @@
+{
+  "name": "ee-sim-nextgen",
+  "private": true,
+  "version": "0.1.0",
+  "author": "Ing. Di Filippo",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "eecircuit-engine": "1.9.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

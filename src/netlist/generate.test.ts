@@ -1,0 +1,120 @@
+import { describe, expect, it } from 'vitest';
+import { Circuit } from '../model/types';
+import { halfWaveRectifier } from '../samples/halfWaveRectifier';
+import { generateNetlist } from './generate';
+
+const TRAN = { type: 'tran', step: '1u', stop: '1m' } as const;
+
+const resistorPair = (): Circuit => ({
+  title: 'test',
+  elements: [
+    { id: 'r1', def: 'resistor', x: 40, y: 0, rot: 0, tag: 'R1', props: { value: '1k' } },
+    { id: 'r2', def: 'resistor', x: 120, y: 0, rot: 0, tag: 'R2', props: { value: '2k' } },
+    { id: 'gnd', def: 'ground', x: 0, y: 0, rot: 0, tag: 'GND', props: {} },
+    { id: 'gnd2', def: 'ground', x: 160, y: 0, rot: 0, tag: 'GND2', props: {} },
+  ],
+  wires: [],
+  models: [],
+});
+
+describe('generateNetlist', () => {
+  it('writes the rectifier netlist', () => {
+    const { text, errors } = generateNetlist(halfWaveRectifier(), { ...TRAN, maxStep: '10u' });
+    expect(errors).toEqual([]);
+    expect(text.split('\n')).toEqual([
+      'Raddrizzatore a semionda',
+      'V1 n1 0 SIN(0 10 50)',
+      'D1 n1 n2 D1N4148',
+      'R1 n2 0 1k',
+      '.model D1N4148 D(IS=2.52n RS=0.568 N=1.752 BV=100 IBV=100u CJO=4p M=0.333 VJ=0.75 TT=11.54n)',
+      '.tran 1u 1m 0 10u',
+      '.end',
+      '',
+    ]);
+  });
+
+  it('follows element rotation when assigning terminals', () => {
+    const { text } = generateNetlist(halfWaveRectifier({ reversed: true }), TRAN);
+    expect(text).toContain('D1 n2 n1 D1N4148');
+  });
+
+  it('joins coincident terminals without a wire', () => {
+    const { text, errors } = generateNetlist(resistorPair(), TRAN);
+    expect(errors).toEqual([]);
+    expect(text).toContain('R1 0 n1 1k');
+    expect(text).toContain('R2 n1 0 2k');
+  });
+
+  it('joins a wire ending on another wire, but not wires that only cross', () => {
+    const base = (extra: Circuit['wires']): Circuit => ({
+      title: 't',
+      elements: [
+        { id: 'r1', def: 'resistor', x: 40, y: 0, rot: 0, tag: 'R1', props: { value: '1' } },
+        { id: 'r2', def: 'resistor', x: 40, y: 100, rot: 0, tag: 'R2', props: { value: '1' } },
+        { id: 'g1', def: 'ground', x: 0, y: 0, rot: 0, tag: 'G1', props: {} },
+        { id: 'g2', def: 'ground', x: 0, y: 100, rot: 0, tag: 'G2', props: {} },
+      ],
+      wires: [{ id: 'a', pts: [{ x: 80, y: 0 }, { x: 200, y: 0 }] }, ...extra],
+      models: [],
+    });
+
+    const tee = generateNetlist(base([{ id: 'b', pts: [{ x: 80, y: 100 }, { x: 140, y: 100 }, { x: 140, y: 0 }] }]), TRAN);
+    expect(tee.errors).toEqual([]);
+    expect(tee.nodeOf.get('r1:b')).toBe(tee.nodeOf.get('r2:b'));
+
+    const cross = generateNetlist(base([{ id: 'b', pts: [{ x: 80, y: 100 }, { x: 140, y: 100 }, { x: 140, y: -50 }] }]), TRAN);
+    expect(cross.errors).toEqual([]);
+    expect(cross.nodeOf.get('r1:b')).not.toBe(cross.nodeOf.get('r2:b'));
+  });
+
+  it('reports a missing ground', () => {
+    const c = resistorPair();
+    c.elements = c.elements.filter((e) => e.def !== 'ground');
+    expect(generateNetlist(c, TRAN).errors).toContain('Il circuito non ha una massa');
+  });
+
+  it('reports an unconnected terminal', () => {
+    const c = resistorPair();
+    c.elements = c.elements.filter((e) => e.id !== 'gnd2');
+    expect(generateNetlist(c, TRAN).errors).toContain('Terminale non collegato: r2:b');
+  });
+
+  it('reports an undefined diode model', () => {
+    const c = halfWaveRectifier();
+    c.models = [];
+    const { errors, text } = generateNetlist(c, TRAN);
+    expect(errors).toContain('D1: modello non definito "D1N4148"');
+    expect(text).toBe('');
+  });
+
+  it('reports duplicate names, ignoring case', () => {
+    const c = resistorPair();
+    c.elements[1].tag = 'r1';
+    expect(generateNetlist(c, TRAN).errors).toContain('Nome duplicato: r1');
+  });
+
+  it.each(['abc', '', '1k\n.include /etc/passwd'])('rejects the invalid value %j', (value) => {
+    const c = resistorPair();
+    c.elements[0].props.value = value;
+    expect(generateNetlist(c, TRAN).errors[0]).toContain('valore non valido');
+  });
+
+  it('accepts SPICE suffixes', () => {
+    const c = resistorPair();
+    c.elements[0].props.value = '4.7meg';
+    c.elements[1].props.value = '1e3';
+    expect(generateNetlist(c, TRAN).errors).toEqual([]);
+  });
+
+  it('rejects multi-line source specs', () => {
+    const c = halfWaveRectifier();
+    c.elements[0].props.spec = 'DC 1\n.control';
+    expect(generateNetlist(c, TRAN).errors[0]).toContain('sorgente non valida');
+  });
+
+  it('prefixes tags that lack the SPICE letter', () => {
+    const c = resistorPair();
+    c.elements[0].tag = 'LOAD';
+    expect(generateNetlist(c, TRAN).text).toContain('RLOAD 0 n1 1k');
+  });
+});
