@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { ImportedModel, parseModelText } from '../library/modelImport';
+import { describeImport, ImportedModel, parseModelText } from '../library/modelImport';
 import { MAX_FILE_BYTES } from '../storage/circuitFile';
 
 interface Props {
@@ -15,20 +15,16 @@ export const ModelImporter: React.FC<Props> = ({ onImport }) => {
   const [hasFailed, setHasFailed] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const read = (content: string) => {
-    const { models, skipped } = parseModelText(content);
-    setHasFailed(models.length === 0);
-    if (models.length === 0) {
-      setReport(skipped.length > 0 ? skipped : ['Nessun .model trovato nel testo']);
+  const importText = (content: string) => {
+    const read = parseModelText(content);
+    setHasFailed(read.models.length === 0);
+    if (read.models.length === 0) {
+      setReport(read.skipped.length > 0 ? read.skipped : ['Nessun .model trovato nel testo']);
       return;
     }
-    onImport(models);
+    onImport(read.models);
     setText('');
-    setReport([
-      `Importati: ${models.map((m) => m.name).join(', ')}`,
-      ...models.filter((m) => m.ignored.length > 0).map((m) => `${m.name}: ignorati ${m.ignored.join(', ')}`),
-      ...skipped,
-    ]);
+    setReport(describeImport(read));
   };
 
   const readFile = async (file: File) => {
@@ -37,7 +33,7 @@ export const ModelImporter: React.FC<Props> = ({ onImport }) => {
       setReport(['Il file è troppo grande']);
       return;
     }
-    read(await file.text());
+    importText(await file.text());
   };
 
   if (!isOpen) {
@@ -63,7 +59,7 @@ export const ModelImporter: React.FC<Props> = ({ onImport }) => {
         />
       </label>
       <div className="button-row">
-        <button type="button" className="primary" disabled={!text.trim()} onClick={() => read(text)}>
+        <button type="button" className="primary" disabled={!text.trim()} onClick={() => importText(text)}>
           Aggiungi
         </button>
         <button type="button" onClick={() => fileRef.current?.click()}>

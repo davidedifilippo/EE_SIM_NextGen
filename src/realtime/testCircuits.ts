@@ -282,6 +282,20 @@ export const AGREEMENT_CASES: TestCase[] = [
 `).models.map(({ name, card }) => ({ name, card })),
   },
   {
+    name: 'NPN ad alta corrente con NK importato',
+    parts: [
+      part('vsource', 'VCC', 'vcc', '0', 'DC 12'),
+      part('vsource', 'V1', 'in', '0', 'SIN(3 3 100)'),
+      part('resistor', 'RB', 'in', 'b', '1k'),
+      part('resistor', 'RC', 'vcc', 'c', '20'),
+      bjt('npn', 'Q1', 'c', 'b', '0', 'QK'),
+    ],
+    probes: ['c', 'b'],
+    stop: 30e-3,
+    dt: 10e-6,
+    models: parseModelText('.model QK NPN(IS=1f BF=300 IKF=10m Nk=0.7 VAF=80 RE=.1 Vceo=45)').models.map(({ name, card }) => ({ name, card })),
+  },
+  {
     name: 'limitatore a diodi in antiparallelo',
     parts: [part('vsource', 'V1', 'in', '0', SIN_50HZ), part('resistor', 'R1', 'in', 'out', '1k'), diode('D1', 'out', '0'), diode('D2', '0', 'out')],
     probes: ['out'],

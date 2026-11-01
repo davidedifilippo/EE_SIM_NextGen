@@ -78,10 +78,13 @@ function bjtOperatingPoint(p: BjtParams, vbe: number, vbc: number) {
   const q1 = 1 / (1 - p.ovaf * vbc - p.ovar * vbe);
   let [qb, dqbdve, dqbdvc] = [q1, q1 * q1 * p.ovar, q1 * q1 * p.ovaf];
   if (p.oikf !== 0 || p.oikr !== 0) {
-    const sq = Math.sqrt(Math.max(0, 1 + 4 * (p.oikf * cbe + p.oikr * cbc))) || 1;
+    const arg = Math.max(0, 1 + 4 * (p.oikf * cbe + p.oikr * cbc));
+    const sq = arg !== 0 ? Math.pow(arg, p.nkf) : 1;
+    // Derivative of arg^nkf over 2: at nkf = 0.5 this is 1/sqrt(arg), as in the original model
+    const slope = arg !== 0 ? (2 * sq * p.nkf) / arg : 1;
     qb = (q1 * (1 + sq)) / 2;
-    dqbdve = q1 * (qb * p.ovar + (p.oikf * gbe) / sq);
-    dqbdvc = q1 * (qb * p.ovaf + (p.oikr * gbc) / sq);
+    dqbdve = q1 * (qb * p.ovar + p.oikf * gbe * slope);
+    dqbdvc = q1 * (qb * p.ovaf + p.oikr * gbc * slope);
   }
 
   const transport = cbe - cbc;

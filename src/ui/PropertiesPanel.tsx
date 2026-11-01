@@ -48,8 +48,9 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
           const setValue = (next: string, record = true) => update({ props: { ...single.props, [p.key]: next } }, record);
           const addModels = (models: ImportedModel[]) => {
             const names = new Set(models.map((m) => m.name));
-            // The part takes the first model it can use, as that is why it was imported
-            const usable = models.find((m) => m.type === p.modelType);
+            // The part takes a model imported for it; out of a whole library, the choice is the user's
+            const fitting = models.filter((m) => m.type === p.modelType);
+            const usable = fitting.length === 1 ? fitting[0] : undefined;
             onChange({
               ...circuit,
               models: [...circuit.models.filter((m) => !names.has(m.name)), ...models.map(({ name, card }) => ({ name, card }))],

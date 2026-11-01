@@ -15,6 +15,8 @@ const DIODE_PARAMS = new Set(
 const ACCEPTED: Record<ModelType, Set<string>> = { D: DIODE_PARAMS, NPN: BJT_PARAMS, PNP: BJT_PARAMS };
 
 const MODEL_NAME = /^[A-Za-z0-9_.+-]+$/;
+/** Same parameter under the name LTspice uses, kept instead of being lost. */
+const BJT_ALIASES: Record<string, string> = { NK: 'NKF' };
 
 export interface ImportedModel extends SpiceModel {
   type: ModelType;
@@ -50,8 +52,9 @@ export function normalizeModelCard(statement: string, scope: ParamScope = new Ma
   const ignored: string[] = [];
   const unresolved: string[] = [];
   for (const [, name, value] of body.matchAll(/([a-z_][\w.]*)\s*=\s*(\S+)/gi)) {
+    const known = type === 'D' ? name.toUpperCase() : (BJT_ALIASES[name.toUpperCase()] ?? name.toUpperCase());
     if (value === UNRESOLVED) unresolved.push(name);
-    else if (ACCEPTED[type].has(name.toUpperCase()) && parseSpiceValue(value) !== null) kept.push(`${name.toUpperCase()}=${value}`);
+    else if (ACCEPTED[type].has(known) && parseSpiceValue(value) !== null) kept.push(`${known}=${value}`);
     else ignored.push(name);
   }
   return { name: match[1], type, card: `.model ${match[1]} ${type}(${kept.join(' ')})`, ignored, unresolved };
@@ -102,6 +105,32 @@ function unwrapSubcircuit(head: string, body: string[], globals: ParamScope): Im
   return fits ? model : null;
 }
 
+const AKO = /^\.model\s+(\S+)\s+ako:([^\s(]+)(?:\s+[a-z]+)?\s*(?:\((.*)\))?\s*$/is;
+
+/** "A kind of": the parameters of another model, with some replaced. Only the replacements can be ignored. */
+function resolveAko(line: string, models: Map<string, ImportedModel>, scope: ParamScope): ImportedModel | string {
+  const [, name, baseName, overrides = ''] = AKO.exec(line)!;
+  const base = [...models.values()].find((m) => m.name.toLowerCase() === baseName.toLowerCase());
+  if (!base) return `${name}: il modello di partenza ${baseName} non è nel testo`;
+  const own = normalizeModelCard(`.model ${name} ${base.type}(${overrides})`, scope);
+  if (!own) return `${name}: nome non valido`;
+
+  const pairs = (card: string) => [.../\((.*)\)/.exec(card)![1].matchAll(/(\S+?)=(\S+)/g)].map(([, key, value]): [string, string] => [key, value]);
+  const merged = new Map([...pairs(base.card), ...pairs(own.card)]);
+  const body = [...merged].map(([key, value]) => `${key}=${value}`).join(' ');
+  return { ...own, card: `.model ${name} ${base.type}(${body})` };
+}
+
+/** Lines for the person importing: models that lost the same parameters share one line. */
+export function describeImport({ models, skipped }: ModelImport): string[] {
+  const byIgnored = new Map<string, string[]>();
+  for (const { name, ignored } of models) {
+    if (ignored.length > 0) byIgnored.set(ignored.join(', '), [...(byIgnored.get(ignored.join(', ')) ?? []), name]);
+  }
+  const ignoredLines = [...byIgnored].map(([ignored, names]) => (names.length === 1 ? `${names[0]}: ignorati ${ignored}` : `${names.length} modelli: ignorati ${ignored}`));
+  return [`Importati ${models.length === 1 ? models[0].name : `${models.length} modelli: ${models.map((m) => m.name).join(', ')}`}`, ...ignoredLines, ...skipped];
+}
+
 /** Reads what is useful from text pasted from a datasheet page or a library file. */
 export function parseModelText(text: string): ModelImport {
   const models = new Map<string, ImportedModel>();
@@ -121,6 +150,8 @@ export function parseModelText(text: string): ModelImport {
     else models.set(model.name, model);
   };
 
+  // Resolved last, since a file can define them before the model they refer to
+  const akoLines: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (isDirective(line, '.subckt')) {
@@ -130,6 +161,8 @@ export function parseModelText(text: string): ModelImport {
       if (model) add(model);
       else skipped.push(`${line.split(/\s+/)[1] ?? '?'}: i sottocircuiti non sono ancora supportati`);
       i = end < 0 ? lines.length : end;
+    } else if (AKO.test(line)) {
+      akoLines.push(line);
     } else if (isDirective(line, '.model')) {
       const model = normalizeModelCard(line, globals);
       if (model) add(model);
@@ -138,6 +171,11 @@ export function parseModelText(text: string): ModelImport {
         skipped.push(`${name}: modello ${type.toUpperCase()} non ancora supportato`.replace('  ', ' '));
       }
     }
+  }
+  for (const line of akoLines) {
+    const model = resolveAko(line, models, globals);
+    if (typeof model === 'string') skipped.push(model);
+    else add(model);
   }
   return { models: [...models.values()], skipped };
 }

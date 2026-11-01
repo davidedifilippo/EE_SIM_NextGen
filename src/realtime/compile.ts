@@ -38,6 +38,8 @@ export interface BjtParams {
   ovar: number;
   oikf: number;
   oikr: number;
+  /** High-injection roll-off exponent. */
+  nkf: number;
   rb: number;
   rc: number;
   re: number;
@@ -132,6 +134,7 @@ export function parseBjtModel(card: string, polarity: 1 | -1): BjtParams {
     ovar: inverse('VAR', 'VB'),
     oikf: inverse('IKF', 'IK'),
     oikr: inverse('IKR'),
+    nkf: positive(cardParam(card, 'NKF'), 0.5),
     rb: param('RB', 0),
     rc: param('RC', 0),
     re: param('RE', 0),

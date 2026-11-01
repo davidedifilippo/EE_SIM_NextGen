@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { runTransient } from '../engine/ngspice';
-import { normalizeModelCard, parseModelText } from './modelImport';
+import { describeImport, normalizeModelCard, parseModelText } from './modelImport';
 import { modelType } from './models';
 
 const VENDOR_STYLE = `
@@ -136,6 +136,56 @@ describe('expressions', () => {
     const read = parseModelText('.model Transistor NPN(Is={Ices/2} Bf={hfe} Rc=1)');
     expect(read.models).toEqual([]);
     expect(read.skipped).toEqual(['Transistor: valori non calcolabili per Is, Bf']);
+  });
+});
+
+describe('AKO models', () => {
+  it('takes the parameters of the base and replaces some', () => {
+    const { models, skipped } = parseModelText('.model A NPN(IS=1f BF=100 VAF=50)\n.model B ako:A NPN(BF=300 mfg=X)');
+    expect(skipped).toEqual([]);
+    expect(models[1]).toMatchObject({ name: 'B', type: 'NPN', card: '.model B NPN(IS=1f BF=300 VAF=50)', ignored: ['mfg'] });
+  });
+
+  it('accepts a base defined later, another case, and no replacements', () => {
+    const { models } = parseModelText('.MODEL B AKO:a\n.model A PNP(IS=1f)');
+    expect(models.map((m) => m.card)).toEqual(['.model A PNP(IS=1f)', '.model B PNP(IS=1f)']);
+  });
+
+  it('can chain', () => {
+    const { models } = parseModelText('.model A D(IS=1n RS=1)\n.model B ako:A(RS=2)\n.model C ako:B(N=2)');
+    expect(models[2].card).toBe('.model C D(IS=1n RS=2 N=2)');
+  });
+
+  it('says when the base is missing', () => {
+    expect(parseModelText('.model B ako:ZZZ NPN(BF=1)')).toEqual({ models: [], skipped: ['B: il modello di partenza ZZZ non è nel testo'] });
+  });
+
+  it('runs in ngspice', async () => {
+    const { models } = parseModelText('.model FZT NPN(IS=1f BF=100 Vceo=45)\n.model ZTX-9 ako:FZT NPN(BF=200 mfg=X)');
+    const netlist = `t\nV1 c 0 DC 5\nRB c b 430k\nQ1 c b 0 ZTX-9\n${models.map((m) => m.card).join('\n')}\n.tran 10u 100u\n.end\n`;
+    const result = await runTransient(netlist);
+    expect(result.voltages.get('b')![result.time.length - 1]).toBeGreaterThan(0.5);
+  });
+});
+
+describe('names from other simulators', () => {
+  it('keeps NK of a transistor under the name ngspice knows', () => {
+    expect(normalizeModelCard('.model A NPN(BF=100 Nk=0.6)')).toMatchObject({ card: '.model A NPN(BF=100 NKF=0.6)', ignored: [] });
+  });
+
+  it('leaves it out of a diode, which has no such thing', () => {
+    expect(normalizeModelCard('.model A D(Nk=0.6)')).toMatchObject({ ignored: ['Nk'] });
+  });
+});
+
+describe('describeImport', () => {
+  it('names a single model', () => {
+    expect(describeImport(parseModelText('.model A D(IS=1n mfg=X)'))).toEqual(['Importati A', 'A: ignorati mfg']);
+  });
+
+  it('groups models that lost the same parameters', () => {
+    const lines = describeImport(parseModelText('.model A D(mfg=X Iave=1)\n.model B D(mfg=X Iave=2)\n.model C D(Vpk=1)\n.model E D(IS=1n)\n.model M NMOS(VTO=1)'));
+    expect(lines).toEqual(['Importati 4 modelli: A, B, C, E', '2 modelli: ignorati mfg, Iave', 'C: ignorati Vpk', 'M: modello NMOS non ancora supportato']);
   });
 });
 

@@ -346,6 +346,8 @@ button.close-results {
 }
 
 .import-report {
+  max-height: 160px;
+  overflow-y: auto;
   margin: 0;
   padding: 6px 6px 6px 18px;
   font-size: 12px;
