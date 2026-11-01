@@ -14,6 +14,7 @@ interface Props {
   onPlacedDef: () => void;
   onDeleteSelected: () => void;
   onRotateSelected: () => void;
+  overlay?: React.ReactNode;
 }
 
 type ConnectedEnd = { wireId: string; pointIndex: number; origPt: Pt };
@@ -79,6 +80,7 @@ export const SchematicCanvas: React.FC<Props> = ({
   onPlacedDef,
   onDeleteSelected,
   onRotateSelected,
+  overlay,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
@@ -96,35 +98,44 @@ export const SchematicCanvas: React.FC<Props> = ({
 
   useEffect(() => setPlacementRot(0), [activeDefToPlace]);
 
-  // Start with the whole circuit in view, whatever the screen size
+  // Start with the whole circuit in view, then keep the same point centered when the canvas
+  // resizes, e.g. when the results panel opens. A page loaded in a hidden tab may have no size
+  // yet: the first fit then waits until it gets one.
   useLayoutEffect(() => {
     const el = containerRef.current;
-    const pts = [...circuit.elements, ...circuit.wires.flatMap((w) => w.pts)];
-    if (!el || pts.length === 0) return;
-    const margin = 60;
-    const [minX, maxX] = [Math.min(...pts.map((p) => p.x)) - margin, Math.max(...pts.map((p) => p.x)) + margin];
-    const [minY, maxY] = [Math.min(...pts.map((p) => p.y)) - margin, Math.max(...pts.map((p) => p.y)) + margin];
-    const fit = Math.min(1, el.clientWidth / (maxX - minX), el.clientHeight / (maxY - minY));
-    setZoom(fit);
-    setPan({
-      x: (el.clientWidth - (maxX - minX) * fit) / 2 - minX * fit,
-      y: (el.clientHeight - (maxY - minY) * fit) / 2 - minY * fit,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Keep the same point centered when the canvas resizes, e.g. when the results panel opens
-  useEffect(() => {
-    const el = containerRef.current;
     if (!el) return;
-    let [width, height] = [el.clientWidth, el.clientHeight];
-    const observer = new ResizeObserver(() => {
-      const [dx, dy] = [el.clientWidth - width, el.clientHeight - height];
-      [width, height] = [el.clientWidth, el.clientHeight];
-      if (dx !== 0 || dy !== 0) setPan((p) => ({ x: p.x + dx / 2, y: p.y + dy / 2 }));
-    });
+    let [width, height] = [0, 0];
+
+    const fitCircuit = () => {
+      const pts = [...circuit.elements, ...circuit.wires.flatMap((w) => w.pts)];
+      if (pts.length === 0) return;
+      const margin = 60;
+      const [minX, maxX] = [Math.min(...pts.map((p) => p.x)) - margin, Math.max(...pts.map((p) => p.x)) + margin];
+      const [minY, maxY] = [Math.min(...pts.map((p) => p.y)) - margin, Math.max(...pts.map((p) => p.y)) + margin];
+      const fit = Math.max(MIN_ZOOM, Math.min(1, el.clientWidth / (maxX - minX), el.clientHeight / (maxY - minY)));
+      setZoom(fit);
+      setPan({
+        x: (el.clientWidth - (maxX - minX) * fit) / 2 - minX * fit,
+        y: (el.clientHeight - (maxY - minY) * fit) / 2 - minY * fit,
+      });
+    };
+
+    const onResize = () => {
+      const [newWidth, newHeight] = [el.clientWidth, el.clientHeight];
+      if (newWidth === 0 || newHeight === 0) return;
+      if (width === 0) fitCircuit();
+      else if (newWidth !== width || newHeight !== height) {
+        const [dx, dy] = [newWidth - width, newHeight - height];
+        setPan((p) => ({ x: p.x + dx / 2, y: p.y + dy / 2 }));
+      }
+      [width, height] = [newWidth, newHeight];
+    };
+
+    onResize();
+    const observer = new ResizeObserver(onResize);
     observer.observe(el);
     return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const screenToWorld = (screenX: number, screenY: number): Pt => {
@@ -662,6 +673,7 @@ export const SchematicCanvas: React.FC<Props> = ({
             wireDraft={displayDraft}
             ghost={ghost}
             hoveredTerminal={hoveredTerminal}
+            overlay={overlay}
           />
         </g>
       </svg>

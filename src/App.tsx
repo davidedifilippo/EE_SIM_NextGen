@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Circuit, ComponentDef, Rotation } from './model/types';
 import { DEVICES } from './library/devices';
 import { describeNodes, generateNetlist } from './netlist/generate';
@@ -8,6 +8,10 @@ import { PropertiesPanel } from './ui/PropertiesPanel';
 import { Series, TransientChart } from './ui/TransientChart';
 import { TranResult } from './engine/ngspice';
 import { simulate } from './engine/ngspiceClient';
+import { LiveFrame } from './realtime/liveSimulation';
+import { LiveOverlay } from './ui/LiveOverlay';
+import { LiveLegend, LiveLegendHandle, SourceStats, SPEEDS } from './ui/LiveControls';
+import { useLiveSimulation } from './ui/useLiveSimulation';
 
 interface Run {
   result: TranResult;
@@ -26,6 +30,20 @@ export const App: React.FC = () => {
   const [running, setRunning] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [run, setRun] = useState<Run | null>(null);
+  const [liveRunning, setLiveRunning] = useState(true);
+  const [speed, setSpeed] = useState(20e-3);
+
+  const live = useLiveSimulation(circuit, liveRunning, speed);
+  const legendRef = useRef<LiveLegendHandle>(null);
+  const { keptUpRef } = live;
+  const handleScale = useCallback(
+    (maxVoltage: number, frame: LiveFrame | null) => legendRef.current?.update(maxVoltage, frame, keptUpRef.current),
+    [keptUpRef],
+  );
+  const overlay = useMemo(
+    () => live.layout && <LiveOverlay layout={live.layout} frameRef={live.frameRef} onScale={handleScale} />,
+    [live.layout, live.frameRef, handleScale],
+  );
 
   const handleChange = useCallback(
     (next: Circuit, recordHistory = true) => {
@@ -122,6 +140,19 @@ export const App: React.FC = () => {
             Ripeti
           </button>
         </div>
+        <div className="button-row live-controls">
+          <button onClick={() => setLiveRunning((r) => !r)}>{liveRunning ? 'Pausa' : 'Avvia'}</button>
+          <label>
+            Velocità
+            <select value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
+              {SPEEDS.map((s) => (
+                <option key={s.label} value={s.simSecondsPerSecond}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         <div className="analysis">
           <label>
             Durata
@@ -132,7 +163,7 @@ export const App: React.FC = () => {
             <input value={step} onChange={(e) => setStep(e.target.value)} />
           </label>
           <button className="primary" onClick={runSimulation} disabled={running}>
-            {running ? 'Simulazione…' : 'Simula'}
+            {running ? 'Analisi…' : 'Analisi precisa'}
           </button>
         </div>
       </header>
@@ -154,16 +185,21 @@ export const App: React.FC = () => {
           ))}
         </nav>
 
-        <SchematicCanvas
-          circuit={circuit}
-          onChange={handleChange}
-          selectedIds={selectedIds}
-          onSelectIds={setSelectedIds}
-          activeDefToPlace={activeDef}
-          onPlacedDef={() => setActiveDef(null)}
-          onDeleteSelected={deleteSelected}
-          onRotateSelected={rotateSelected}
-        />
+        <div className="canvas-area">
+          <SchematicCanvas
+            circuit={circuit}
+            onChange={handleChange}
+            selectedIds={selectedIds}
+            onSelectIds={setSelectedIds}
+            activeDefToPlace={activeDef}
+            onPlacedDef={() => setActiveDef(null)}
+            onDeleteSelected={deleteSelected}
+            onRotateSelected={rotateSelected}
+            overlay={overlay}
+          />
+          <LiveLegend ref={legendRef} errors={live.errors} />
+          <SourceStats circuit={circuit} selectedIds={selectedIds} />
+        </div>
 
         <aside className="side-panel">
           <PropertiesPanel
@@ -172,6 +208,8 @@ export const App: React.FC = () => {
             onChange={handleChange}
             onRotateSelected={rotateSelected}
             onDeleteSelected={deleteSelected}
+            layout={live.layout}
+            frameRef={live.frameRef}
           />
         </aside>
       </div>

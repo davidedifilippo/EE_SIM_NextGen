@@ -18,6 +18,8 @@ interface Props {
   wireDraft: Pt[];
   ghost: { def: ComponentDef; x: number; y: number; rot: Rotation } | null;
   hoveredTerminal: { x: number; y: number; label?: string } | null;
+  /** Drawn above the wires and below the components. */
+  overlay?: React.ReactNode;
 }
 
 const toPath = (pts: Pt[]) => pts.reduce((acc, p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`), '');
@@ -34,6 +36,7 @@ export const Renderer: React.FC<Props> = ({
   wireDraft,
   ghost,
   hoveredTerminal,
+  overlay,
 }) => (
   <g className="schematic-root">
     <defs>
@@ -83,6 +86,8 @@ export const Renderer: React.FC<Props> = ({
       })}
       {wireDraft.length > 0 && <path d={toPath(wireDraft)} fill="none" stroke="#2563eb" strokeWidth={2} strokeDasharray="4 4" />}
     </g>
+
+    {overlay}
 
     <WireJunctions wires={circuit.wires} />
 

@@ -147,6 +147,124 @@ button.link-button {
   text-align: left;
 }
 
+.canvas-area {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.live-legend {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  max-width: calc(100% - 16px);
+  padding: 4px 8px;
+  font-size: 12px;
+  color: #334155;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 6px;
+}
+
+.source-stats {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  max-width: calc(100% - 16px);
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: #334155;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 6px;
+}
+
+.source-stats div {
+  display: flex;
+  gap: 4px;
+}
+
+.source-stats dt {
+  color: #475569;
+}
+
+.source-stats dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.live-scale {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-scale-bar {
+  display: inline-block;
+  width: 72px;
+  height: 6px;
+  border-radius: 3px;
+}
+
+.live-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.live-slow,
+.live-message {
+  color: #92400e;
+}
+
+.live-controls {
+  align-items: center;
+}
+
+.live-controls label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.live-readout {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0;
+  padding: 8px;
+  background: #f1f5f9;
+  border-radius: 6px;
+}
+
+.live-readout dt {
+  color: #475569;
+}
+
+.live-readout dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.properties input.value-slider {
+  min-height: 32px;
+  padding: 0;
+  border: none;
+  touch-action: none;
+}
+
 .schematic-canvas {
   position: relative;
   flex: 1;
@@ -375,7 +493,7 @@ button.link-button {
     border-bottom: 1px solid #cbd5e1;
   }
 
-  .schematic-canvas {
+  .canvas-area {
     min-height: 200px;
   }
 

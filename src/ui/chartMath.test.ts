@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { downsampleMinMax, formatFixed, formatSi, nearestIndex, niceTicks, pickTimeUnit } from './chartMath';
+import { downsampleMinMax, formatEngineering, formatFixed, formatSi, nearestIndex, niceTicks, pickTimeUnit } from './chartMath';
 
 describe('niceTicks', () => {
   it('covers the range with round values', () => {
@@ -51,6 +51,13 @@ describe('downsampleMinMax', () => {
 describe('formatting', () => {
   it('uses the Italian decimal comma', () => {
     expect(formatSi(2.5)).toBe('2,5');
+  });
+
+  it('formats readouts with engineering prefixes', () => {
+    expect(formatEngineering(0.0032, 'A')).toBe('3,2 mA');
+    expect(formatEngineering(-9.31, 'V')).toBe('-9,31 V');
+    expect(formatEngineering(4.7e-7, 'A')).toBe('470 nA');
+    expect(formatEngineering(1e-15, 'A')).toBe('0 A');
   });
 
   it('never shows a negative zero', () => {

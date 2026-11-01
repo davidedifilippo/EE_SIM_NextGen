@@ -26,6 +26,24 @@ export function formatFixed(v: number, decimals: number): string {
   return (Number(text) === 0 ? text.replace('-', '') : text).replace('.', ',');
 }
 
+const ENGINEERING: [number, string][] = [
+  [1e6, 'M'],
+  [1e3, 'k'],
+  [1, ''],
+  [1e-3, 'm'],
+  [1e-6, 'µ'],
+  [1e-9, 'n'],
+  [1e-12, 'p'],
+];
+
+/** Readout with a unit: 0.0032, "A" gives "3,2 mA". Values too small to matter read as zero. */
+export function formatEngineering(value: number, unit: string): string {
+  const abs = Math.abs(value);
+  if (abs < 1e-12) return `0 ${unit}`;
+  const [scale, prefix] = ENGINEERING.find(([s]) => abs >= s * 0.9995) ?? ENGINEERING[ENGINEERING.length - 1];
+  return `${Number((value / scale).toPrecision(3)).toString().replace('.', ',')} ${prefix}${unit}`;
+}
+
 export function pickTimeUnit(maxSeconds: number): { factor: number; symbol: string } {
   if (maxSeconds >= 1) return { factor: 1, symbol: 's' };
   if (maxSeconds >= 1e-3) return { factor: 1e-3, symbol: 'ms' };

@@ -25,6 +25,8 @@ export interface Connectivity {
   netOf: Map<string, string>;
   /** Terminal keys that touch no wire and no other terminal. */
   unconnected: string[];
+  /** Net representative for each wire id. */
+  wireNet: Map<string, string>;
 }
 
 /**
@@ -81,5 +83,6 @@ export function computeConnectivity(circuit: Circuit): Connectivity {
 
   const netOf = new Map(terminals.map((t) => [t.key, uf.find(t.key)]));
   const unconnected = terminals.filter((t) => !touched.has(t.key)).map((t) => t.key);
-  return { netOf, unconnected };
+  const wireNet = new Map(circuit.wires.map((w) => [w.id, uf.find(`wire:${w.id}`)]));
+  return { netOf, unconnected, wireNet };
 }
