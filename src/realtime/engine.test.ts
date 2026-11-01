@@ -5,7 +5,7 @@ import { computeConnectivity } from '../netlist/connectivity';
 import { SpiceModel } from '../model/types';
 import { compileCircuit, parseBjtModel, parseDiodeModel, parseMosModel } from './compile';
 import { RealtimeEngine, SolverError } from './engine';
-import { circuitFromNets, Part } from './testCircuits';
+import { circuitFromNets, Part, RELAXATION_OSCILLATOR } from './testCircuits';
 import { parseWaveform } from './waveform';
 
 const build = (parts: Part[], models: SpiceModel[] = []) => {
@@ -308,6 +308,109 @@ describe('MOSFET', () => {
       ok: false,
       errors: ['M1: il modello "MP1" non è di tipo NMOS'],
     });
+  });
+});
+
+describe('ideal op amp', () => {
+  const U = (minus: string, plus: string, out: string, high = '15', low = '-15'): Part => ({ def: 'opamp', tag: 'U1', nets: [minus, plus, out], props: { high, low } });
+  const out = (node: (tag: string, terminal: string) => number, engine: RealtimeEngine) => engine.nodeVoltage(node('u1', 'out'));
+
+  it('amplifies with the ratio of the resistors, with the inputs at the same voltage', () => {
+    const { engine, node } = build([V('V1', 'in', '0', 'DC 1'), R('R1', 'in', 'n', '1k'), R('R2', 'n', 'o', '10k'), U('n', '0', 'o')]);
+    engine.initialize();
+    expect(out(node, engine)).toBeCloseTo(-10, 3);
+    expect(engine.nodeVoltage(node('u1', 'minus'))).toBeCloseTo(0, 4);
+  });
+
+  it('follows as a buffer, supplying the load from its output', () => {
+    const { engine, node, compiled } = build([V('V1', 'in', '0', 'DC 3'), U('o', 'in', 'o'), R('RL', 'o', '0', '1k')]);
+    engine.initialize();
+    expect(out(node, engine)).toBeCloseTo(3, 4);
+    const u = compiled.devices.findIndex((d) => d.kind === 'opamp');
+    expect(engine.terminalCurrents(u)).toEqual([expect.closeTo(-3e-3, 6), 0, 0]);
+    expect(engine.deviceCurrent(u)).toBeCloseTo(-3e-3, 6);
+  });
+
+  it('stops at its rails, even uneven ones', () => {
+    const circuit = (input: string) => [V('V1', 'in', '0', `DC ${input}`), R('R1', 'in', 'n', '1k'), R('R2', 'n', 'o', '10k'), U('n', '0', 'o', '12', '-5')];
+    const high = build(circuit('-5'));
+    high.engine.initialize();
+    expect(out(high.node, high.engine)).toBe(12);
+    const low = build(circuit('5'));
+    low.engine.initialize();
+    expect(out(low.node, low.engine)).toBe(-5);
+  });
+
+  it('compares when open, switching with the input', () => {
+    const { engine, node } = build([V('V1', 'in', '0', 'SIN(0 1 100)'), U('0', 'in', 'o')]);
+    engine.initialize();
+    const seen = new Set<number>();
+    for (let i = 0; i < 2000; i++) {
+      engine.step(1e-5);
+      seen.add(out(node, engine));
+    }
+    expect(seen.has(15)).toBe(true);
+    expect(seen.has(-15)).toBe(true);
+  });
+
+  it('has hysteresis with positive feedback: switches at the thresholds, not at zero', () => {
+    const { engine, node } = build([V('V1', 'in', '0', 'SIN(0 10 100)'), U('in', 'p', 'o'), R('R1', 'o', 'p', '10k'), R('R2', 'p', '0', '10k')]);
+    engine.initialize();
+    const switches: number[] = [];
+    let last = NaN;
+    for (let i = 0; i < 3000; i++) {
+      engine.step(1e-5);
+      const v = out(node, engine);
+      expect(Math.abs(v)).toBe(15);
+      if (!Number.isNaN(last) && v !== last) switches.push(10 * Math.sin(2 * Math.PI * 100 * engine.time));
+      last = v;
+    }
+    expect(switches.length).toBeGreaterThan(3);
+    for (const input of switches) expect(Math.abs(input)).toBeCloseTo(7.5, 0);
+  });
+
+  it('starts an oscillator, by itself and on the positive side', () => {
+    const { engine, node } = build(RELAXATION_OSCILLATOR);
+    engine.initialize();
+    expect(out(node, engine)).toBeCloseTo(0, 3);
+    expect(engine.unstableOpAmps()).toEqual(['u1']);
+    engine.step(1e-5);
+    expect(out(node, engine)).toBe(15);
+  });
+
+  it('has nothing unstable with negative feedback', () => {
+    const { engine } = build([V('V1', 'in', '0', 'DC 1'), R('R1', 'in', 'n', '1k'), R('R2', 'n', 'o', '10k'), U('n', '0', 'o')]);
+    engine.initialize();
+    expect(engine.unstableOpAmps()).toEqual([]);
+  });
+
+  it('keeps its state when a value changes', () => {
+    const parts = [V('V1', 'in', '0', 'DC 5'), U('in', 'p', 'o'), R('R1', 'o', 'p', '10k'), R('R2', 'p', '0', '10k')];
+    const first = build(parts);
+    first.engine.initialize();
+    first.engine.step(1e-5);
+    const compiled = compileCircuit(circuitFromNets('t', [parts[0], parts[1], R('R1', 'o', 'p', '11k'), parts[3]]));
+    if (!compiled.ok) throw new Error();
+    const next = new RealtimeEngine(compiled.compiled);
+    expect(next.compiled.signature).toBe(first.engine.compiled.signature);
+    next.adoptState(first.engine);
+    next.step(1e-5);
+    expect(next.nodeVoltage(first.node('u1', 'out'))).toBe(first.engine.nodeVoltage(first.node('u1', 'out')));
+  });
+
+  it.each([
+    ['15', '15'],
+    ['-15', '15'],
+    ['abc', '-15'],
+    ['', '-15'],
+  ])('refuses the rails %j and %j', (high, low) => {
+    expect(compileCircuit(circuitFromNets('t', [U('n', '0', 'o', high, low)]))).toEqual({ ok: false, errors: ['U1: alimentazioni non valide'] });
+  });
+
+  it('survives open inputs, as a drawing in progress has', () => {
+    const { engine } = build([V('V1', 'a', '0', 'DC 5'), R('R1', 'a', '0', '1k'), U('n', 'p', 'o')]);
+    engine.initialize();
+    expect(() => engine.step(1e-5)).not.toThrow();
   });
 });
 

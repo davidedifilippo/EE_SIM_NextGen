@@ -1,5 +1,6 @@
 import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams, MosParams } from './compile';
 import { luFactor, luSolve } from './linear';
+import { OPAMP_GAIN } from '../netlist/generate';
 
 /** Same default as SPICE: minimum conductance across a junction. */
 const GMIN = 1e-12;
@@ -8,6 +9,15 @@ const NODE_SHUNT = 1e-12;
 const VOLTAGE_ABSTOL = 1e-6;
 const RELTOL = 1e-4;
 const MAX_ITERATIONS = 60;
+/** How far the output may pass a rail, or the target stay inside it, before an op amp changes state. */
+const OPAMP_MARGIN = 1e-6;
+/** Changes of state within one solution before calling it a failure, and trying a shorter step. */
+const MAX_OPAMP_CHANGES = 24;
+/** A step short enough for any capacitor in a circuit to act as a short. */
+const FIRST_INSTANT = 1e-9;
+/** State of an ideal op amp: linear, or stuck on one of its rails. */
+const LINEAR = 0;
+
 /** A failed step is retried at half the size, up to this many times. */
 const MAX_HALVINGS = 8;
 
@@ -183,6 +193,13 @@ export class RealtimeEngine {
   private readonly vIterBc: Float64Array;
   /** Body diode voltage of a MOSFET. */
   private readonly vIterBody: Float64Array;
+  /** Per op amp: LINEAR, or +1 and -1 for its rails. */
+  private readonly opAmpState: Int8Array;
+  private readonly unitRhs: Float64Array;
+  private readonly opAmps: { index: number; device: Extract<CompiledDevice, { kind: 'opamp' }> }[] = [];
+  private opAmpChanges = 0;
+  /** Op amps just sent to a rail: the last solution still assumes them linear, and says nothing about them. */
+  private readonly opAmpsToHold = new Set<number>();
 
   /** Step the base matrix is stamped for; 0 means the DC operating point. */
   private stampedStep: number | null = null;
@@ -202,13 +219,16 @@ export class RealtimeEngine {
     this.vIter = new Float64Array(devices.length);
     this.vIterBc = new Float64Array(devices.length);
     this.vIterBody = new Float64Array(devices.length);
+    this.opAmpState = new Int8Array(devices.length);
+    this.unitRhs = new Float64Array(size);
     this.vCrit = new Float64Array(devices.length);
     devices.forEach((d, i) => {
       if (d.kind === 'diode') this.vCrit[i] = criticalVoltage(d.params.is, d.params.nvt);
       else if (d.kind === 'mos') this.vCrit[i] = criticalVoltage(d.params.body.is, d.params.body.nvt);
       else if (d.kind === 'bjt') this.vCrit[i] = criticalVoltage(d.params.is, d.params.vt);
+      else if (d.kind === 'opamp') this.opAmps.push({ index: i, device: d });
     });
-    this.isNonlinear = devices.some((d) => d.kind === 'diode' || d.kind === 'bjt' || d.kind === 'mos');
+    this.isNonlinear = devices.some((d) => d.kind === 'diode' || d.kind === 'bjt' || d.kind === 'mos' || d.kind === 'opamp');
   }
 
   private voltage(node: number): number {
@@ -257,6 +277,7 @@ export class RealtimeEngine {
           base[d.branch * n + d.branch] = h > 0 ? (-2 * d.l) / h : 0;
           break;
         case 'vsource':
+        case 'opamp':
           this.addBranchColumns(d.a, d.b, d.branch);
           break;
         case 'diode':
@@ -284,7 +305,7 @@ export class RealtimeEngine {
   private branchStart(): number {
     let first = this.n;
     for (const d of this.compiled.devices) {
-      if ((d.kind === 'inductor' || d.kind === 'vsource') && d.branch < first) first = d.branch;
+      if ((d.kind === 'inductor' || d.kind === 'vsource' || d.kind === 'opamp') && d.branch < first) first = d.branch;
     }
     return first;
   }
@@ -398,6 +419,75 @@ export class RealtimeEngine {
     return vgs !== rawGs || vds !== rawDs || vBody !== rawBody;
   }
 
+  /**
+   * An op amp is piecewise linear, so its rows are exact in each state: Newton only has to find the
+   * right state. Saying which one holds from the last solution ends, unlike a smooth curve at this
+   * gain, where each iteration would throw the output from one rail to the other.
+   */
+  private stampOpAmp(i: number, d: Extract<CompiledDevice, { kind: 'opamp' }>): boolean {
+    const { lu, rhs, n } = this;
+    const target = OPAMP_GAIN * (this.voltage(d.plus) - this.voltage(d.minus));
+    const output = this.voltage(d.a);
+    let state = this.opAmpState[i];
+    if (this.opAmpsToHold.delete(i)) {
+      // Keeps the state
+    } else if (state === LINEAR) {
+      if (output > d.high + OPAMP_MARGIN) state = 1;
+      else if (output < d.low - OPAMP_MARGIN) state = -1;
+    } else if ((state === 1 && target < d.high - OPAMP_MARGIN) || (state === -1 && target > d.low + OPAMP_MARGIN)) {
+      state = LINEAR;
+    }
+    const hasChanged = state !== this.opAmpState[i];
+    if (hasChanged) {
+      this.opAmpState[i] = state;
+      this.opAmpChanges++;
+    }
+
+    if (state === LINEAR) {
+      if (d.plus >= 0) lu[d.branch * n + d.plus] -= OPAMP_GAIN;
+      if (d.minus >= 0) lu[d.branch * n + d.minus] += OPAMP_GAIN;
+    } else {
+      rhs[d.branch] = state === 1 ? d.high : d.low;
+    }
+    return hasChanged;
+  }
+
+  /**
+   * With positive feedback the linear solution exists but cannot last: a real output runs away from
+   * it. It shows in the sign of the closed loop, and the output then goes to the rail it was heading to.
+   */
+  private leaveUnstableOpAmps(): boolean {
+    let changed = false;
+    for (const { index, device: d } of this.opAmps) {
+      if (this.opAmpState[index] !== LINEAR || !this.isUnstable(d)) continue;
+      this.opAmpState[index] = this.voltage(d.plus) - this.voltage(d.minus) >= 0 ? 1 : -1;
+      this.opAmpsToHold.add(index);
+      this.opAmpChanges++;
+      changed = true;
+    }
+    return changed;
+  }
+
+  private isUnstable(d: Extract<CompiledDevice, { kind: 'opamp' }>): boolean {
+    if (d.a < 0) return false;
+    this.unitRhs.fill(0);
+    this.unitRhs[d.branch] = 1;
+    luSolve(this.lu, this.n, this.pivots, this.unitRhs);
+    return this.unitRhs[d.a] < 0;
+  }
+
+  /**
+   * Op amps resting where they cannot stay, as seen by the first instants: an oscillator is stable
+   * at the operating point, with its capacitor open, and only runs away once time passes.
+   */
+  unstableOpAmps(): string[] {
+    this.stampBase(FIRST_INSTANT);
+    this.lu.set(this.base);
+    this.stampNonlinear();
+    if (!luFactor(this.lu, this.n, this.pivots)) return [];
+    return this.opAmps.filter(({ index, device }) => this.opAmpState[index] === LINEAR && this.isUnstable(device)).map(({ device }) => this.compiled.elementIds[device.element]);
+  }
+
   /** Adds the linearized diodes and transistors to the LU copy of the matrix and to the right-hand side. */
   private stampNonlinear(): boolean {
     const { lu, rhs, n } = this;
@@ -405,6 +495,7 @@ export class RealtimeEngine {
     this.compiled.devices.forEach((d, i) => {
       if (d.kind === 'bjt' && this.stampBjt(i, d)) limited = true;
       if (d.kind === 'mos' && this.stampMos(i, d)) limited = true;
+      if (d.kind === 'opamp' && this.stampOpAmp(i, d)) limited = true;
       if (d.kind !== 'diode') return;
       const raw = this.voltage(d.junction) - this.voltage(d.b);
       const v = limitDiode(raw, this.vIter[i], d.params, this.vCrit[i]);
@@ -448,14 +539,19 @@ export class RealtimeEngine {
       return true;
     }
 
+    this.opAmpChanges = 0;
+    this.opAmpsToHold.clear();
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
       this.stampRhs(t, h, sourceScale);
       lu.set(base);
       const limited = this.stampNonlinear();
       if (!luFactor(lu, n, pivots)) throw new SolverError('Circuito non risolvibile: controlla generatori e induttori in parallelo o in cortocircuito');
       luSolve(lu, n, pivots, rhs);
+      // At the operating point time does not pass, so nothing can run away: the transient decides
+      const hasLeft = h > 0 && this.leaveUnstableOpAmps();
+      if (this.opAmpChanges > MAX_OPAMP_CHANGES) return false;
 
-      let converged = !limited && iter > 0;
+      let converged = !limited && !hasLeft && iter > 0;
       for (let i = 0; i < n; i++) {
         const value = rhs[i];
         if (!Number.isFinite(value)) return false;
@@ -487,12 +583,14 @@ export class RealtimeEngine {
     this.vIter.fill(0);
     this.vIterBc.fill(0);
     this.vIterBody.fill(0);
+    this.opAmpState.fill(LINEAR);
     if (!this.solve(this.time, 0, 1)) {
       // Source stepping: bring the sources up gradually, each solution seeding the next
       this.x.fill(0);
       this.vIter.fill(0);
       this.vIterBc.fill(0);
       this.vIterBody.fill(0);
+      this.opAmpState.fill(LINEAR);
       for (let scale = 0.1; scale < 1.05; scale += 0.1) {
         if (!this.solve(this.time, 0, Math.min(scale, 1))) throw new SolverError('Punto di lavoro non trovato');
       }
@@ -509,6 +607,7 @@ export class RealtimeEngine {
     this.vIter.set(previous.vIter);
     this.vIterBc.set(previous.vIterBc);
     this.vIterBody.set(previous.vIterBody);
+    this.opAmpState.set(previous.opAmpState);
     // With another model the old junction voltage can sit far up the new exponential, where
     // Newton has nothing to hold on to: from zero, the limiter walks there safely
     this.compiled.devices.forEach((d, i) => {
@@ -527,6 +626,7 @@ export class RealtimeEngine {
     const startIter = this.vIter.slice();
     const startIterBc = this.vIterBc.slice();
     const startIterBody = this.vIterBody.slice();
+    const startOpAmpState = this.opAmpState.slice();
     if (this.solve(this.time + h, h, 1)) {
       this.commit(h);
       this.time += h;
@@ -537,6 +637,7 @@ export class RealtimeEngine {
     this.vIter.set(startIter);
     this.vIterBc.set(startIterBc);
     this.vIterBody.set(startIterBody);
+    this.opAmpState.set(startOpAmpState);
     this.step(h / 2, depth + 1);
     this.step(h / 2, depth + 1);
   }
@@ -555,6 +656,7 @@ export class RealtimeEngine {
         return this.iPrev[index];
       case 'inductor':
       case 'vsource':
+      case 'opamp':
         return this.x[d.branch];
       case 'diode': {
         const v = this.voltage(d.junction) - this.voltage(d.b);
@@ -578,6 +680,7 @@ export class RealtimeEngine {
       const drain = polarity * ((isReversed ? -id : id) - diode);
       return [drain, 0, -drain];
     }
+    if (d.kind === 'opamp') return [this.x[d.branch], 0, 0];
     if (d.kind !== 'bjt') {
       const current = this.deviceCurrent(index);
       return [current, -current];

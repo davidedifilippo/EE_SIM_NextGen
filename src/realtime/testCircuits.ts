@@ -4,7 +4,7 @@ import { Circuit, Element, SpiceModel, Wire } from '../model/types';
 import { D1N4148 } from '../samples/halfWaveRectifier';
 
 export interface Part {
-  def: 'resistor' | 'capacitor' | 'inductor' | 'vsource' | 'diode' | 'zener' | 'npn' | 'pnp' | 'nmos' | 'pmos';
+  def: 'resistor' | 'capacitor' | 'inductor' | 'vsource' | 'diode' | 'zener' | 'npn' | 'pnp' | 'nmos' | 'pmos' | 'opamp';
   tag: string;
   /** In the order of the terminals of the device. */
   nets: string[];
@@ -58,6 +58,8 @@ const diode = (tag: string, a: string, b: string): Part => ({ def: 'diode', tag,
 const zener = (tag: string, a: string, b: string): Part => ({ def: 'zener', tag, nets: [a, b], props: { model: 'DZ5V1' } });
 const bjt = (def: 'npn' | 'pnp', tag: string, c: string, b: string, e: string, model: string): Part => ({ def, tag, nets: [c, b, e], props: { model } });
 const mos = (def: 'nmos' | 'pmos', tag: string, d: string, g: string, s: string, model: string): Part => ({ def, tag, nets: [d, g, s], props: { model } });
+/** Nets in the order of the terminals: inverting input, non inverting input, output. */
+const opAmp = (tag: string, minus: string, plus: string, out: string, high = '15', low = '-15'): Part => ({ def: 'opamp', tag, nets: [minus, plus, out], props: { high, low } });
 const imported = (text: string) => parseModelText(text).models.map(({ name, card }) => ({ name, card }));
 const part = (def: Part['def'], tag: string, a: string, b: string, value: string): Part => ({
   def,
@@ -67,6 +69,14 @@ const part = (def: Part['def'], tag: string, a: string, b: string, value: string
 });
 
 /** Divider on the base, collector resistor, no emitter resistor. */
+export const RELAXATION_OSCILLATOR: Part[] = [
+  opAmp('U1', 'n', 'p', 'out'),
+  part('resistor', 'R1', 'out', 'n', '10k'),
+  part('capacitor', 'C1', 'n', '0', '1u'),
+  part('resistor', 'R2', 'out', 'p', '10k'),
+  part('resistor', 'R3', 'p', '0', '10k'),
+];
+
 export const BJT_BIAS: Part[] = [
   part('vsource', 'V1', 'vcc', '0', 'DC 10'),
   part('resistor', 'R1', 'vcc', 'c', '1k'),
@@ -387,6 +397,61 @@ export const AGREEMENT_CASES: TestCase[] = [
     stop: 30e-3,
     dt: 10e-6,
     models: imported('.model VP VDMOS(pchan Vto=-2 Kp=.3 Lambda=.01 mtriode=1.3 ksubthres=.05 Rd=.2 Rs=.1 Bv=60 Ibv=1u mfg=Prova)'),
+  },
+  {
+    name: 'op amp: invertente',
+    parts: [part('vsource', 'V1', 'in', '0', 'SIN(0 1 100)'), part('resistor', 'R1', 'in', 'n', '1k'), part('resistor', 'R2', 'n', 'out', '10k'), opAmp('U1', 'n', '0', 'out')],
+    probes: ['out', 'n'],
+    stop: 30e-3,
+    dt: 10e-6,
+  },
+  {
+    name: 'op amp: non invertente in saturazione',
+    parts: [part('vsource', 'V1', 'in', '0', 'SIN(1 2 100)'), part('resistor', 'R1', 'n', '0', '1k'), part('resistor', 'R2', 'n', 'out', '9k'), opAmp('U1', 'n', 'in', 'out', '12', '-5')],
+    probes: ['out'],
+    stop: 30e-3,
+    dt: 10e-6,
+  },
+  {
+    name: 'op amp: sommatore',
+    parts: [
+      part('vsource', 'V1', 'a', '0', 'SIN(0 1 100)'),
+      part('vsource', 'V2', 'b', '0', 'DC 0.5'),
+      part('resistor', 'R1', 'a', 'n', '1k'),
+      part('resistor', 'R2', 'b', 'n', '2k'),
+      part('resistor', 'R3', 'n', 'out', '4k'),
+      opAmp('U1', 'n', '0', 'out'),
+    ],
+    probes: ['out'],
+    stop: 30e-3,
+    dt: 10e-6,
+  },
+  {
+    name: 'op amp: integratore',
+    parts: [
+      part('vsource', 'V1', 'in', '0', 'PULSE(-1 1 0 100u 100u 4.9m 10m)'),
+      part('resistor', 'R1', 'in', 'n', '10k'),
+      part('capacitor', 'C1', 'n', 'out', '1u'),
+      part('resistor', 'R2', 'n', 'out', '1meg'),
+      opAmp('U1', 'n', '0', 'out'),
+    ],
+    probes: ['out'],
+    stop: 50e-3,
+    dt: 10e-6,
+  },
+  {
+    name: 'op amp: raddrizzatore di precisione',
+    parts: [
+      part('vsource', 'V1', 'in', '0', 'SIN(0 1 100)'),
+      opAmp('U1', 'out', 'in', 'x'),
+      { def: 'diode', tag: 'D1', nets: ['x', 'out'], props: { model: 'DDC' } },
+      part('resistor', 'R1', 'out', '0', '10k'),
+    ],
+    probes: ['out'],
+    stop: 30e-3,
+    dt: 5e-6,
+    // Without capacitances: those of a real diode show up when the output jumps from rail to rail
+    models: imported('.model DDC D(IS=2.52n RS=0.568 N=1.752)'),
   },
   {
     name: 'limitatore a diodi in antiparallelo',

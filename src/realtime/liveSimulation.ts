@@ -76,6 +76,8 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
       return [s.collector, s.base, s.emitter];
     case 'mos':
       return [s.drain, s.gate, s.source];
+    case 'opamp':
+      return [s.out, s.plus, s.minus];
   }
 };
 
@@ -109,6 +111,20 @@ export function buildLiveLayout(circuit: Circuit, compiled: CompiledCircuit): Li
   const { wireNet } = computeConnectivity(circuit);
   const edgeNode = Int32Array.from(graph.edges, (e) => compiled.netIndex.get(wireNet.get(e.wireId)!) ?? -1);
   return { graph, edgeNode, devices, dots };
+}
+
+/** The op amps of a circuit that start where they cannot stay, for the precise analysis to give them a push. */
+export function opAmpsToKick(circuit: Circuit): Set<string> {
+  if (!circuit.elements.some((el) => el.def === 'opamp')) return new Set();
+  const result = compileCircuit(circuit);
+  if (!result.ok) return new Set();
+  try {
+    const engine = new RealtimeEngine(result.compiled);
+    engine.initialize();
+    return new Set(engine.unstableOpAmps());
+  } catch {
+    return new Set();
+  }
 }
 
 export type LoadResult = { ok: true } | { ok: false; errors: string[] };

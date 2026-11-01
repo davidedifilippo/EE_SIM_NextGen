@@ -75,7 +75,9 @@ export type CompiledDevice =
   /** a is the collector and b the emitter; the primed nodes come after the series resistances. */
   | { kind: 'bjt'; element: number; a: NodeIndex; b: NodeIndex; base: NodeIndex; cp: NodeIndex; bp: NodeIndex; ep: NodeIndex; params: BjtParams }
   /** a is the drain, b the source and base the gate; the primed nodes come after the series resistances, bodyNode after that of the body diode. */
-  | { kind: 'mos'; element: number; a: NodeIndex; b: NodeIndex; base: NodeIndex; dp: NodeIndex; sp: NodeIndex; bodyNode: NodeIndex; params: MosParams };
+  | { kind: 'mos'; element: number; a: NodeIndex; b: NodeIndex; base: NodeIndex; dp: NodeIndex; sp: NodeIndex; bodyNode: NodeIndex; params: MosParams }
+  /** a is the output, b is always ground. */
+  | { kind: 'opamp'; element: number; a: NodeIndex; b: NodeIndex; plus: NodeIndex; minus: NodeIndex; high: number; low: number; branch: number };
 
 export interface CompiledCircuit {
   /** Node voltages followed by branch currents. */
@@ -299,6 +301,16 @@ export function compileCircuit(circuit: Circuit): CompileResult {
         });
         break;
       }
+      case 'opamp': {
+        const [high, low] = [parseSpiceValue(String(el.props[s.highProp] ?? '')), parseSpiceValue(String(el.props[s.lowProp] ?? ''))];
+        if (high === null || low === null || high <= low) {
+          errors.push(`${el.tag}: alimentazioni non valide`);
+          break;
+        }
+        const [a, plus, minus] = [node(s.out), node(s.plus), node(s.minus)];
+        pending.push({ element, needsBranch: true, build: (branch) => ({ kind: 'opamp', element, a, b: -1, plus, minus, high, low, branch }) });
+        break;
+      }
       case 'mos': {
         const card = modelCard(el.tag, String(el.props[s.modelProp] ?? ''), s.modelType);
         if (!card) break;
@@ -335,7 +347,7 @@ export function compileCircuit(circuit: Circuit): CompileResult {
 
   const signature = JSON.stringify([
     branch,
-    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : 0]),
+    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'opamp' ? [d.plus, d.minus] : 0]),
   ]);
   return { ok: true, compiled: { size: branch, devices, netIndex, elementIds, signature } };
 }

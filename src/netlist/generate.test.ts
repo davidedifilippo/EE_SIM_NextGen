@@ -119,6 +119,25 @@ describe('generateNetlist', () => {
     expect(other.text).toContain(`M1 ${d2} ${g2} ${s2} VP`);
   });
 
+  it('writes an op amp as a source limited to its rails', () => {
+    const c = circuitFromNets('t', [{ def: 'opamp', tag: 'U1', nets: ['n', 'p', 'o'], props: { high: '12', low: '-5' } }]);
+    const read = generateNetlist(c, TRAN);
+    const [o, p, n] = ['out', 'plus', 'minus'].map((t) => read.nodeOf.get(`u1:${t}`));
+    expect(read.text).toContain(`BU1 xBU1 0 V = max(-5, min(12, 1000000*(v(${p})-v(${n}))))`);
+    expect(read.text).toContain(`ROBU1 xBU1 ${o} 0.1`);
+  });
+
+  it('pushes an op amp only when asked, and only during the first step', () => {
+    const c = circuitFromNets('t', [{ def: 'opamp', tag: 'U1', nets: ['n', 'p', 'o'], props: { high: '15', low: '-15' } }]);
+    expect(generateNetlist(c, { type: 'tran', step: '1', stop: '10' }, new Set(['u1'])).text).toContain('+30*u(time-1e-12)*u(1-time)');
+    expect(generateNetlist(c, { type: 'tran', step: '1', stop: '10' }).text).not.toContain('u(time)');
+  });
+
+  it('refuses rails that make no sense', () => {
+    const c = circuitFromNets('t', [{ def: 'opamp', tag: 'U1', nets: ['n', 'p', 'o'], props: { high: '1\n.control', low: '-5' } }]);
+    expect(generateNetlist(c, TRAN).errors).toContain('U1: alimentazioni non valide');
+  });
+
   it('refuses a model of the wrong kind', () => {
     const c = circuitFromNets('t', [{ def: 'pnp', tag: 'Q1', nets: ['c', 'b', '0'], props: { model: '2N3904' } }]);
     expect(generateNetlist(c, TRAN).errors).toContain('Q1: il modello "2N3904" non è di tipo PNP');

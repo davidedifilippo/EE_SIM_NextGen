@@ -5,7 +5,8 @@ import { generateNetlist } from '../netlist/generate';
 import { runTransient } from '../engine/ngspice';
 import { compileCircuit } from './compile';
 import { RealtimeEngine } from './engine';
-import { AGREEMENT_CASES, BJT_BIAS, circuitFromNets, TestCase } from './testCircuits';
+import { opAmpsToKick } from './liveSimulation';
+import { AGREEMENT_CASES, BJT_BIAS, circuitFromNets, RELAXATION_OSCILLATOR, TestCase } from './testCircuits';
 
 /** Maximum allowed difference between the two engines, as a fraction of the signal's full scale. */
 const TOLERANCE = 0.01;
@@ -20,7 +21,7 @@ function interpolate(time: number[], values: number[], t: number, cursor: { i: n
 async function compare(testCase: TestCase) {
   const circuit = circuitFromNets(testCase.name, testCase.parts);
   circuit.models.push(...(testCase.models ?? []));
-  const netlist = generateNetlist(circuit, { type: 'tran', step: String(testCase.dt), stop: String(testCase.stop), maxStep: String(testCase.dt) });
+  const netlist = generateNetlist(circuit, { type: 'tran', step: String(testCase.dt), stop: String(testCase.stop), maxStep: String(testCase.dt) }, opAmpsToKick(circuit));
   expect(netlist.errors).toEqual([]);
   const spice = await runTransient(netlist.text);
 
@@ -93,4 +94,41 @@ describe('real-time engine against ngspice', () => {
     expect(Math.abs(ic - spiceIc) / spiceIc).toBeLessThan(TOLERANCE);
     expect(Math.abs(ib - spiceIb) / spiceIb).toBeLessThan(TOLERANCE);
   });
+
+  it('oscillates at the same frequency, the one of the formula', async () => {
+    const circuit = circuitFromNets('oscillatore', RELAXATION_OSCILLATOR);
+    const dt = 5e-6;
+    const stop = 120e-3;
+    const netlist = generateNetlist(circuit, { type: 'tran', step: String(dt), stop: String(stop), maxStep: String(dt) }, opAmpsToKick(circuit));
+    expect(netlist.errors).toEqual([]);
+    const spice = await runTransient(netlist.text);
+    const key = terminalKey('u1', 'out');
+    const spiceOut = spice.voltages.get(netlist.nodeOf.get(key)!)!;
+    // The push comes after the operating point: the capacitor starts empty, as in the animation
+    expect(spice.voltages.get(netlist.nodeOf.get(terminalKey('c1', 'a'))!)![0]).toBeCloseTo(0, 3);
+
+    const compiled = compileCircuit(circuit);
+    if (!compiled.ok) throw new Error(compiled.errors.join());
+    const engine = new RealtimeEngine(compiled.compiled);
+    engine.initialize();
+    const node = compiled.compiled.netIndex.get(computeConnectivity(circuit).netOf.get(key)!)!;
+    const times: number[] = [];
+    const values: number[] = [];
+    while (engine.time < stop) {
+      engine.step(dt);
+      times.push(engine.time);
+      values.push(engine.nodeVoltage(node));
+    }
+
+    const period = (time: number[], v: number[]) => {
+      const rising = time.filter((_, i) => i > 0 && v[i - 1] < 0 && v[i] >= 0);
+      return (rising[rising.length - 1] - rising[0]) / (rising.length - 1);
+    };
+    const expected = 2 * 10e3 * 1e-6 * Math.log(3);
+    console.info(`Oscillatore: periodo ${(period(times, values) * 1e3).toFixed(3)} ms, ngspice ${(period(spice.time, spiceOut) * 1e3).toFixed(3)} ms, formula ${(expected * 1e3).toFixed(3)} ms`);
+    expect(Math.abs(period(times, values) - expected) / expected).toBeLessThan(TOLERANCE);
+    expect(Math.abs(period(spice.time, spiceOut) - expected) / expected).toBeLessThan(TOLERANCE);
+    expect(Math.max(...values)).toBeCloseTo(15, 6);
+    expect(Math.min(...values)).toBeCloseTo(-15, 6);
+  }, 120_000);
 });

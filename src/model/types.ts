@@ -37,7 +37,8 @@ export type SpiceDef =
   | { kind: 'vsource'; pos: string; neg: string }
   | { kind: 'diode'; anode: string; cathode: string; modelProp: string }
   | { kind: 'bjt'; collector: string; base: string; emitter: string; modelProp: string; modelType: 'NPN' | 'PNP' }
-  | { kind: 'mos'; drain: string; gate: string; source: string; modelProp: string; modelType: 'NMOS' | 'PMOS' };
+  | { kind: 'mos'; drain: string; gate: string; source: string; modelProp: string; modelType: 'NMOS' | 'PMOS' }
+  | { kind: 'opamp'; plus: string; minus: string; out: string; highProp: string; lowProp: string };
 
 export interface ComponentDef {
   id: string;

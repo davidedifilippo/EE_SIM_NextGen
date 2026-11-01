@@ -3,6 +3,7 @@ import { getDevice } from '../library/devices';
 import { findModel, isVdmos, modelType } from '../library/models';
 import { computeConnectivity, terminalKey } from './connectivity';
 import { sourceSpec } from './source';
+import { parseSpiceValue } from './values';
 
 export interface TranAnalysis {
   type: 'tran';
@@ -43,7 +44,14 @@ export function describeNodes(circuit: Circuit, nodeOf: Map<string, string>): Ma
   return new Map([...terminals].map(([node, names]) => [node, names.join(', ')]));
 }
 
-export function generateNetlist(circuit: Circuit, analysis: TranAnalysis): NetlistResult {
+/** Open loop gain of the ideal op amp, shared with the real-time engine. */
+export const OPAMP_GAIN = 1e6;
+
+/**
+ * kicked names the op amps with nowhere stable to rest at the start, as in an oscillator: an exact
+ * solver would stay there forever, so they get a push during the first step, as noise would give.
+ */
+export function generateNetlist(circuit: Circuit, analysis: TranAnalysis, kicked: Set<string> = new Set()): NetlistResult {
   const errors: string[] = [];
   const { netOf, unconnected } = computeConnectivity(circuit);
 
@@ -146,6 +154,23 @@ export function generateNetlist(circuit: Circuit, analysis: TranAnalysis): Netli
         if (model === null) break;
         const name = uniqueName('Q', el.tag);
         if (name) lines.push(`${name} ${node(s.collector)} ${node(s.base)} ${node(s.emitter)} ${model}`);
+        break;
+      }
+      case 'opamp': {
+        const [high, low] = [parseSpiceValue(String(el.props[s.highProp] ?? '')), parseSpiceValue(String(el.props[s.lowProp] ?? ''))];
+        if (high === null || low === null || high <= low) {
+          errors.push(`${el.tag}: alimentazioni non valide`);
+          break;
+        }
+        const name = uniqueName('B', el.tag);
+        const step = parseSpiceValue(analysis.step) ?? 0;
+        const kick = kicked.has(el.id) ? `+${high - low}*u(time-1e-12)*u(${step}-time)` : '';
+        if (name) {
+          // A very fast pole on the output: without it, ngspice can fail on a diode inside the loop
+          const inner = `x${name}`;
+          lines.push(`${name} ${inner} 0 V = max(${low}, min(${high}, ${OPAMP_GAIN}*(v(${node(s.plus)})-v(${node(s.minus)})${kick})))`);
+          lines.push(`RO${name} ${inner} ${node(s.out)} 0.1`, `CO${name} ${node(s.out)} 0 100p`);
+        }
         break;
       }
       case 'mos': {

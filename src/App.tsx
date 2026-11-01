@@ -12,7 +12,7 @@ import { PropertiesPanel } from './ui/PropertiesPanel';
 import { Series, TransientChart } from './ui/TransientChart';
 import { TranResult } from './engine/ngspice';
 import { isEngineReady, preloadEngine, simulate } from './engine/ngspiceClient';
-import { LiveFrame, ScopeProbe } from './realtime/liveSimulation';
+import { LiveFrame, opAmpsToKick, ScopeProbe } from './realtime/liveSimulation';
 import { DcValues } from './ui/DcValues';
 import { LiveOverlay } from './ui/LiveOverlay';
 import { LiveLegend, LiveLegendHandle, SourceStats, SPEEDS } from './ui/LiveControls';
@@ -200,7 +200,7 @@ export const App: React.FC = () => {
   }, [circuit, selectedIds, handleChange]);
 
   const analysis = useMemo(() => ({ type: 'tran', step, stop, maxStep: step }) as const, [step, stop]);
-  const netlist = useMemo(() => generateNetlist(resolved, analysis), [resolved, analysis]);
+  const netlist = useMemo(() => generateNetlist(resolved, analysis, opAmpsToKick(resolved)), [resolved, analysis]);
 
   const runSimulation = async () => {
     if (netlist.errors.length > 0) {

@@ -184,6 +184,30 @@ export const DEVICES: ComponentDef[] = [
     spice: { kind: 'mos', drain: 'drain', gate: 'gate', source: 'source', modelProp: 'model', modelType: 'PMOS' },
   },
   {
+    id: 'opamp',
+    name: 'Op. amp',
+    tagPrefix: 'U',
+    terminals: [
+      { id: 'minus', x: -40, y: -20 },
+      { id: 'plus', x: -40, y: 20 },
+      { id: 'out', x: 40, y: 0 },
+    ],
+    symbol: [
+      { t: 'line', x1: -40, y1: -20, x2: -24, y2: -20 },
+      { t: 'line', x1: -40, y1: 20, x2: -24, y2: 20 },
+      { t: 'line', x1: 28, y1: 0, x2: 40, y2: 0 },
+      { t: 'path', d: 'M -24 -28 L 28 0 L -24 28 Z', fill: '#ffffff' },
+      { t: 'line', x1: -20, y1: -20, x2: -12, y2: -20 },
+      { t: 'line', x1: -20, y1: 20, x2: -12, y2: 20 },
+      { t: 'line', x1: -16, y1: 16, x2: -16, y2: 24 },
+    ],
+    props: [
+      { key: 'high', label: 'Alimentazione + (V)', type: 'text', default: '15' },
+      { key: 'low', label: 'Alimentazione − (V)', type: 'text', default: '-15' },
+    ],
+    spice: { kind: 'opamp', plus: 'plus', minus: 'minus', out: 'out', highProp: 'high', lowProp: 'low' },
+  },
+  {
     id: 'ground',
     name: 'Massa',
     terminals: [{ id: 'g', x: 0, y: 0 }],
