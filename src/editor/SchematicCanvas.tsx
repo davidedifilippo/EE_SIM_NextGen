@@ -16,6 +16,7 @@ interface Props {
   onDeleteSelected: () => void;
   onRotateSelected: () => void;
   overlay?: React.ReactNode;
+  labels?: React.ReactNode;
 }
 
 type ConnectedEnd = { wireId: string; pointIndex: number; origPt: Pt };
@@ -82,6 +83,7 @@ export const SchematicCanvas: React.FC<Props> = ({
   onDeleteSelected,
   onRotateSelected,
   overlay,
+  labels,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
@@ -110,7 +112,8 @@ export const SchematicCanvas: React.FC<Props> = ({
     const fitCircuit = () => {
       const pts = [...circuit.elements, ...circuit.wires.flatMap((w) => w.pts)];
       if (pts.length === 0) return;
-      const margin = 60;
+      // Wide enough for the values written beside a component at the edge of the circuit
+      const margin = 90;
       const [minX, maxX] = [Math.min(...pts.map((p) => p.x)) - margin, Math.max(...pts.map((p) => p.x)) + margin];
       const [minY, maxY] = [Math.min(...pts.map((p) => p.y)) - margin, Math.max(...pts.map((p) => p.y)) + margin];
       const fit = Math.max(MIN_ZOOM, Math.min(1, el.clientWidth / (maxX - minX), el.clientHeight / (maxY - minY)));
@@ -669,6 +672,7 @@ export const SchematicCanvas: React.FC<Props> = ({
             ghost={ghost}
             hoveredTerminal={hoveredTerminal}
             overlay={overlay}
+            labels={labels}
           />
         </g>
       </svg>

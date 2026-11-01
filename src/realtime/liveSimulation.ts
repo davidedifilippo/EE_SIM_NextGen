@@ -8,7 +8,14 @@ import { buildWireGraph, solveWireCurrents, WireGraph } from './wireGraph';
 
 export interface LiveDevice {
   elementId: string;
-  /** World position of the first and second terminal. */
+  /** World position of each terminal: first and second, or collector, base and emitter. */
+  terminals: Pt[];
+  /** Where its dots start in LiveLayout.dots and LiveFrame.dotCurrent. */
+  firstDot: number;
+}
+
+/** A path of animated dots inside a device. Positive current flows from a to b. */
+export interface DeviceDots {
   a: Pt;
   b: Pt;
 }
@@ -16,7 +23,10 @@ export interface LiveDevice {
 /** What the animation draws. Main thread and worker build it from the same circuit, so indices match. */
 export interface LiveLayout {
   graph: WireGraph;
+  /** Node index of each wire edge, -1 for ground. */
+  edgeNode: Int32Array;
   devices: LiveDevice[];
+  dots: DeviceDots[];
 }
 
 export interface LiveFrame {
@@ -24,11 +34,14 @@ export interface LiveFrame {
   edgeVoltage: Float64Array;
   edgeCurrent: Float64Array;
   deviceCurrent: Float64Array;
-  /** Voltage across each device, first terminal minus second. */
+  /** Voltage across each device, first terminal minus second; collector minus emitter for a transistor. */
   deviceVoltage: Float64Array;
+  /** Base minus emitter voltage of a transistor, 0 for the rest. */
+  deviceVbe: Float64Array;
+  dotCurrent: Float64Array;
 }
 
-const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): [string, string] => {
+const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
   switch (s.kind) {
     case 'passive':
       return [s.a, s.b];
@@ -36,6 +49,8 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): [string, string]
       return [s.pos, s.neg];
     case 'diode':
       return [s.anode, s.cathode];
+    case 'bjt':
+      return [s.collector, s.base, s.emitter];
   }
 };
 
@@ -52,15 +67,23 @@ export function buildLiveLayout(circuit: Circuit, compiled: CompiledCircuit): Li
   }
 
   const byId = new Map(circuit.elements.map((el) => [el.id, el]));
+  const dots: DeviceDots[] = [];
   const devices = compiled.elementIds.map((id): LiveDevice => {
     const el = byId.get(id)!;
     const def = getDevice(el.def)!;
-    const [first, second] = terminalsOf(def.spice as Exclude<SpiceDef, { kind: 'ground' }>);
     const at = (terminal: string) => localToWorld(el.x, el.y, def.terminals.find((t) => t.id === terminal)!, el.rot);
-    return { elementId: id, a: at(first), b: at(second) };
+    const points = terminalsOf(def.spice as Exclude<SpiceDef, { kind: 'ground' }>).map(at);
+    const firstDot = dots.length;
+    // Through a two-terminal device in one run; in a transistor, each lead meets at the center
+    if (points.length === 2) dots.push({ a: points[0], b: points[1] });
+    else points.forEach((p) => dots.push({ a: p, b: { x: el.x, y: el.y } }));
+    return { elementId: id, terminals: points, firstDot };
   });
 
-  return { graph: buildWireGraph(circuit.wires, terminals, grounds), devices };
+  const graph = buildWireGraph(circuit.wires, terminals, grounds);
+  const { wireNet } = computeConnectivity(circuit);
+  const edgeNode = Int32Array.from(graph.edges, (e) => compiled.netIndex.get(wireNet.get(e.wireId)!) ?? -1);
+  return { graph, edgeNode, devices, dots };
 }
 
 export type LoadResult = { ok: true } | { ok: false; errors: string[] };
@@ -69,9 +92,8 @@ export type LoadResult = { ok: true } | { ok: false; errors: string[] };
 export class LiveSimulation {
   private engine: RealtimeEngine | null = null;
   private layout: LiveLayout | null = null;
-  private edgeNode = new Int32Array(0);
-  /** Device order to vertex indices of its terminals, -1 if the terminal touches no wire. */
-  private deviceVertices = new Int32Array(0);
+  /** Per device, the vertex index of each terminal, -1 if the terminal touches no wire. */
+  private deviceVertices: number[][] = [];
   private injected = new Float64Array(0);
   /** Set after a solver failure: the circuit needs an edit before it can run again. */
   private failed = false;
@@ -86,9 +108,7 @@ export class LiveSimulation {
 
     this.layout = buildLiveLayout(circuit, compiled);
     const { graph, devices } = this.layout;
-    const { wireNet } = computeConnectivity(circuit);
-    this.edgeNode = Int32Array.from(graph.edges, (e) => compiled.netIndex.get(wireNet.get(e.wireId)!) ?? -1);
-    this.deviceVertices = Int32Array.from(devices.flatMap((d) => [d.a, d.b].map((p) => graph.vertexOf.get(ptKey(p)) ?? -1)));
+    this.deviceVertices = devices.map((d) => d.terminals.map((p) => graph.vertexOf.get(ptKey(p)) ?? -1));
     this.injected = new Float64Array(graph.vertexCount);
 
     const previous = this.engine;
@@ -139,20 +159,27 @@ export class LiveSimulation {
 
     const deviceCurrent = new Float64Array(devices.length);
     const deviceVoltage = new Float64Array(devices.length);
+    const deviceVbe = new Float64Array(devices.length);
+    const dotCurrent = new Float64Array(layout.dots.length);
     injected.fill(0);
     devices.forEach((d, i) => {
-      const current = engine.deviceCurrent(i);
-      deviceCurrent[i] = current;
+      const currents = engine.terminalCurrents(i);
+      deviceCurrent[i] = currents[0];
       deviceVoltage[i] = engine.nodeVoltage(d.a) - engine.nodeVoltage(d.b);
-      // The wires give the current to the first terminal and get it back from the second
-      const [first, second] = [deviceVertices[d.element * 2], deviceVertices[d.element * 2 + 1]];
-      if (first >= 0) injected[first] -= current;
-      if (second >= 0) injected[second] += current;
+      if (d.kind === 'bjt') deviceVbe[i] = engine.nodeVoltage(d.base) - engine.nodeVoltage(d.b);
+      const { firstDot } = layout.devices[i];
+      if (currents.length === 2) dotCurrent[firstDot] = currents[0];
+      else currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
+      // The wires give each terminal the current that enters it
+      currents.forEach((current, k) => {
+        const vertex = deviceVertices[i][k];
+        if (vertex >= 0) injected[vertex] -= current;
+      });
     });
 
     const edgeCurrent = new Float64Array(layout.graph.edges.length);
     solveWireCurrents(layout.graph, injected, edgeCurrent);
-    const edgeVoltage = Float64Array.from(this.edgeNode, (node) => engine.nodeVoltage(node));
-    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage };
+    const edgeVoltage = Float64Array.from(layout.edgeNode, (node) => engine.nodeVoltage(node));
+    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent };
   }
 }

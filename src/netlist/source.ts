@@ -61,6 +61,15 @@ export function sourceSpec(props: SourceProps): string | null {
   return `SIN(${offset} ${amplitude} ${frequency}${phase !== 0 ? ` 0 0 ${phase}` : ''})`;
 }
 
+/** True when the source holds one value forever, so what it feeds can settle. */
+export function isDcSource(props: SourceProps): boolean {
+  const shape = sourceShape(props);
+  if (shape === 'dc') return true;
+  if (shape !== 'custom') return false;
+  const spec = customSpec(props);
+  return spec !== null && parseSpiceValue(spec.replace(/^dc\s+/i, '')) !== null;
+}
+
 /** What the schematic shows next to the source. */
 export function sourceLabel(props: SourceProps): string {
   const shape = sourceShape(props);

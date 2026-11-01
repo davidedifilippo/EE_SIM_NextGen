@@ -80,34 +80,49 @@ export const SourceStats: React.FC<{ circuit: Circuit; selectedIds: Set<string> 
   );
 };
 
-/** Voltage and current of the selected component, refreshed a few times per second. */
+/** Voltages and currents of the selected component, refreshed a few times per second. */
 export const LiveReadout: React.FC<{
   deviceIndex: number;
+  /** Set for a transistor: where its collector, base and emitter dots start. */
+  transistorFirstDot: number | null;
   frameRef: React.MutableRefObject<LiveFrame | null>;
-}> = ({ deviceIndex, frameRef }) => {
-  const [text, setText] = React.useState<{ v: string; i: string } | null>(null);
+}> = ({ deviceIndex, transistorFirstDot, frameRef }) => {
+  const [rows, setRows] = React.useState<[string, string][] | null>(null);
 
   React.useEffect(() => {
     const refresh = () => {
       const frame = frameRef.current;
       if (!frame) return;
-      setText({
-        v: formatEngineering(frame.deviceVoltage[deviceIndex] ?? 0, 'V'),
-        i: formatEngineering(frame.deviceCurrent[deviceIndex] ?? 0, 'A'),
-      });
+      const volts = (v: number | undefined) => formatEngineering(v ?? 0, 'V');
+      const amps = (i: number | undefined) => formatEngineering(i ?? 0, 'A');
+      setRows(
+        transistorFirstDot === null
+          ? [
+              ['Tensione', volts(frame.deviceVoltage[deviceIndex])],
+              ['Corrente', amps(frame.deviceCurrent[deviceIndex])],
+            ]
+          : [
+              ['Vce', volts(frame.deviceVoltage[deviceIndex])],
+              ['Vbe', volts(frame.deviceVbe[deviceIndex])],
+              ['Ic', amps(frame.dotCurrent[transistorFirstDot])],
+              ['Ib', amps(frame.dotCurrent[transistorFirstDot + 1])],
+            ],
+      );
     };
     refresh();
     const timer = setInterval(refresh, 200);
     return () => clearInterval(timer);
-  }, [deviceIndex, frameRef]);
+  }, [deviceIndex, transistorFirstDot, frameRef]);
 
-  if (!text) return null;
+  if (!rows) return null;
   return (
     <dl className="live-readout">
-      <dt>Tensione</dt>
-      <dd>{text.v}</dd>
-      <dt>Corrente</dt>
-      <dd>{text.i}</dd>
+      {rows.map(([label, value]) => (
+        <React.Fragment key={label}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </React.Fragment>
+      ))}
     </dl>
   );
 };

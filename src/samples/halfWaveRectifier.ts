@@ -1,11 +1,9 @@
+import { D1N4148 } from '../library/models';
 import { Circuit, Element } from '../model/types';
 
 /** Commonly published 1N4148 parameters. */
 export const D1N4148_PARAMS = { IS: 2.52e-9, RS: 0.568, N: 1.752 };
-export const D1N4148 = {
-  name: 'D1N4148',
-  card: '.model D1N4148 D(IS=2.52n RS=0.568 N=1.752 BV=100 IBV=100u CJO=4p M=0.333 VJ=0.75 TT=11.54n)',
-};
+export { D1N4148 };
 
 export interface RectifierOptions {
   /** Filter capacitor, e.g. "100u". Omitted: purely resistive load. */

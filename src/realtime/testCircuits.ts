@@ -1,10 +1,12 @@
+import { getDevice } from '../library/devices';
 import { Circuit, Element, Wire } from '../model/types';
 import { D1N4148 } from '../samples/halfWaveRectifier';
 
 export interface Part {
-  def: 'resistor' | 'capacitor' | 'inductor' | 'vsource' | 'diode';
+  def: 'resistor' | 'capacitor' | 'inductor' | 'vsource' | 'diode' | 'zener' | 'npn' | 'pnp';
   tag: string;
-  nets: [string, string];
+  /** In the order of the terminals of the device. */
+  nets: string[];
   props: Record<string, string>;
 }
 
@@ -25,18 +27,18 @@ export function circuitFromNets(title: string, parts: Part[]): Circuit {
   parts.forEach((p, row) => {
     const y = row * ROW_HEIGHT;
     elements.push({ id: p.tag.toLowerCase(), def: p.def, x: 0, y, rot: 0, tag: p.tag, props: p.props });
-    const addLead = (id: string, x: number, leadY: number, net: string) => {
+    getDevice(p.def)!.terminals.forEach((t, i) => {
+      // Leads leave on their own level, so that they only ever cross each other
+      const leadY = y + (t.y < 0 ? -60 : t.y > 0 ? 80 : t.x < 0 ? 20 : -20);
       wires.push({
-        id,
+        id: `${p.tag}_${t.id}`,
         pts: [
-          { x, y },
-          { x, y: leadY },
-          { x: busX.get(net)!, y: leadY },
+          { x: t.x, y: y + t.y },
+          { x: t.x, y: leadY },
+          { x: busX.get(p.nets[i])!, y: leadY },
         ],
       });
-    };
-    addLead(`${p.tag}_a`, -40, y + 20, p.nets[0]);
-    addLead(`${p.tag}_b`, 40, y - 20, p.nets[1]);
+    });
   });
 
   const top = -ROW_HEIGHT;
@@ -52,12 +54,23 @@ export function circuitFromNets(title: string, parts: Part[]): Circuit {
 
 const SIN_50HZ = 'SIN(0 10 50)';
 const diode = (tag: string, a: string, b: string): Part => ({ def: 'diode', tag, nets: [a, b], props: { model: 'D1N4148' } });
+const zener = (tag: string, a: string, b: string): Part => ({ def: 'zener', tag, nets: [a, b], props: { model: 'DZ5V1' } });
+const bjt = (def: 'npn' | 'pnp', tag: string, c: string, b: string, e: string, model: string): Part => ({ def, tag, nets: [c, b, e], props: { model } });
 const part = (def: Part['def'], tag: string, a: string, b: string, value: string): Part => ({
   def,
   tag,
   nets: [a, b],
   props: def === 'vsource' ? { spec: value } : { value },
 });
+
+/** Divider on the base, collector resistor, no emitter resistor. */
+export const BJT_BIAS: Part[] = [
+  part('vsource', 'V1', 'vcc', '0', 'DC 10'),
+  part('resistor', 'R1', 'vcc', 'c', '1k'),
+  part('resistor', 'R2', 'vcc', 'b', '10k'),
+  part('resistor', 'R3', 'b', '0', '10k'),
+  bjt('npn', 'Q1', 'c', 'b', '0', '2N3904'),
+];
 
 export interface TestCase {
   name: string;
@@ -162,6 +175,83 @@ export const AGREEMENT_CASES: TestCase[] = [
     probes: ['out'],
     stop: 30e-3,
     dt: 5e-6,
+  },
+  {
+    name: 'stabilizzatore zener',
+    parts: [part('vsource', 'V1', 'in', '0', 'SIN(0 12 50)'), part('resistor', 'R1', 'in', 'out', '470'), zener('D1', '0', 'out')],
+    probes: ['out'],
+    stop: 60e-3,
+    dt: 10e-6,
+  },
+  {
+    name: 'zener in conduzione diretta e breakdown con carico',
+    parts: [part('vsource', 'V1', 'in', '0', 'SIN(1 20 100)'), part('resistor', 'R1', 'in', 'out', '1k'), zener('D1', '0', 'out'), part('resistor', 'R2', 'out', '0', '10k')],
+    probes: ['out'],
+    stop: 30e-3,
+    dt: 5e-6,
+  },
+  {
+    name: 'NPN: amplificatore a emettitore comune',
+    parts: [
+      part('vsource', 'VCC', 'vcc', '0', 'DC 12'),
+      part('vsource', 'V1', 'sig', '0', 'SIN(0 20m 100)'),
+      part('capacitor', 'C1', 'sig', 'b', '10u'),
+      part('resistor', 'R1', 'vcc', 'b', '47k'),
+      part('resistor', 'R2', 'b', '0', '10k'),
+      part('resistor', 'RC', 'vcc', 'c', '2.2k'),
+      part('resistor', 'RE', 'e', '0', '470'),
+      part('capacitor', 'CE', 'e', '0', '100u'),
+      bjt('npn', 'Q1', 'c', 'b', 'e', '2N3904'),
+    ],
+    probes: ['c', 'b', 'e'],
+    stop: 40e-3,
+    dt: 10e-6,
+  },
+  {
+    name: 'NPN: interruttore in saturazione',
+    parts: [
+      part('vsource', 'VCC', 'vcc', '0', 'DC 5'),
+      part('vsource', 'V1', 'in', '0', 'PULSE(0 5 0 10u 10u 5m 10m)'),
+      part('resistor', 'RB', 'in', 'b', '10k'),
+      part('resistor', 'RC', 'vcc', 'c', '1k'),
+      bjt('npn', 'Q1', 'c', 'b', '0', '2N3904'),
+    ],
+    probes: ['c', 'b'],
+    stop: 25e-3,
+    dt: 5e-6,
+  },
+  {
+    name: 'PNP: inseguitore di emettitore',
+    parts: [
+      part('vsource', 'VEE', 'vee', '0', 'DC 12'),
+      part('vsource', 'V1', 'b', '0', 'SIN(6 2 100)'),
+      part('resistor', 'RE', 'vee', 'e', '1k'),
+      bjt('pnp', 'Q1', '0', 'b', 'e', '2N3906'),
+    ],
+    probes: ['e'],
+    stop: 30e-3,
+    dt: 10e-6,
+  },
+  {
+    name: 'NPN e PNP: push-pull con carico',
+    parts: [
+      part('vsource', 'VP', 'vp', '0', 'DC 10'),
+      part('vsource', 'VN', '0', 'vn', 'DC 10'),
+      part('vsource', 'V1', 'b', '0', 'SIN(0 5 100)'),
+      bjt('npn', 'Q1', 'vp', 'b', 'out', '2N3904'),
+      bjt('pnp', 'Q2', 'vn', 'b', 'out', '2N3906'),
+      part('resistor', 'RL', 'out', '0', '1k'),
+    ],
+    probes: ['out'],
+    stop: 30e-3,
+    dt: 10e-6,
+  },
+  {
+    name: 'polarizzazione NPN in continua',
+    parts: BJT_BIAS,
+    probes: ['b', 'c'],
+    stop: 1e-3,
+    dt: 10e-6,
   },
   {
     name: 'limitatore a diodi in antiparallelo',

@@ -1,5 +1,6 @@
-import { Circuit } from '../model/types';
+import { Circuit, ModelType, SpiceModel } from '../model/types';
 import { getDevice } from '../library/devices';
+import { findModel, modelType } from '../library/models';
 import { computeConnectivity, terminalKey } from './connectivity';
 import { sourceSpec } from './source';
 
@@ -61,7 +62,10 @@ export function generateNetlist(circuit: Circuit, analysis: TranAnalysis): Netli
   if (groundNets.size === 0) errors.push('Il circuito non ha una massa');
 
   for (const key of unconnected) {
-    if (!groundTerminals.has(key)) errors.push(`Terminale non collegato: ${key}`);
+    if (groundTerminals.has(key)) continue;
+    const [elementId, terminal] = key.split(':');
+    const tag = circuit.elements.find((el) => el.id === elementId)?.tag;
+    errors.push(`Terminale non collegato: ${tag}.${terminal}`);
   }
 
   const netNames = new Map<string, string>();
@@ -74,7 +78,7 @@ export function generateNetlist(circuit: Circuit, analysis: TranAnalysis): Netli
 
   const lines: string[] = [];
   const usedNames = new Set<string>();
-  const usedModels = new Set<string>();
+  const usedModels = new Map<string, SpiceModel>();
 
   const uniqueName = (prefix: string, tag: string) => {
     if (!SPICE_NAME.test(tag)) {
@@ -87,6 +91,20 @@ export function generateNetlist(circuit: Circuit, analysis: TranAnalysis): Netli
       return null;
     }
     usedNames.add(name.toUpperCase());
+    return name;
+  };
+
+  const useModel = (tag: string, name: string, type: ModelType) => {
+    const model = findModel(circuit, name);
+    if (!model) {
+      errors.push(`${tag}: modello non definito "${name}"`);
+      return null;
+    }
+    if (modelType(model.card) !== type) {
+      errors.push(`${tag}: il modello "${name}" non è di tipo ${type}`);
+      return null;
+    }
+    usedModels.set(name, model);
     return name;
   };
 
@@ -117,20 +135,23 @@ export function generateNetlist(circuit: Circuit, analysis: TranAnalysis): Netli
         break;
       }
       case 'diode': {
-        const model = String(el.props[s.modelProp] ?? '').trim();
-        if (!circuit.models.some((m) => m.name === model)) {
-          errors.push(`${el.tag}: modello non definito "${model}"`);
-          break;
-        }
-        usedModels.add(model);
+        const model = useModel(el.tag, String(el.props[s.modelProp] ?? '').trim(), 'D');
+        if (model === null) break;
         const name = uniqueName('D', el.tag);
         if (name) lines.push(`${name} ${node(s.anode)} ${node(s.cathode)} ${model}`);
+        break;
+      }
+      case 'bjt': {
+        const model = useModel(el.tag, String(el.props[s.modelProp] ?? '').trim(), s.modelType);
+        if (model === null) break;
+        const name = uniqueName('Q', el.tag);
+        if (name) lines.push(`${name} ${node(s.collector)} ${node(s.base)} ${node(s.emitter)} ${model}`);
         break;
       }
     }
   }
 
-  const modelCards = circuit.models.filter((m) => usedModels.has(m.name));
+  const modelCards = [...usedModels.values()];
   for (const m of modelCards) {
     if (!isSingleLine(m.card)) errors.push(`Modello ${m.name}: la card deve stare su una riga`);
   }

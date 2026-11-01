@@ -55,7 +55,7 @@ export const LiveOverlay: React.FC<Props> = ({ layout, frameRef, onScale }) => {
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
       const frame = frameRef.current;
-      if (!frame || frame.edgeCurrent.length !== edgeDots.length || frame.deviceCurrent.length !== deviceDots.length) {
+      if (!frame || frame.edgeCurrent.length !== edgeDots.length || frame.dotCurrent.length !== deviceDots.length) {
         onScaleRef.current(maxV, null);
         return;
       }
@@ -65,7 +65,7 @@ export const LiveOverlay: React.FC<Props> = ({ layout, frameRef, onScale }) => {
       for (const v of frame.edgeVoltage) peakV = Math.max(peakV, Math.abs(v));
       let peakI = 0;
       for (const i of frame.edgeCurrent) peakI = Math.max(peakI, Math.abs(i));
-      for (const i of frame.deviceCurrent) peakI = Math.max(peakI, Math.abs(i));
+      for (const i of frame.dotCurrent) peakI = Math.max(peakI, Math.abs(i));
       maxV = Math.max(peakV, maxV * decay, MIN_VOLTAGE_SCALE);
       maxI = Math.max(peakI, maxI * decay, MIN_CURRENT_SCALE);
 
@@ -75,7 +75,7 @@ export const LiveOverlay: React.FC<Props> = ({ layout, frameRef, onScale }) => {
       if (moving || dt > 0) {
         const step = moving ? dt : 0;
         moveDots(edgeDots, edgeOffset, frame.edgeCurrent, step);
-        moveDots(deviceDots, deviceOffset, frame.deviceCurrent, step);
+        moveDots(deviceDots, deviceOffset, frame.dotCurrent, step);
       }
       onScaleRef.current(maxV, frame);
     };
@@ -87,8 +87,8 @@ export const LiveOverlay: React.FC<Props> = ({ layout, frameRef, onScale }) => {
 
   return (
     <g ref={rootRef} pointerEvents="none" data-testid="live-overlay">
-      {layout.devices.map((d) => (
-        <line key={d.elementId} data-live="device-dots" x1={d.a.x} y1={d.a.y} x2={d.b.x} y2={d.b.y} stroke={DOT_COLOR} strokeWidth={4.5} strokeLinecap="round" style={dotStyle} />
+      {layout.dots.map((d, i) => (
+        <line key={i} data-live="device-dots" x1={d.a.x} y1={d.a.y} x2={d.b.x} y2={d.b.y} stroke={DOT_COLOR} strokeWidth={4.5} strokeLinecap="round" style={dotStyle} />
       ))}
       {layout.graph.edges.map((e, i) => (
         <line key={i} data-live="edge-dots" x1={e.a.x} y1={e.a.y} x2={e.b.x} y2={e.b.y} stroke={DOT_COLOR} strokeWidth={4.5} strokeLinecap="round" style={dotStyle} />

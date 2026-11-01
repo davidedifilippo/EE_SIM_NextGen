@@ -1,5 +1,6 @@
-import { Circuit } from '../model/types';
+import { Circuit, ModelType } from '../model/types';
 import { getDevice } from '../library/devices';
+import { findModel, modelType } from '../library/models';
 import { computeConnectivity, terminalKey } from '../netlist/connectivity';
 import { sourceSpec } from '../netlist/source';
 import { parseSpiceValue } from '../netlist/values';
@@ -16,6 +17,30 @@ export interface DiodeParams {
   /** Emission coefficient times thermal voltage. */
   nvt: number;
   rs: number;
+  /** Reverse breakdown, if the model has one. */
+  breakdown: { voltage: number; nvt: number } | null;
+}
+
+/** DC part of the Gummel-Poon model. Voltages n*Vt are ready for the exponentials; o-prefixed values are inverses, 0 for "not given". */
+export interface BjtParams {
+  polarity: 1 | -1;
+  is: number;
+  bf: number;
+  br: number;
+  vt: number;
+  nfVt: number;
+  nrVt: number;
+  ise: number;
+  neVt: number;
+  isc: number;
+  ncVt: number;
+  ovaf: number;
+  ovar: number;
+  oikf: number;
+  oikr: number;
+  rb: number;
+  rc: number;
+  re: number;
 }
 
 export type CompiledDevice =
@@ -24,7 +49,9 @@ export type CompiledDevice =
   | { kind: 'inductor'; element: number; a: NodeIndex; b: NodeIndex; l: number; branch: number }
   | { kind: 'vsource'; element: number; a: NodeIndex; b: NodeIndex; wave: Waveform; branch: number }
   /** a is the external anode, junction the node after the series resistance (a itself if rs is 0). */
-  | { kind: 'diode'; element: number; a: NodeIndex; junction: NodeIndex; b: NodeIndex; params: DiodeParams };
+  | { kind: 'diode'; element: number; a: NodeIndex; junction: NodeIndex; b: NodeIndex; params: DiodeParams }
+  /** a is the collector and b the emitter; the primed nodes come after the series resistances. */
+  | { kind: 'bjt'; element: number; a: NodeIndex; b: NodeIndex; base: NodeIndex; cp: NodeIndex; bp: NodeIndex; ep: NodeIndex; params: BjtParams };
 
 export interface CompiledCircuit {
   /** Node voltages followed by branch currents. */
@@ -40,16 +67,72 @@ export interface CompiledCircuit {
 
 export type CompileResult = { ok: true; compiled: CompiledCircuit } | { ok: false; errors: string[] };
 
+const cardParam = (card: string, name: string): number | null => {
+  const match = new RegExp(`[\\s(]${name}\\s*=\\s*([^\\s)]+)`, 'i').exec(card);
+  return match && parseSpiceValue(match[1]);
+};
+
 /**
- * Reads the DC parameters of a .model card. Junction capacitance, transit time and breakdown
- * are left out on purpose: the animation needs speed, and ngspice covers the precise analysis.
+ * The internal breakdown voltage that gives IBV at BV, solved as ngspice does: the diode's own
+ * current at that point is part of the total.
+ */
+function breakdownVoltage(bv: number, ibv: number, is: number, nvt: number): number {
+  const vt = THERMAL_VOLTAGE;
+  if (ibv < (is * bv) / vt) return bv;
+  let x = bv - nvt * Math.log(1 + ibv / is);
+  for (let i = 0; i < 25; i++) {
+    x = bv - nvt * Math.log(ibv / is + 1 - x / vt);
+    if (Math.abs(is * (Math.exp((bv - x) / nvt) - 1 + x / vt) - ibv) <= 1e-3 * ibv) break;
+  }
+  return x;
+}
+
+/**
+ * Reads the DC parameters of a .model card. Junction capacitance and transit time are left out
+ * on purpose: the animation needs speed, and ngspice covers the precise analysis.
  */
 export function parseDiodeModel(card: string): DiodeParams {
-  const param = (name: string, fallback: number) => {
-    const match = new RegExp(`[\\s(]${name}\\s*=\\s*([^\\s)]+)`, 'i').exec(card);
-    return (match && parseSpiceValue(match[1])) ?? fallback;
+  const param = (name: string, fallback: number) => cardParam(card, name) ?? fallback;
+  const is = param('IS', 1e-14);
+  const n = param('N', 1);
+  const bv = cardParam(card, 'BV');
+  const breakdownNvt = param('NBV', n) * THERMAL_VOLTAGE;
+  return {
+    is,
+    nvt: n * THERMAL_VOLTAGE,
+    rs: param('RS', 0),
+    breakdown: bv !== null && bv > 0 ? { voltage: breakdownVoltage(bv, param('IBV', 1e-3), is, breakdownNvt), nvt: breakdownNvt } : null,
   };
-  return { is: param('IS', 1e-14), nvt: param('N', 1) * THERMAL_VOLTAGE, rs: param('RS', 0) };
+}
+
+/** Same selection as parseDiodeModel. RB is taken as constant, without RBM and IRB. */
+export function parseBjtModel(card: string, polarity: 1 | -1): BjtParams {
+  const param = (name: string, fallback: number) => cardParam(card, name) ?? fallback;
+  const inverse = (...names: string[]) => {
+    const value = names.map((name) => cardParam(card, name)).find((v) => v !== null);
+    return value ? 1 / value : 0;
+  };
+  const vt = THERMAL_VOLTAGE;
+  return {
+    polarity,
+    is: param('IS', 1e-16),
+    bf: param('BF', 100),
+    br: param('BR', 1),
+    vt,
+    nfVt: param('NF', 1) * vt,
+    nrVt: param('NR', 1) * vt,
+    ise: param('ISE', 0),
+    neVt: param('NE', 1.5) * vt,
+    isc: param('ISC', 0),
+    ncVt: param('NC', 2) * vt,
+    ovaf: inverse('VAF', 'VA'),
+    ovar: inverse('VAR', 'VB'),
+    oikf: inverse('IKF', 'IK'),
+    oikr: inverse('IKR'),
+    rb: param('RB', 0),
+    rc: param('RC', 0),
+    re: param('RE', 0),
+  };
 }
 
 /** Builds the solver's view of the circuit. Unconnected terminals are fine: a drawing in progress must not stop it. */
@@ -75,6 +158,14 @@ export function compileCircuit(circuit: Circuit): CompileResult {
   type Pending = { element: number; build: (branch: number, nextNode: () => number) => CompiledDevice; needsBranch: boolean };
   const pending: Pending[] = [];
   const elementIds: string[] = [];
+
+  const modelCard = (tag: string, name: string, type: ModelType) => {
+    const model = findModel(circuit, name);
+    if (!model) errors.push(`${tag}: modello non definito "${name}"`);
+    else if (modelType(model.card) !== type) errors.push(`${tag}: il modello "${name}" non è di tipo ${type}`);
+    else return model.card;
+    return null;
+  };
 
   for (const el of circuit.elements) {
     const s = getDevice(el.def)?.spice;
@@ -108,17 +199,36 @@ export function compileCircuit(circuit: Circuit): CompileResult {
         break;
       }
       case 'diode': {
-        const model = circuit.models.find((m) => m.name === el.props[s.modelProp]);
-        if (!model) {
-          errors.push(`${el.tag}: modello non definito "${el.props[s.modelProp] ?? ''}"`);
-          break;
-        }
-        const params = parseDiodeModel(model.card);
+        const card = modelCard(el.tag, String(el.props[s.modelProp] ?? ''), 'D');
+        if (!card) break;
+        const params = parseDiodeModel(card);
         const [a, b] = [node(s.anode), node(s.cathode)];
         pending.push({
           element,
           needsBranch: false,
           build: (_, nextNode) => ({ kind: 'diode', element, a, b, params, junction: params.rs > 0 ? nextNode() : a }),
+        });
+        break;
+      }
+      case 'bjt': {
+        const card = modelCard(el.tag, String(el.props[s.modelProp] ?? ''), s.modelType);
+        if (!card) break;
+        const params = parseBjtModel(card, s.modelType === 'NPN' ? 1 : -1);
+        const [a, base, b] = [node(s.collector), node(s.base), node(s.emitter)];
+        pending.push({
+          element,
+          needsBranch: false,
+          build: (_, nextNode) => ({
+            kind: 'bjt',
+            element,
+            a,
+            b,
+            base,
+            params,
+            cp: params.rc > 0 ? nextNode() : a,
+            bp: params.rb > 0 ? nextNode() : base,
+            ep: params.re > 0 ? nextNode() : b,
+          }),
         });
         break;
       }
@@ -141,7 +251,7 @@ export function compileCircuit(circuit: Circuit): CompileResult {
 
   const signature = JSON.stringify([
     branch,
-    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0]),
+    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : 0]),
   ]);
   return { ok: true, compiled: { size: branch, devices, netIndex, elementIds, signature } };
 }

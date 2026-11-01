@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { circuitFromNets } from '../realtime/testCircuits';
 import { Circuit } from '../model/types';
 import { halfWaveRectifier } from '../samples/halfWaveRectifier';
 import { describeNodes, generateNetlist } from './generate';
@@ -76,15 +77,39 @@ describe('generateNetlist', () => {
   it('reports an unconnected terminal', () => {
     const c = resistorPair();
     c.elements = c.elements.filter((e) => e.id !== 'gnd2');
-    expect(generateNetlist(c, TRAN).errors).toContain('Terminale non collegato: r2:b');
+    expect(generateNetlist(c, TRAN).errors).toContain('Terminale non collegato: R2.b');
   });
 
   it('reports an undefined diode model', () => {
     const c = halfWaveRectifier();
-    c.models = [];
+    c.elements.find((e) => e.tag === 'D1')!.props.model = 'BOH';
     const { errors, text } = generateNetlist(c, TRAN);
-    expect(errors).toContain('D1: modello non definito "D1N4148"');
+    expect(errors).toContain('D1: modello non definito "BOH"');
     expect(text).toBe('');
+  });
+
+  it('finds library models, and a model of the circuit takes precedence', () => {
+    const c = halfWaveRectifier();
+    c.models = [];
+    expect(generateNetlist(c, TRAN).text).toContain('.model D1N4148 D(IS=2.52n');
+    c.models = [{ name: 'D1N4148', card: '.model D1N4148 D(IS=1n)' }];
+    expect(generateNetlist(c, TRAN).text).toContain('.model D1N4148 D(IS=1n)');
+  });
+
+  it('writes a transistor with collector, base and emitter, and its model once', () => {
+    const c = circuitFromNets('t', [
+      { def: 'npn', tag: 'Q1', nets: ['c', 'b', '0'], props: { model: '2N3904' } },
+      { def: 'npn', tag: 'Q2', nets: ['c', 'b', '0'], props: { model: '2N3904' } },
+    ]);
+    const { text, nodeOf } = generateNetlist(c, TRAN);
+    const [nc, nb] = [nodeOf.get('q1:collector'), nodeOf.get('q1:base')];
+    expect(text).toContain(`Q1 ${nc} ${nb} 0 2N3904`);
+    expect(text.match(/\.model 2N3904/g)).toHaveLength(1);
+  });
+
+  it('refuses a model of the wrong kind', () => {
+    const c = circuitFromNets('t', [{ def: 'pnp', tag: 'Q1', nets: ['c', 'b', '0'], props: { model: '2N3904' } }]);
+    expect(generateNetlist(c, TRAN).errors).toContain('Q1: il modello "2N3904" non è di tipo PNP');
   });
 
   it('reports duplicate names, ignoring case', () => {

@@ -21,6 +21,8 @@ interface Props {
   hoveredTerminal: { x: number; y: number; label?: string } | null;
   /** Drawn above the wires and below the components. */
   overlay?: React.ReactNode;
+  /** Drawn above the components. */
+  labels?: React.ReactNode;
 }
 
 const toPath = (pts: Pt[]) => pts.reduce((acc, p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`), '');
@@ -38,6 +40,7 @@ export const Renderer: React.FC<Props> = ({
   ghost,
   hoveredTerminal,
   overlay,
+  labels,
 }) => (
   <g className="schematic-root">
     <defs>
@@ -112,6 +115,8 @@ export const Renderer: React.FC<Props> = ({
       )}
     </g>
 
+    {labels}
+
     {hoveredTerminal && (
       <g transform={`translate(${hoveredTerminal.x}, ${hoveredTerminal.y})`} pointerEvents="none">
         <circle r={7} fill="rgba(37, 99, 235, 0.14)" stroke="#2563eb" strokeWidth={1.8} />
@@ -141,11 +146,14 @@ export const Renderer: React.FC<Props> = ({
 
 function getBounds(def: ComponentDef) {
   const xs = def.terminals.map((t) => t.x);
+  const ys = def.terminals.map((t) => t.y);
   const minX = Math.min(-20, ...xs);
   const maxX = Math.max(20, ...xs);
+  const minY = Math.min(-20, ...ys);
+  const maxY = Math.max(20, ...ys);
   return def.spice.kind === 'ground'
     ? { x: -14, y: -2, w: 28, h: 26 }
-    : { x: minX, y: -20, w: maxX - minX, h: 40 };
+    : { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
 const ElementItem: React.FC<{
@@ -158,11 +166,14 @@ const ElementItem: React.FC<{
   const def = getDevice(elem.def);
   if (!def) return null;
   const bounds = getBounds(def);
-  const isVertical = elem.rot === 90 || elem.rot === 270;
+  // A transistor has leads above and below too: its labels always go beside it
+  const isBesideLabel = elem.rot === 90 || elem.rot === 270 || def.spice.kind === 'bjt';
   const value = def.id === 'vsource' ? sourceLabel(elem.props) : def.props[0] ? String(elem.props[def.props[0].key] ?? '') : '';
-  const labelProps = isVertical
-    ? { x: 24, textAnchor: 'start' as const }
-    : { x: 0, textAnchor: 'middle' as const };
+  const labelProps = !isBesideLabel
+    ? { x: 0, textAnchor: 'middle' as const }
+    : def.spice.kind === 'bjt' && elem.rot === 180
+      ? { x: -28, textAnchor: 'end' as const }
+      : { x: def.spice.kind === 'bjt' ? 28 : 24, textAnchor: 'start' as const };
 
   return (
     <g
@@ -193,10 +204,10 @@ const ElementItem: React.FC<{
       {/* Labels are counter-rotated so they stay upright and keep their world position */}
       {def.tagPrefix && (
         <g transform={`rotate(${-elem.rot})`} pointerEvents="none" fontSize={11}>
-          <text y={isVertical ? -4 : -24} fontWeight={700} fill="#0f172a" {...labelProps}>
+          <text y={isBesideLabel ? -4 : -24} fontWeight={700} fill="#0f172a" {...labelProps}>
             {elem.tag}
           </text>
-          <text y={isVertical ? 10 : 34} fill="#475569" {...labelProps}>
+          <text y={isBesideLabel ? 10 : 34} fill="#475569" {...labelProps}>
             {value}
           </text>
         </g>

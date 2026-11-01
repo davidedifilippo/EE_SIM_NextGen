@@ -24,14 +24,19 @@ export interface PropDef {
   /** "model" lists the SPICE models defined in the circuit. */
   type: 'text' | 'model';
   default: string;
+  /** For type "model": the kind of SPICE model it accepts. */
+  modelType?: ModelType;
 }
+
+export type ModelType = 'D' | 'NPN' | 'PNP';
 
 /** How a component maps to SPICE. Terminal order follows the SPICE card. */
 export type SpiceDef =
   | { kind: 'ground'; terminal: string }
   | { kind: 'passive'; prefix: 'R' | 'C' | 'L'; a: string; b: string; valueProp: string }
   | { kind: 'vsource'; pos: string; neg: string }
-  | { kind: 'diode'; anode: string; cathode: string; modelProp: string };
+  | { kind: 'diode'; anode: string; cathode: string; modelProp: string }
+  | { kind: 'bjt'; collector: string; base: string; emitter: string; modelProp: string; modelType: 'NPN' | 'PNP' };
 
 export interface ComponentDef {
   id: string;

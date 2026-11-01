@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { getDevice } from '../library/devices';
 import { computeConnectivity, terminalKey } from '../netlist/connectivity';
 import { generateNetlist } from '../netlist/generate';
 import { runTransient } from '../engine/ngspice';
 import { compileCircuit } from './compile';
 import { RealtimeEngine } from './engine';
-import { AGREEMENT_CASES, circuitFromNets, TestCase } from './testCircuits';
+import { AGREEMENT_CASES, BJT_BIAS, circuitFromNets, TestCase } from './testCircuits';
 
 /** Maximum allowed difference between the two engines, as a fraction of the signal's full scale. */
 const TOLERANCE = 0.01;
@@ -30,8 +31,7 @@ async function compare(testCase: TestCase) {
   const { netOf } = computeConnectivity(circuit);
   const probes = testCase.probes.map((net) => {
     const part = testCase.parts.find((p) => p.nets.includes(net))!;
-    const terminals = part.def === 'vsource' ? ['pos', 'neg'] : part.def === 'diode' ? ['anode', 'cathode'] : ['a', 'b'];
-    const terminal = terminals[part.nets.indexOf(net)];
+    const terminal = getDevice(part.def)!.terminals[part.nets.indexOf(net)].id;
     const id = part.tag.toLowerCase();
     return {
       net,
@@ -65,4 +65,31 @@ describe('real-time engine against ngspice', () => {
       expect(r.relative).toBeLessThan(TOLERANCE);
     }
   }, 120_000);
+
+  it('gives the same DC voltages and transistor currents', async () => {
+    const circuit = circuitFromNets('polarizzazione', BJT_BIAS);
+    const netlist = generateNetlist(circuit, { type: 'tran', step: '10u', stop: '1m', maxStep: '10u' });
+    const spice = await runTransient(netlist.text);
+    const last = (node: string) => {
+      const values = spice.voltages.get(netlist.nodeOf.get(terminalKey('q1', node))!)!;
+      return values[values.length - 1];
+    };
+    const [vc, vb] = [last('collector'), last('base')];
+    const spiceIc = (10 - vc) / 1e3;
+    const spiceIb = (10 - vb) / 10e3 - vb / 10e3;
+
+    const compiled = compileCircuit(circuit);
+    if (!compiled.ok) throw new Error(compiled.errors.join());
+    const engine = new RealtimeEngine(compiled.compiled);
+    engine.initialize();
+    const { netOf } = computeConnectivity(circuit);
+    const voltage = (terminal: string) => engine.nodeVoltage(compiled.compiled.netIndex.get(netOf.get(terminalKey('q1', terminal))!)!);
+    const [ic, ib] = engine.terminalCurrents(compiled.compiled.devices.findIndex((d) => d.kind === 'bjt'));
+
+    console.info(`Polarizzazione: Vb ${voltage('base').toFixed(4)} / ${vb.toFixed(4)} V, Vc ${voltage('collector').toFixed(4)} / ${vc.toFixed(4)} V, Ic ${(ic * 1e3).toFixed(4)} / ${(spiceIc * 1e3).toFixed(4)} mA, Ib ${(ib * 1e6).toFixed(3)} / ${(spiceIb * 1e6).toFixed(3)} uA`);
+    expect(Math.abs(voltage('base') - vb) / vb).toBeLessThan(TOLERANCE);
+    expect(Math.abs(voltage('collector') - vc) / Math.max(vc, 0.1)).toBeLessThan(TOLERANCE);
+    expect(Math.abs(ic - spiceIc) / spiceIc).toBeLessThan(TOLERANCE);
+    expect(Math.abs(ib - spiceIb) / spiceIb).toBeLessThan(TOLERANCE);
+  });
 });

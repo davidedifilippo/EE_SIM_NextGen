@@ -115,6 +115,30 @@ describe('LiveSimulation', () => {
     expect(run(sim, 1)).toBeGreaterThan(0);
   });
 
+  it('shows the transistor currents on its own dots and on the wires', () => {
+    const sim = new LiveSimulation();
+    const circuit = circuitFromNets('t', [
+      { def: 'vsource', tag: 'VCC', nets: ['vcc', '0'], props: { spec: 'DC 5' } },
+      { def: 'resistor', tag: 'RC', nets: ['vcc', 'c'], props: { value: '1k' } },
+      { def: 'resistor', tag: 'RB', nets: ['vcc', 'b'], props: { value: '430k' } },
+      { def: 'npn', tag: 'Q1', nets: ['c', 'b', '0'], props: { model: '2N3904' } },
+    ]);
+    expect(sim.load(circuit)).toEqual({ ok: true });
+    run(sim, 1);
+    const frame = sim.frame()!;
+    const q = 3;
+    const [ic, ib, ie] = frame.dotCurrent.slice(frame.dotCurrent.length - 3);
+    expect(ic).toBeGreaterThan(1e-3);
+    expect(ib).toBeGreaterThan(1e-6);
+    expect(ie).toBeCloseTo(-(ic + ib), 12);
+    expect(frame.deviceCurrent[q]).toBe(ic);
+    expect(frame.deviceVbe[q]).toBeCloseTo(0.67, 1);
+    expect(frame.deviceVoltage[q]).toBeGreaterThan(0.1);
+    // The lead of each terminal carries the current of that terminal
+    const carried = [...frame.edgeCurrent].map(Math.abs);
+    for (const current of [ic, ib, -ie]) expect(carried.some((i) => Math.abs(i - Math.abs(current)) < 1e-9)).toBe(true);
+  });
+
   it('explains what is missing and recovers once fixed', () => {
     const sim = new LiveSimulation();
     const circuit = halfWaveRectifier();

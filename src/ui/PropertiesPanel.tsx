@@ -1,6 +1,7 @@
 import React from 'react';
 import { Circuit, Element } from '../model/types';
 import { getDevice } from '../library/devices';
+import { modelsOfType } from '../library/models';
 import { LiveFrame, LiveLayout } from '../realtime/liveSimulation';
 import { LiveReadout } from './LiveControls';
 import { SourceInspector } from './SourceInspector';
@@ -34,7 +35,9 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
   return (
     <div className="properties">
       <strong>{def ? def.name : `${selectedIds.size} oggetti selezionati`}</strong>
-      {deviceIndex >= 0 && <LiveReadout deviceIndex={deviceIndex} frameRef={frameRef} />}
+      {deviceIndex >= 0 && (
+        <LiveReadout deviceIndex={deviceIndex} transistorFirstDot={def?.spice.kind === 'bjt' ? layout!.devices[deviceIndex].firstDot : null} frameRef={frameRef} />
+      )}
       {single && def?.id === 'vsource' && <SourceInspector props={single.props} onChange={(props, record) => update({ props }, record)} />}
       {single &&
         def?.id !== 'vsource' &&
@@ -46,7 +49,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
               {p.label}
               {p.type === 'model' ? (
                 <select value={value} onChange={(e) => setValue(e.target.value)}>
-                  {circuit.models.map((m) => (
+                  {modelsOfType(circuit, p.modelType ?? 'D').map((m) => (
                     <option key={m.name} value={m.name}>
                       {m.name}
                     </option>

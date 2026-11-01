@@ -1,4 +1,4 @@
-import { CompiledCircuit, CompiledDevice, DiodeParams } from './compile';
+import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams } from './compile';
 import { luFactor, luSolve } from './linear';
 
 /** Same default as SPICE: minimum conductance across a junction. */
@@ -28,7 +28,73 @@ function limitJunction(v: number, vOld: number, nvt: number, vCrit: number): num
   return nvt * Math.log(v / nvt);
 }
 
-const criticalVoltage = ({ is, nvt }: DiodeParams) => nvt * Math.log(nvt / (Math.SQRT2 * is));
+const criticalVoltage = (is: number, nvt: number) => nvt * Math.log(nvt / (Math.SQRT2 * is));
+
+/** Breakdown is a junction seen from the other side: the limiter applies there too. */
+function limitDiode(v: number, vOld: number, { breakdown, nvt, is }: DiodeParams, vCrit: number): number {
+  if (breakdown && v < Math.min(0, -breakdown.voltage + 10 * breakdown.nvt)) {
+    const seen = limitJunction(-(v + breakdown.voltage), -(vOld + breakdown.voltage), breakdown.nvt, criticalVoltage(is, breakdown.nvt));
+    return -(seen + breakdown.voltage);
+  }
+  return limitJunction(v, vOld, nvt, vCrit);
+}
+
+/** SPICE junction: exponential forward, a smooth saturation below -3 n Vt. Writes into the shared result. */
+const junctionResult = { i: 0, g: 0 };
+function junction(v: number, is: number, nvt: number) {
+  if (v >= -3 * nvt) {
+    const e = exp(v / nvt);
+    junctionResult.i = is * (e - 1);
+    junctionResult.g = (is / nvt) * e;
+  } else {
+    const arg = Math.pow((3 * nvt) / (v * Math.E), 3);
+    junctionResult.i = -is * (1 + arg);
+    junctionResult.g = (is * 3 * arg) / v;
+  }
+  return junctionResult;
+}
+
+function diodeOperatingPoint(v: number, { is, nvt, breakdown }: DiodeParams) {
+  if (breakdown && v < -breakdown.voltage) {
+    const e = exp(-(breakdown.voltage + v) / breakdown.nvt);
+    junctionResult.i = -is * e;
+    junctionResult.g = (is * e) / breakdown.nvt;
+    return junctionResult;
+  }
+  return junction(v, is, nvt);
+}
+
+/** Gummel-Poon currents and conductances at the given junction voltages, as in SPICE's BJT model. */
+function bjtOperatingPoint(p: BjtParams, vbe: number, vbc: number) {
+  const be = junction(vbe, p.is, p.nfVt);
+  const [cbe, gbe] = [be.i, be.g];
+  const bc = junction(vbc, p.is, p.nrVt);
+  const [cbc, gbc] = [bc.i, bc.g];
+  const leakBe = junction(vbe, p.ise, p.neVt);
+  const [cben, gben] = [leakBe.i + GMIN * vbe, leakBe.g + GMIN];
+  const leakBc = junction(vbc, p.isc, p.ncVt);
+  const [cbcn, gbcn] = [leakBc.i + GMIN * vbc, leakBc.g + GMIN];
+
+  const q1 = 1 / (1 - p.ovaf * vbc - p.ovar * vbe);
+  let [qb, dqbdve, dqbdvc] = [q1, q1 * q1 * p.ovar, q1 * q1 * p.ovaf];
+  if (p.oikf !== 0 || p.oikr !== 0) {
+    const sq = Math.sqrt(Math.max(0, 1 + 4 * (p.oikf * cbe + p.oikr * cbc))) || 1;
+    qb = (q1 * (1 + sq)) / 2;
+    dqbdve = q1 * (qb * p.ovar + (p.oikf * gbe) / sq);
+    dqbdvc = q1 * (qb * p.ovaf + (p.oikr * gbc) / sq);
+  }
+
+  const transport = cbe - cbc;
+  const go = (gbc + (transport * dqbdvc) / qb) / qb;
+  return {
+    ic: transport / qb - cbc / p.br - cbcn,
+    ib: cbe / p.bf + cben + cbc / p.br + cbcn,
+    go,
+    gm: (gbe - (transport * dqbdve) / qb) / qb - go,
+    gpi: gbe / p.bf + gben,
+    gmu: gbc / p.br + gbcn,
+  };
+}
 
 /**
  * Modified nodal analysis with Newton-Raphson. Capacitors and inductors use trapezoidal
@@ -48,10 +114,12 @@ export class RealtimeEngine {
   private readonly isNonlinear: boolean;
   private readonly vCrit: Float64Array;
 
-  /** Per device: capacitor/inductor voltage and current at the last accepted point, diode junction voltage. */
+  /** Per device: capacitor/inductor voltage and current at the last accepted point, diode or base-emitter junction voltage. */
   private readonly vPrev: Float64Array;
   private readonly iPrev: Float64Array;
   private readonly vIter: Float64Array;
+  /** Base-collector junction voltage of a transistor. */
+  private readonly vIterBc: Float64Array;
 
   /** Step the base matrix is stamped for; 0 means the DC operating point. */
   private stampedStep: number | null = null;
@@ -69,11 +137,13 @@ export class RealtimeEngine {
     this.vPrev = new Float64Array(devices.length);
     this.iPrev = new Float64Array(devices.length);
     this.vIter = new Float64Array(devices.length);
+    this.vIterBc = new Float64Array(devices.length);
     this.vCrit = new Float64Array(devices.length);
     devices.forEach((d, i) => {
-      if (d.kind === 'diode') this.vCrit[i] = criticalVoltage(d.params);
+      if (d.kind === 'diode') this.vCrit[i] = criticalVoltage(d.params.is, d.params.nvt);
+      else if (d.kind === 'bjt') this.vCrit[i] = criticalVoltage(d.params.is, d.params.vt);
     });
-    this.isNonlinear = devices.some((d) => d.kind === 'diode');
+    this.isNonlinear = devices.some((d) => d.kind === 'diode' || d.kind === 'bjt');
   }
 
   private voltage(node: number): number {
@@ -127,6 +197,11 @@ export class RealtimeEngine {
         case 'diode':
           if (d.params.rs > 0) this.addG(d.a, d.junction, 1 / d.params.rs);
           break;
+        case 'bjt':
+          if (d.params.rc > 0) this.addG(d.a, d.cp, 1 / d.params.rc);
+          if (d.params.rb > 0) this.addG(d.base, d.bp, 1 / d.params.rb);
+          if (d.params.re > 0) this.addG(d.b, d.ep, 1 / d.params.re);
+          break;
       }
     });
 
@@ -166,21 +241,58 @@ export class RealtimeEngine {
     });
   }
 
-  /** Adds the linearized diodes to the LU copy of the matrix and to the right-hand side. */
-  private stampDiodes(): boolean {
+  private addLu(row: number, column: number, g: number) {
+    if (row >= 0 && column >= 0) this.lu[row * this.n + column] += g;
+  }
+
+  private addRhs(row: number, value: number) {
+    if (row >= 0) this.rhs[row] += value;
+  }
+
+  /** Adds the linearized transistor: the currents leaving its nodes are ic, ib and their opposite sum. */
+  private stampBjt(i: number, d: Extract<CompiledDevice, { kind: 'bjt' }>): boolean {
+    const { polarity, nfVt, nrVt } = d.params;
+    const [vb, vc, ve] = [this.voltage(d.bp), this.voltage(d.cp), this.voltage(d.ep)];
+    const [rawBe, rawBc] = [polarity * (vb - ve), polarity * (vb - vc)];
+    const vbe = limitJunction(rawBe, this.vIter[i], nfVt, this.vCrit[i]);
+    const vbc = limitJunction(rawBc, this.vIterBc[i], nrVt, this.vCrit[i]);
+    this.vIter[i] = vbe;
+    this.vIterBc[i] = vbc;
+
+    const { ic, ib, gm, go, gpi, gmu } = bjtOperatingPoint(d.params, vbe, vbc);
+    const icEq = polarity * (ic - (gm + go) * vbe + (go + gmu) * vbc);
+    const ibEq = polarity * (ib - gpi * vbe - gmu * vbc);
+
+    this.addLu(d.cp, d.bp, gm - gmu);
+    this.addLu(d.cp, d.cp, go + gmu);
+    this.addLu(d.cp, d.ep, -(gm + go));
+    this.addLu(d.bp, d.bp, gpi + gmu);
+    this.addLu(d.bp, d.cp, -gmu);
+    this.addLu(d.bp, d.ep, -gpi);
+    this.addLu(d.ep, d.bp, -(gm + gpi));
+    this.addLu(d.ep, d.cp, -go);
+    this.addLu(d.ep, d.ep, gm + go + gpi);
+    this.addRhs(d.cp, -icEq);
+    this.addRhs(d.bp, -ibEq);
+    this.addRhs(d.ep, icEq + ibEq);
+    return vbe !== rawBe || vbc !== rawBc;
+  }
+
+  /** Adds the linearized diodes and transistors to the LU copy of the matrix and to the right-hand side. */
+  private stampNonlinear(): boolean {
     const { lu, rhs, n } = this;
     let limited = false;
     this.compiled.devices.forEach((d, i) => {
+      if (d.kind === 'bjt' && this.stampBjt(i, d)) limited = true;
       if (d.kind !== 'diode') return;
-      const { is, nvt } = d.params;
       const raw = this.voltage(d.junction) - this.voltage(d.b);
-      const v = limitJunction(raw, this.vIter[i], nvt, this.vCrit[i]);
+      const v = limitDiode(raw, this.vIter[i], d.params, this.vCrit[i]);
       if (v !== raw) limited = true;
       this.vIter[i] = v;
 
-      const e = exp(v / nvt);
-      const g = (is / nvt) * e + GMIN;
-      const ieq = is * (e - 1) + GMIN * v - g * v;
+      const point = diodeOperatingPoint(v, d.params);
+      const g = point.g + GMIN;
+      const ieq = point.i + GMIN * v - g * v;
       const [j, b] = [d.junction, d.b];
       if (j >= 0) {
         lu[j * n + j] += g;
@@ -218,7 +330,7 @@ export class RealtimeEngine {
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
       this.stampRhs(t, h, sourceScale);
       lu.set(base);
-      const limited = this.stampDiodes();
+      const limited = this.stampNonlinear();
       if (!luFactor(lu, n, pivots)) throw new SolverError('Circuito non risolvibile: controlla generatori e induttori in parallelo o in cortocircuito');
       luSolve(lu, n, pivots, rhs);
 
@@ -252,10 +364,12 @@ export class RealtimeEngine {
   initialize() {
     this.x.fill(0);
     this.vIter.fill(0);
+    this.vIterBc.fill(0);
     if (!this.solve(this.time, 0, 1)) {
       // Source stepping: bring the sources up gradually, each solution seeding the next
       this.x.fill(0);
       this.vIter.fill(0);
+      this.vIterBc.fill(0);
       for (let scale = 0.1; scale < 1.05; scale += 0.1) {
         if (!this.solve(this.time, 0, Math.min(scale, 1))) throw new SolverError('Punto di lavoro non trovato');
       }
@@ -270,12 +384,14 @@ export class RealtimeEngine {
     this.vPrev.set(previous.vPrev);
     this.iPrev.set(previous.iPrev);
     this.vIter.set(previous.vIter);
+    this.vIterBc.set(previous.vIterBc);
   }
 
   /** Advances by h, splitting the step if Newton does not converge. */
   step(h: number, depth = 0) {
     this.start.set(this.x);
     const startIter = this.vIter.slice();
+    const startIterBc = this.vIterBc.slice();
     if (this.solve(this.time + h, h, 1)) {
       this.commit(h);
       this.time += h;
@@ -284,6 +400,7 @@ export class RealtimeEngine {
     if (depth >= MAX_HALVINGS) throw new SolverError('La simulazione non converge');
     this.x.set(this.start);
     this.vIter.set(startIter);
+    this.vIterBc.set(startIterBc);
     this.step(h / 2, depth + 1);
     this.step(h / 2, depth + 1);
   }
@@ -305,8 +422,23 @@ export class RealtimeEngine {
         return this.x[d.branch];
       case 'diode': {
         const v = this.voltage(d.junction) - this.voltage(d.b);
-        return d.params.is * (exp(v / d.params.nvt) - 1) + GMIN * v;
+        return diodeOperatingPoint(v, d.params).i + GMIN * v;
       }
+      case 'bjt':
+        return this.terminalCurrents(index)[0];
     }
+  }
+
+  /** Current entering each terminal: first and second for two terminals, collector, base and emitter for a transistor. */
+  terminalCurrents(index: number): number[] {
+    const d = this.compiled.devices[index];
+    if (d.kind !== 'bjt') {
+      const current = this.deviceCurrent(index);
+      return [current, -current];
+    }
+    const { polarity } = d.params;
+    const vb = this.voltage(d.bp);
+    const { ic, ib } = bjtOperatingPoint(d.params, polarity * (vb - this.voltage(d.ep)), polarity * (vb - this.voltage(d.cp)));
+    return [polarity * ic, polarity * ib, -polarity * (ic + ib)];
   }
 }

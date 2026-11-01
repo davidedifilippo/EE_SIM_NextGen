@@ -2,13 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { formatSpiceValue, parseSpiceValue } from '../netlist/values';
 import { terminalKey } from '../netlist/connectivity';
 import { computeConnectivity } from '../netlist/connectivity';
-import { compileCircuit, parseDiodeModel } from './compile';
+import { SpiceModel } from '../model/types';
+import { compileCircuit, parseBjtModel, parseDiodeModel } from './compile';
 import { RealtimeEngine, SolverError } from './engine';
 import { circuitFromNets, Part } from './testCircuits';
 import { parseWaveform } from './waveform';
 
-const build = (parts: Part[]) => {
+const build = (parts: Part[], models: SpiceModel[] = []) => {
   const circuit = circuitFromNets('t', parts);
+  circuit.models.push(...models);
   const result = compileCircuit(circuit);
   if (!result.ok) throw new Error(result.errors.join());
   const { netOf } = computeConnectivity(circuit);
@@ -88,6 +90,93 @@ describe('parseDiodeModel', () => {
     expect(p.is).toBe(1e-14);
     expect(p.rs).toBe(0);
     expect(p.nvt).toBeCloseTo(0.025865, 9);
+  });
+});
+
+describe('breakdown', () => {
+  it('gives IBV at BV', () => {
+    const model = '.model Z D(IS=1n N=1.5 BV=5.1 IBV=5m)';
+    const { engine, compiled } = build([V('V1', 'a', '0', 'DC -5.1'), { def: 'zener', tag: 'D1', nets: ['a', '0'], props: { model: 'Z' } }], [{ name: 'Z', card: model }]);
+    engine.initialize();
+    const diode = compiled.devices.findIndex((d) => d.kind === 'diode');
+    expect(engine.deviceCurrent(diode)).toBeCloseTo(-5e-3, 5);
+  });
+
+  it('has no breakdown without BV', () => {
+    expect(parseDiodeModel('.model D D(IS=1n)').breakdown).toBeNull();
+  });
+});
+
+describe('BJT', () => {
+  const npn = (c: string, b: string, e: string, model = '.model T NPN(IS=1f BF=100)'): [Part, { name: string; card: string }[]] => [
+    { def: 'npn', tag: 'Q1', nets: [c, b, e], props: { model: 'T' } },
+    [{ name: 'T', card: model }],
+  ];
+
+  it('reads the parameters, with SPICE defaults and aliases', () => {
+    const p = parseBjtModel('.model T NPN(IS=1f BF=200 VA=50 RB=10)', 1);
+    expect(p.is).toBeCloseTo(1e-15, 20);
+    expect(p.bf).toBe(200);
+    expect(p.ovaf).toBeCloseTo(1 / 50, 12);
+    expect(p.br).toBe(1);
+    expect(p.ovar).toBe(0);
+    expect(p.rb).toBe(10);
+    expect(p.neVt).toBeCloseTo(1.5 * 0.025865, 9);
+  });
+
+  it('amplifies the base current by BF in the active region', () => {
+    const [q, models] = npn('c', 'b', '0');
+    const { engine, compiled } = build([V('VCC', 'c', '0', 'DC 5'), V('VB', 'in', '0', 'DC 5'), R('RB', 'in', 'b', '430k'), q], models);
+    engine.initialize();
+    const index = compiled.devices.findIndex((d) => d.kind === 'bjt');
+    const [ic, ib, ie] = engine.terminalCurrents(index);
+    expect(ib).toBeGreaterThan(9e-6);
+    expect(ic / ib).toBeCloseTo(100, 1);
+    expect(ic + ib + ie).toBeCloseTo(0, 12);
+    expect(engine.deviceCurrent(index)).toBe(ic);
+  });
+
+  it('saturates: the collector stays near the emitter and the gain drops', () => {
+    const [q, models] = npn('c', 'b', '0');
+    const { engine, compiled, node } = build([V('VCC', 'vcc', '0', 'DC 5'), R('RC', 'vcc', 'c', '1k'), V('VB', 'in', '0', 'DC 5'), R('RB', 'in', 'b', '10k'), q], models);
+    engine.initialize();
+    expect(engine.nodeVoltage(node('q1', 'collector'))).toBeLessThan(0.2);
+    const [ic, ib] = engine.terminalCurrents(compiled.devices.findIndex((d) => d.kind === 'bjt'));
+    expect(ic / ib).toBeLessThan(20);
+  });
+
+  it('turns everything around for a PNP', () => {
+    const { engine, compiled, node } = build(
+      [V('VEE', 'e', '0', 'DC 5'), R('RB', 'b', '0', '430k'), { def: 'pnp', tag: 'Q1', nets: ['0', 'b', 'e'], props: { model: 'T' } }],
+      [{ name: 'T', card: '.model T PNP(IS=1f BF=100)' }],
+    );
+    engine.initialize();
+    const [ic, ib] = engine.terminalCurrents(compiled.devices.findIndex((d) => d.kind === 'bjt'));
+    expect(ib).toBeLessThan(0);
+    expect(ic / ib).toBeCloseTo(100, 1);
+    expect(engine.nodeVoltage(node('q1', 'base'))).toBeGreaterThan(3.9);
+  });
+
+  it('feels the Early effect', () => {
+    const current = (vcc: string) => {
+      const [q, models] = npn('c', 'b', '0', '.model T NPN(IS=1f BF=100 VAF=50)');
+      const { engine, compiled } = build([V('VCC', 'c', '0', `DC ${vcc}`), V('VB', 'in', '0', 'DC 5'), R('RB', 'in', 'b', '430k'), q], models);
+      engine.initialize();
+      return engine.terminalCurrents(compiled.devices.findIndex((d) => d.kind === 'bjt'))[0];
+    };
+    expect(current('20')).toBeGreaterThan(current('5') * 1.2);
+  });
+
+  it('refuses a model of the wrong kind', () => {
+    const result = compileCircuit(circuitFromNets('t', [{ def: 'npn', tag: 'Q1', nets: ['c', 'b', '0'], props: { model: '2N3906' } }]));
+    expect(result).toEqual({ ok: false, errors: ['Q1: il modello "2N3906" non è di tipo NPN'] });
+  });
+
+  it('survives open terminals, as a drawing in progress has', () => {
+    const [q, models] = npn('c', 'b', 'e');
+    const { engine } = build([V('V1', 'a', '0', 'DC 5'), R('R1', 'a', '0', '1k'), q], models);
+    engine.initialize();
+    expect(() => engine.step(1e-5)).not.toThrow();
   });
 });
 

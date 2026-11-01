@@ -27,6 +27,21 @@ export const SOURCE_GLYPHS: Record<SourceShape, string> = {
   custom: 'M -6 3 L -3 -5 L -1 1 L 2 -3 L 6 4',
 };
 
+const BJT_TERMINALS = [
+  { id: 'collector', x: 20, y: -40 },
+  { id: 'base', x: -40, y: 0 },
+  { id: 'emitter', x: 20, y: 40 },
+];
+
+const BJT_BODY: Prim[] = [
+  { t: 'line', x1: -40, y1: 0, x2: -6, y2: 0 },
+  { t: 'line', x1: -6, y1: -14, x2: -6, y2: 14, w: 3 },
+  { t: 'line', x1: -6, y1: -6, x2: 20, y2: -20 },
+  { t: 'line', x1: 20, y1: -20, x2: 20, y2: -40 },
+  { t: 'line', x1: -6, y1: 6, x2: 20, y2: 20 },
+  { t: 'line', x1: 20, y1: 20, x2: 20, y2: 40 },
+];
+
 export const DEVICES: ComponentDef[] = [
   {
     id: 'resistor',
@@ -86,8 +101,39 @@ export const DEVICES: ComponentDef[] = [
       { t: 'path', d: 'M -10 -12 L 10 0 L -10 12 Z', fill: '#0f172a' },
       { t: 'line', x1: 10, y1: -12, x2: 10, y2: 12, w: 2 },
     ],
-    props: [{ key: 'model', label: 'Modello', type: 'model', default: 'D1N4148' }],
+    props: [{ key: 'model', label: 'Modello', type: 'model', default: 'D1N4148', modelType: 'D' }],
     spice: { kind: 'diode', anode: 'anode', cathode: 'cathode', modelProp: 'model' },
+  },
+  {
+    id: 'zener',
+    name: 'Zener',
+    tagPrefix: 'D',
+    terminals: twoPin('anode', 'cathode'),
+    symbol: [
+      ...leads(10),
+      { t: 'path', d: 'M -10 -12 L 10 0 L -10 12 Z', fill: '#0f172a' },
+      { t: 'path', d: 'M 15 -15 L 10 -12 L 10 12 L 5 15', w: 2 },
+    ],
+    props: [{ key: 'model', label: 'Modello', type: 'model', default: 'DZ5V1', modelType: 'D' }],
+    spice: { kind: 'diode', anode: 'anode', cathode: 'cathode', modelProp: 'model' },
+  },
+  {
+    id: 'npn',
+    name: 'NPN',
+    tagPrefix: 'Q',
+    terminals: BJT_TERMINALS,
+    symbol: [...BJT_BODY, { t: 'path', d: 'M 20 20 L 13 9 L 7 18 Z', fill: '#0f172a' }],
+    props: [{ key: 'model', label: 'Modello', type: 'model', default: '2N3904', modelType: 'NPN' }],
+    spice: { kind: 'bjt', collector: 'collector', base: 'base', emitter: 'emitter', modelProp: 'model', modelType: 'NPN' },
+  },
+  {
+    id: 'pnp',
+    name: 'PNP',
+    tagPrefix: 'Q',
+    terminals: BJT_TERMINALS,
+    symbol: [...BJT_BODY, { t: 'path', d: 'M -6 6 L 7 8 L 2 16 Z', fill: '#0f172a' }],
+    props: [{ key: 'model', label: 'Modello', type: 'model', default: '2N3906', modelType: 'PNP' }],
+    spice: { kind: 'bjt', collector: 'collector', base: 'base', emitter: 'emitter', modelProp: 'model', modelType: 'PNP' },
   },
   {
     id: 'ground',

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Circuit, ComponentDef, Rotation } from './model/types';
 import { DEVICES } from './library/devices';
 import { describeNodes, generateNetlist } from './netlist/generate';
+import { isDcSource } from './netlist/source';
 import { halfWaveRectifier } from './samples/halfWaveRectifier';
 import { SchematicCanvas } from './editor/SchematicCanvas';
 import { downloadCircuit, INVALID_FILE, loadAutosave, MAX_FILE_BYTES, parseCircuitFile, saveAutosave } from './storage/circuitFile';
@@ -10,6 +11,7 @@ import { Series, TransientChart } from './ui/TransientChart';
 import { TranResult } from './engine/ngspice';
 import { isEngineReady, preloadEngine, simulate } from './engine/ngspiceClient';
 import { LiveFrame } from './realtime/liveSimulation';
+import { DcValues } from './ui/DcValues';
 import { LiveOverlay } from './ui/LiveOverlay';
 import { LiveLegend, LiveLegendHandle, SourceStats, SPEEDS } from './ui/LiveControls';
 import { useLiveSimulation } from './ui/useLiveSimulation';
@@ -39,6 +41,7 @@ export const App: React.FC = () => {
   const [run, setRun] = useState<Run | null>(null);
   const [liveRunning, setLiveRunning] = useState(true);
   const [speed, setSpeed] = useState(20e-3);
+  const [showValues, setShowValues] = useState(true);
 
   // ngspice arrives in the background once the page is up, so the first analysis finds it ready
   useEffect(() => {
@@ -58,6 +61,14 @@ export const App: React.FC = () => {
   const overlay = useMemo(
     () => live.layout && <LiveOverlay layout={live.layout} frameRef={live.frameRef} onScale={handleScale} />,
     [live.layout, live.frameRef, handleScale],
+  );
+  const isDc = useMemo(() => {
+    const sources = circuit.elements.filter((el) => el.def === 'vsource');
+    return sources.length > 0 && sources.every((el) => isDcSource(el.props));
+  }, [circuit]);
+  const labels = useMemo(
+    () => showValues && isDc && live.layout && <DcValues circuit={circuit} layout={live.layout} frameRef={live.frameRef} />,
+    [showValues, isDc, circuit, live.layout, live.frameRef],
   );
 
   const handleChange = useCallback(
@@ -228,6 +239,10 @@ export const App: React.FC = () => {
               ))}
             </select>
           </label>
+          <label className="values-toggle" title="Tensioni e correnti sullo schema, quando tutti i generatori sono in continua">
+            <input type="checkbox" checked={showValues} disabled={!isDc} onChange={(e) => setShowValues(e.target.checked)} />
+            Valori
+          </label>
         </div>
         <div className="analysis">
           <label>
@@ -273,6 +288,7 @@ export const App: React.FC = () => {
             onDeleteSelected={deleteSelected}
             onRotateSelected={rotateSelected}
             overlay={overlay}
+            labels={labels}
           />
           {circuit.elements.length > 0 && <LiveLegend ref={legendRef} errors={live.errors} />}
           <SourceStats circuit={circuit} selectedIds={selectedIds} />
