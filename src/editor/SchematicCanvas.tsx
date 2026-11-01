@@ -4,6 +4,7 @@ import { Circuit, ComponentDef, Element, Pt, Rotation, Wire } from '../model/typ
 import { createElement, getDevice } from '../library/devices';
 import { Box, dist, isElementInBox, isPointOnSegment, isWireInBox, localToWorld, snap, snapPt } from '../utils/geometry';
 import { Renderer } from './Renderer';
+import { followMove, WireFollower, wireFollowers } from './wireRouting';
 
 interface Props {
   circuit: Circuit;
@@ -25,7 +26,7 @@ type DragState =
       id: string;
       startScreen: Pt;
       origElemPos: Pt;
-      connectedEnds: ConnectedEnd[];
+      followers: WireFollower[];
       wasSelectedAtStart: boolean;
       isDragging: boolean;
       hasRecordedHistory: boolean;
@@ -426,8 +427,8 @@ export const SchematicCanvas: React.FC<Props> = ({
           elements: circuit.elements.map((el) => (el.id === drag.id ? { ...el, x: newX, y: newY } : el)),
           // Wires stay attached to the terminals of the moved element
           wires: circuit.wires.map((w) => {
-            const ends = drag.connectedEnds.filter((c) => c.wireId === w.id);
-            return ends.length ? { ...w, pts: moveEnds(w.pts, ends, moveX, moveY) } : w;
+            const follower = drag.followers.find((f) => f.wireId === w.id);
+            return follower ? { ...w, pts: followMove(follower, moveX, moveY) } : w;
           }),
         },
         record,
@@ -528,20 +529,14 @@ export const SchematicCanvas: React.FC<Props> = ({
     }
     if (!isAlreadySelected) onSelectIds(new Set([elem.id]));
 
-    const def = getDevice(elem.def);
-    const terminalPts = (def?.terminals ?? []).map((t) => localToWorld(elem.x, elem.y, t, elem.rot));
-    const connectedEnds: ConnectedEnd[] = [];
-    for (const w of circuit.wires) {
-      w.pts.forEach((p, idx) => {
-        if (terminalPts.some((t) => dist(t, p) < 2)) connectedEnds.push({ wireId: w.id, pointIndex: idx, origPt: { ...p } });
-      });
-    }
+    const terminalsOf = (el: Element) => (getDevice(el.def)?.terminals ?? []).map((t) => localToWorld(el.x, el.y, t, el.rot));
+    const otherTerminals = circuit.elements.filter((el) => el.id !== elem.id).flatMap(terminalsOf);
     dragRef.current = {
       type: 'element',
       id: elem.id,
       startScreen: { x: e.clientX, y: e.clientY },
       origElemPos: { x: elem.x, y: elem.y },
-      connectedEnds,
+      followers: wireFollowers(circuit.wires, terminalsOf(elem), otherTerminals),
       wasSelectedAtStart: isAlreadySelected,
       isDragging: false,
       hasRecordedHistory: false,

@@ -4,6 +4,7 @@ import { DEVICES } from './library/devices';
 import { describeNodes, generateNetlist } from './netlist/generate';
 import { halfWaveRectifier } from './samples/halfWaveRectifier';
 import { SchematicCanvas } from './editor/SchematicCanvas';
+import { downloadCircuit, INVALID_FILE, loadAutosave, MAX_FILE_BYTES, parseCircuitFile, saveAutosave } from './storage/circuitFile';
 import { PropertiesPanel } from './ui/PropertiesPanel';
 import { Series, TransientChart } from './ui/TransientChart';
 import { TranResult } from './engine/ngspice';
@@ -20,9 +21,13 @@ interface Run {
 }
 
 const ENGINE_PRELOAD_DELAY_MS = 2000;
+const AUTOSAVE_DELAY_MS = 300;
 
 export const App: React.FC = () => {
-  const [circuit, setCircuit] = useState<Circuit>(() => halfWaveRectifier({ capacitor: '100u' }));
+  const [circuit, setCircuit] = useState<Circuit>(() => loadAutosave() ?? halfWaveRectifier({ capacitor: '100u' }));
+  /** Changes when another circuit is opened, so the canvas fits it in view. */
+  const [documentId, setDocumentId] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [history, setHistory] = useState<Circuit[]>([]);
   const [redoStack, setRedoStack] = useState<Circuit[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -66,19 +71,62 @@ export const App: React.FC = () => {
     [circuit],
   );
 
+  // Soon after each change, and in any case when the page goes away
+  const latestCircuit = useRef(circuit);
+  latestCircuit.current = circuit;
+  useEffect(() => {
+    const timer = setTimeout(() => saveAutosave(circuit), AUTOSAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [circuit]);
+  useEffect(() => {
+    const flush = () => saveAutosave(latestCircuit.current);
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
+  }, []);
+
+  /** Replaces the circuit. Annulla brings the previous one back. */
+  const openCircuit = (next: Circuit) => {
+    handleChange(next);
+    setSelectedIds(new Set());
+    setRun(null);
+    setErrors([]);
+    setDocumentId((id) => id + 1);
+  };
+
+  const openFile = async (file: File) => {
+    try {
+      if (file.size > MAX_FILE_BYTES) throw new Error(INVALID_FILE);
+      openCircuit(parseCircuitFile(await file.text()));
+    } catch (err) {
+      setErrors([err instanceof Error ? err.message : String(err)]);
+    }
+  };
+
+  // Going back to a circuit with nothing in common with this one needs a new fit, as opening it did
+  const refitIfOtherCircuit = useCallback(
+    (target: Circuit) => {
+      const ids = new Set(circuit.elements.map((el) => el.id));
+      if (!target.elements.some((el) => ids.has(el.id))) setDocumentId((id) => id + 1);
+    },
+    [circuit],
+  );
+
   const undo = useCallback(() => {
     if (history.length === 0) return;
+    const target = history[history.length - 1];
+    refitIfOtherCircuit(target);
     setRedoStack((r) => [circuit, ...r]);
-    setCircuit(history[history.length - 1]);
+    setCircuit(target);
     setHistory((h) => h.slice(0, -1));
-  }, [history, circuit]);
+  }, [history, circuit, refitIfOtherCircuit]);
 
   const redo = useCallback(() => {
     if (redoStack.length === 0) return;
+    refitIfOtherCircuit(redoStack[0]);
     setHistory((h) => [...h, circuit]);
     setCircuit(redoStack[0]);
     setRedoStack((r) => r.slice(1));
-  }, [redoStack, circuit]);
+  }, [redoStack, circuit, refitIfOtherCircuit]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -143,6 +191,24 @@ export const App: React.FC = () => {
       <header className="toolbar">
         <h1>EE_SIM_NextGen</h1>
         <div className="button-row">
+          <button onClick={() => openCircuit({ title: 'Circuito', elements: [], wires: [], models: circuit.models })}>Nuovo</button>
+          <button onClick={() => fileInputRef.current?.click()}>Apri</button>
+          <button onClick={() => downloadCircuit(circuit)}>Salva</button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            hidden
+            aria-label="Apri un circuito"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              // Cleared so that choosing the same file again still counts as a change
+              e.target.value = '';
+              if (file) openFile(file);
+            }}
+          />
+        </div>
+        <div className="button-row">
           <button onClick={undo} disabled={history.length === 0}>
             Annulla
           </button>
@@ -197,6 +263,7 @@ export const App: React.FC = () => {
 
         <div className="canvas-area">
           <SchematicCanvas
+            key={documentId}
             circuit={circuit}
             onChange={handleChange}
             selectedIds={selectedIds}
@@ -207,7 +274,7 @@ export const App: React.FC = () => {
             onRotateSelected={rotateSelected}
             overlay={overlay}
           />
-          <LiveLegend ref={legendRef} errors={live.errors} />
+          {circuit.elements.length > 0 && <LiveLegend ref={legendRef} errors={live.errors} />}
           <SourceStats circuit={circuit} selectedIds={selectedIds} />
         </div>
 
