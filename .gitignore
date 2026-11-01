@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Production build
+dist/
+*.local
+
+# Logs
+npm-debug.log*
+
+# Editor & OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.sw?
+
+# Scratch & temporary test scripts
+scratch/
+
+# Environment variables
+.env
+.env.*
