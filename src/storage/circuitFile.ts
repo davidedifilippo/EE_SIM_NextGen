@@ -1,4 +1,5 @@
 import { getDevice } from '../library/devices';
+import { normalizeModelCard } from '../library/modelImport';
 import { Circuit, Element, Pt, Rotation, SpiceModel, Wire } from '../model/types';
 
 const FORMAT = 'ee-sim-nextgen';
@@ -50,9 +51,11 @@ function parseWire(v: unknown): Wire {
   return { id: text(w.id), pts };
 }
 
+/** A card goes straight to ngspice, so a saved one gets the same cleaning as an imported one. */
 function parseModel(v: unknown): SpiceModel {
   const m = record(v);
-  return { name: text(m.name), card: text(m.card) };
+  const model = normalizeModelCard(text(m.card));
+  return model && model.name === text(m.name) ? { name: model.name, card: model.card } : fail();
 }
 
 /** Reads a saved circuit, keeping only known fields. A file comes from outside: nothing in it is trusted. */

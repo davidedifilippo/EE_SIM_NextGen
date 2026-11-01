@@ -107,6 +107,61 @@ describe('breakdown', () => {
   });
 });
 
+describe('changing model while running', () => {
+  const running = (parts: Part[], models: SpiceModel[]) => {
+    const compiled = compileCircuit(Object.assign(circuitFromNets('t', parts), { models }));
+    if (!compiled.ok) throw new Error(compiled.errors.join());
+    return compiled.compiled;
+  };
+
+  const swap = (build: (model: string) => Part[], models: SpiceModel[], from: string, to: string) => {
+    const first = new RealtimeEngine(running(build(from), models));
+    first.initialize();
+    const second = new RealtimeEngine(running(build(to), models));
+    expect(second.compiled.signature).toBe(first.compiled.signature);
+    second.adoptState(first);
+    for (let i = 0; i < 20; i++) second.step(1e-5);
+    return second;
+  };
+
+  const zener = (model: string): Part[] => [V('V1', 'a', '0', 'DC 12'), R('R1', 'a', 'z', '1k'), { def: 'zener', tag: 'D1', nets: ['0', 'z'], props: { model } }];
+  const zeners = [
+    { name: 'Z9', card: '.model Z9 D(IS=1n N=1.2 BV=9.1 IBV=20m)' },
+    { name: 'Z5', card: '.model Z5 D(IS=1n N=1.2 BV=5.1 IBV=20m)' },
+  ];
+
+  it.each([
+    ['Z9', 'Z5', 4.9, 5.2],
+    ['Z5', 'Z9', 8.9, 9.2],
+  ])('goes from %s to %s without stopping', (from, to, low, high) => {
+    const engine = swap(zener, zeners, from, to);
+    const output = engine.nodeVoltage(1);
+    expect(output).toBeGreaterThan(low);
+    expect(output).toBeLessThan(high);
+  });
+
+  it('does the same with a transistor whose saturation current jumps', () => {
+    const stage = (model: string): Part[] => [V('V1', 'c', '0', 'DC 5'), V('V2', 'b', '0', 'DC 0.75'), { def: 'npn', tag: 'Q1', nets: ['c', 'b', '0'], props: { model } }];
+    const models = [
+      { name: 'A', card: '.model A NPN(IS=1f BF=100)' },
+      { name: 'B', card: '.model B NPN(IS=1p BF=100)' },
+    ];
+    const engine = swap(stage, models, 'A', 'B');
+    expect(engine.terminalCurrents(2)[0]).toBeGreaterThan(1);
+  });
+
+  it('keeps the charge of a capacitor across the change', () => {
+    const withCap = (model: string): Part[] => [...zener(model), C('C1', 'k', '0', '1u')];
+    const parts = withCap('Z9');
+    const first = new RealtimeEngine(running(parts, zeners));
+    first.initialize();
+    const second = new RealtimeEngine(running(withCap('Z5'), zeners));
+    second.adoptState(first);
+    expect(second.time).toBe(first.time);
+    expect([...second.x]).toEqual([...first.x]);
+  });
+});
+
 describe('BJT', () => {
   const npn = (c: string, b: string, e: string, model = '.model T NPN(IS=1f BF=100)'): [Part, { name: string; card: string }[]] => [
     { def: 'npn', tag: 'Q1', nets: [c, b, e], props: { model: 'T' } },

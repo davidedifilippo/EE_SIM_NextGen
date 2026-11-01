@@ -67,8 +67,8 @@ export const App: React.FC = () => {
     return sources.length > 0 && sources.every((el) => isDcSource(el.props));
   }, [circuit]);
   const labels = useMemo(
-    () => showValues && isDc && live.layout && <DcValues circuit={circuit} layout={live.layout} frameRef={live.frameRef} />,
-    [showValues, isDc, circuit, live.layout, live.frameRef],
+    () => showValues && isDc && live.errors.length === 0 && live.layout && <DcValues circuit={circuit} layout={live.layout} frameRef={live.frameRef} />,
+    [showValues, isDc, live.errors.length, circuit, live.layout, live.frameRef],
   );
 
   const handleChange = useCallback(
@@ -141,7 +141,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         if (e.shiftKey) redo();

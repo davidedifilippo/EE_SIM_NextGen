@@ -1,5 +1,6 @@
 import { getDevice } from '../library/devices';
-import { Circuit, Element, Wire } from '../model/types';
+import { parseModelText } from '../library/modelImport';
+import { Circuit, Element, SpiceModel, Wire } from '../model/types';
 import { D1N4148 } from '../samples/halfWaveRectifier';
 
 export interface Part {
@@ -79,6 +80,8 @@ export interface TestCase {
   probes: string[];
   stop: number;
   dt: number;
+  /** Models beyond the library, as imported ones are. */
+  models?: SpiceModel[];
 }
 
 export const AGREEMENT_CASES: TestCase[] = [
@@ -252,6 +255,31 @@ export const AGREEMENT_CASES: TestCase[] = [
     probes: ['b', 'c'],
     stop: 1e-3,
     dt: 10e-6,
+  },
+  {
+    name: 'modelli importati: amplificatore e zener da 5,6 V',
+    parts: [
+      part('vsource', 'VCC', 'vcc', '0', 'DC 12'),
+      part('vsource', 'V1', 'sig', '0', 'SIN(0 20m 100)'),
+      part('capacitor', 'C1', 'sig', 'b', '10u'),
+      part('resistor', 'R1', 'vcc', 'b', '47k'),
+      part('resistor', 'R2', 'b', '0', '10k'),
+      part('resistor', 'RC', 'vcc', 'c', '2.2k'),
+      part('resistor', 'RE', 'e', '0', '470'),
+      part('capacitor', 'CE', 'e', '0', '100u'),
+      bjt('npn', 'Q1', 'c', 'b', 'e', 'BC547X'),
+      part('resistor', 'RZ', 'vcc', 'z', '1k'),
+      { def: 'zener', tag: 'D1', nets: ['0', 'z'], props: { model: 'DX5V6' } },
+    ],
+    probes: ['c', 'b', 'z'],
+    stop: 40e-3,
+    dt: 10e-6,
+    models: parseModelText(`
+.MODEL BC547X NPN (IS=1.8E-14 ISE=5.0E-14 NF=.9955 NE=1.46 BF=400 BR=35.5
++ IKF=.14 IKR=.03 ISC=1.72E-13 NC=1.27 NR=1.005 RB=.56 RE=.6 RC=.25 VAF=80 VAR=12.5
++ CJE=13p TF=.64n CJC=4p TR=50.72n Vceo=45 Icrating=100m mfg=Example)
+.model DX5V6 D(Is=1n Rs=2 N=1.2 Bv=5.6 Ibv=20m Cjo=100p Iave=500m mfg=Example)
+`).models.map(({ name, card }) => ({ name, card })),
   },
   {
     name: 'limitatore a diodi in antiparallelo',

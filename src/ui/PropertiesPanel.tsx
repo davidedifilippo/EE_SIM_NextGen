@@ -1,9 +1,11 @@
 import React from 'react';
 import { Circuit, Element } from '../model/types';
 import { getDevice } from '../library/devices';
+import { ImportedModel } from '../library/modelImport';
 import { modelsOfType } from '../library/models';
 import { LiveFrame, LiveLayout } from '../realtime/liveSimulation';
 import { LiveReadout } from './LiveControls';
+import { ModelImporter } from './ModelImporter';
 import { SourceInspector } from './SourceInspector';
 import { ValueSlider } from './ValueSlider';
 
@@ -44,22 +46,35 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
         def?.props.map((p) => {
           const value = String(single.props[p.key] ?? '');
           const setValue = (next: string, record = true) => update({ props: { ...single.props, [p.key]: next } }, record);
+          const addModels = (models: ImportedModel[]) => {
+            const names = new Set(models.map((m) => m.name));
+            // The part takes the first model it can use, as that is why it was imported
+            const usable = models.find((m) => m.type === p.modelType);
+            onChange({
+              ...circuit,
+              models: [...circuit.models.filter((m) => !names.has(m.name)), ...models.map(({ name, card }) => ({ name, card }))],
+              elements: circuit.elements.map((el) => (el.id === single.id && usable ? { ...el, props: { ...el.props, [p.key]: usable.name } } : el)),
+            });
+          };
           return (
-            <label key={p.key}>
-              {p.label}
-              {p.type === 'model' ? (
-                <select value={value} onChange={(e) => setValue(e.target.value)}>
-                  {modelsOfType(circuit, p.modelType ?? 'D').map((m) => (
-                    <option key={m.name} value={m.name}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input value={value} onChange={(e) => setValue(e.target.value)} />
-              )}
-              {def.spice.kind === 'passive' && <ValueSlider value={value} label={p.label} onChange={setValue} />}
-            </label>
+            <React.Fragment key={p.key}>
+              <label>
+                {p.label}
+                {p.type === 'model' ? (
+                  <select value={value} onChange={(e) => setValue(e.target.value)}>
+                    {modelsOfType(circuit, p.modelType ?? 'D').map((m) => (
+                      <option key={m.name} value={m.name}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input value={value} onChange={(e) => setValue(e.target.value)} />
+                )}
+                {def.spice.kind === 'passive' && <ValueSlider value={value} label={p.label} onChange={setValue} />}
+              </label>
+              {p.type === 'model' && <ModelImporter onImport={addModels} />}
+            </React.Fragment>
           );
         })}
       {single && def?.tagPrefix && (

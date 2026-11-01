@@ -72,6 +72,9 @@ const cardParam = (card: string, name: string): number | null => {
   return match && parseSpiceValue(match[1]);
 };
 
+/** A model can say 0 where the equations divide: such a value counts as not given. */
+const positive = (value: number | null, fallback: number) => (value !== null && value > 0 ? value : fallback);
+
 /**
  * The internal breakdown voltage that gives IBV at BV, solved as ngspice does: the diode's own
  * current at that point is part of the total.
@@ -93,8 +96,8 @@ function breakdownVoltage(bv: number, ibv: number, is: number, nvt: number): num
  */
 export function parseDiodeModel(card: string): DiodeParams {
   const param = (name: string, fallback: number) => cardParam(card, name) ?? fallback;
-  const is = param('IS', 1e-14);
-  const n = param('N', 1);
+  const is = positive(cardParam(card, 'IS'), 1e-14);
+  const n = positive(cardParam(card, 'N'), 1);
   const bv = cardParam(card, 'BV');
   const breakdownNvt = param('NBV', n) * THERMAL_VOLTAGE;
   return {
@@ -115,12 +118,12 @@ export function parseBjtModel(card: string, polarity: 1 | -1): BjtParams {
   const vt = THERMAL_VOLTAGE;
   return {
     polarity,
-    is: param('IS', 1e-16),
-    bf: param('BF', 100),
-    br: param('BR', 1),
+    is: positive(cardParam(card, 'IS'), 1e-16),
+    bf: positive(cardParam(card, 'BF'), 100),
+    br: positive(cardParam(card, 'BR'), 1),
     vt,
-    nfVt: param('NF', 1) * vt,
-    nrVt: param('NR', 1) * vt,
+    nfVt: positive(cardParam(card, 'NF'), 1) * vt,
+    nrVt: positive(cardParam(card, 'NR'), 1) * vt,
     ise: param('ISE', 0),
     neVt: param('NE', 1.5) * vt,
     isc: param('ISC', 0),

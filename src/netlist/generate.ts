@@ -96,7 +96,7 @@ export function generateNetlist(circuit: Circuit, analysis: TranAnalysis): Netli
 
   const useModel = (tag: string, name: string, type: ModelType) => {
     const model = findModel(circuit, name);
-    if (!model) {
+    if (!model || !isSingleLine(name)) {
       errors.push(`${tag}: modello non definito "${name}"`);
       return null;
     }

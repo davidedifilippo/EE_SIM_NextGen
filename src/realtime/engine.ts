@@ -385,6 +385,15 @@ export class RealtimeEngine {
     this.iPrev.set(previous.iPrev);
     this.vIter.set(previous.vIter);
     this.vIterBc.set(previous.vIterBc);
+    // With another model the old junction voltage can sit far up the new exponential, where
+    // Newton has nothing to hold on to: from zero, the limiter walks there safely
+    this.compiled.devices.forEach((d, i) => {
+      const before = previous.compiled.devices[i];
+      if ((d.kind === 'diode' || d.kind === 'bjt') && before.kind === d.kind && JSON.stringify(before.params) !== JSON.stringify(d.params)) {
+        this.vIter[i] = 0;
+        this.vIterBc[i] = 0;
+      }
+    });
   }
 
   /** Advances by h, splitting the step if Newton does not converge. */

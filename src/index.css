@@ -241,6 +241,10 @@ button.close-results {
   gap: 4px;
 }
 
+.values-toggle input {
+  min-height: 0;
+}
+
 .live-readout {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -319,6 +323,41 @@ button.close-results {
 
 .properties input[aria-invalid='true'] {
   border-color: #dc2626;
+}
+
+.model-importer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.model-importer textarea {
+  width: 100%;
+  padding: 6px;
+  font: 12px ui-monospace, Menlo, monospace;
+  color: #0f172a;
+  resize: vertical;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+}
+
+.model-importer .button-row {
+  flex-wrap: wrap;
+}
+
+.import-report {
+  margin: 0;
+  padding: 6px 6px 6px 18px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  color: #334155;
+  background: #f1f5f9;
+  border-radius: 6px;
+}
+
+.import-report.failed {
+  color: #991b1b;
+  background: #fef2f2;
 }
 
 .shape-picker {

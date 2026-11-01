@@ -19,6 +19,7 @@ function interpolate(time: number[], values: number[], t: number, cursor: { i: n
 
 async function compare(testCase: TestCase) {
   const circuit = circuitFromNets(testCase.name, testCase.parts);
+  circuit.models.push(...(testCase.models ?? []));
   const netlist = generateNetlist(circuit, { type: 'tran', step: String(testCase.dt), stop: String(testCase.stop), maxStep: String(testCase.dt) });
   expect(netlist.errors).toEqual([]);
   const spice = await runTransient(netlist.text);
