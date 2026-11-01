@@ -18,6 +18,7 @@ const VENDOR_STYLE = `
 .SUBCKT OPA 1 2 3
 .model INSIDE NPN(IS=1f)
 Q1 1 2 3 INSIDE
+R1 1 2 1k
 .ENDS OPA
 `;
 
@@ -64,13 +65,87 @@ describe('parseModelText', () => {
   });
 });
 
+// The shape of the models Diotec publishes, with values of a made up part
+const DATASHEET_WRAPPER = `
+* Example part
+.subckt PARTX  C  B  E  params: Vceo=45 Vcbo=50 Vebo=5 Ic=100m hfe=450 Ices=.2n Vbe=580m ft=300Meg Ccbo=3.5p Cebo=9p Rc=1 Rb=.1 Re=.1 Eg=1.11 Xti=3
+
+* Vceo  Collector Emitter voltage, Base open
+
+Q  C B E  Transistor
+
+.model Transistor NPN(Is={Ices/2} Bf={hfe} Bvcbo={Vcbo} Bvbe={-Vebo} Vceo={Vceo} Vje={Vbe} Tf={1/(2*pi*ft)} Eg={Eg} Xti={Xti} Icrating={Ic} Cjc={Ccbo*2} Cje={Cebo*2} Rc={Rc} Rb={Rb} Re={Re} mfg=Example type=npn)
+
+.ends
+`;
+
+describe('a subcircuit that only wraps one part', () => {
+  const { models, skipped } = parseModelText(DATASHEET_WRAPPER);
+
+  it('becomes a model with the name of the subcircuit', () => {
+    expect(skipped).toEqual([]);
+    expect(models.map((m) => [m.name, m.type])).toEqual([['PARTX', 'NPN']]);
+  });
+
+  it('computes the values from the datasheet parameters', () => {
+    const { card } = models[0];
+    expect(card).toMatch(/^\.model PARTX NPN\(/);
+    expect(card).toContain('BF=450');
+    expect(card).toMatch(/IS=1(\.0+\d*)?e-10/);
+    expect(card).toContain('VJE=0.58');
+    expect(card).toContain('RC=1');
+    const tf = /TF=(\S+)/.exec(card)![1];
+    expect(Number(tf)).toBeCloseTo(1 / (2 * Math.PI * 300e6), 15);
+  });
+
+  it('leaves out what ngspice would not accept', () => {
+    expect(models[0].ignored).toEqual(['Bvcbo', 'Bvbe', 'Vceo', 'Icrating', 'mfg', 'type']);
+  });
+
+  it('runs in ngspice', async () => {
+    const netlist = `t\nV1 c 0 DC 5\nRB c b 430k\nQ1 c b 0 PARTX\n${models[0].card}\n.tran 10u 100u\n.end\n`;
+    const result = await runTransient(netlist);
+    expect(result.voltages.get('b')![result.time.length - 1]).toBeGreaterThan(0.2);
+  });
+
+  it.each([
+    ['another device too', '.subckt X C B E\nQ C B E M\nR1 C B 1k\n.model M NPN(IS=1f)\n.ends'],
+    ['pins in another order', '.subckt X B C E\nQ C B E M\n.model M NPN(IS=1f)\n.ends'],
+    ['a fourth pin on the transistor', '.subckt X C B E S\nQ C B E S M\n.model M NPN(IS=1f)\n.ends'],
+    ['a model defined elsewhere', '.subckt X C B E\nQ C B E M\n.ends'],
+    ['a diode with a transistor model', '.subckt X A K\nD A K M\n.model M NPN(IS=1f)\n.ends'],
+    ['a device option', '.subckt X C B E\nQ C B E M area=2\n.model M NPN(IS=1f)\n.ends'],
+  ])('stays a subcircuit with %s', (_, text) => {
+    const read = parseModelText(text);
+    expect(read.models).toEqual([]);
+    expect(read.skipped).toEqual(['X: i sottocircuiti non sono ancora supportati']);
+  });
+
+  it('also unwraps a diode, with parameters from a .param line', () => {
+    const read = parseModelText('.subckt Z A K\n.param vz=4.7\nD A K M\n.model M D(BV={vz})\n.ends');
+    expect(read.models[0]).toMatchObject({ name: 'Z', card: '.model Z D(BV=4.7)' });
+  });
+});
+
+describe('expressions', () => {
+  it('uses .param lines for models outside subcircuits', () => {
+    expect(parseModelText('.param gain=200\n.model A NPN(BF={gain*2})').models[0].card).toBe('.model A NPN(BF=400)');
+  });
+
+  it('never imports an empty model: what cannot be computed is reported', () => {
+    const read = parseModelText('.model Transistor NPN(Is={Ices/2} Bf={hfe} Rc=1)');
+    expect(read.models).toEqual([]);
+    expect(read.skipped).toEqual(['Transistor: valori non calcolabili per Is, Bf']);
+  });
+});
+
 describe('normalizeModelCard', () => {
   it.each(['.model A', '.model bad\nname D(IS=1)', 'R1 a b 1k', '.model a;b D(IS=1)', '.model A NMOS(VTO=1)'])('refuses %j', (card) => {
     expect(normalizeModelCard(card)).toBeNull();
   });
 
   it('leaves out values that are not numbers', () => {
-    expect(normalizeModelCard('.model A D(IS={x} RS=1)')).toMatchObject({ card: '.model A D(RS=1)', ignored: ['IS'] });
+    expect(normalizeModelCard('.model A D(IS=abc RS=1)')).toMatchObject({ card: '.model A D(RS=1)', ignored: ['IS'] });
   });
 
   it('cannot carry a second line', () => {
