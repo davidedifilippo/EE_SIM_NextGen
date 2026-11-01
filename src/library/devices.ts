@@ -149,8 +149,13 @@ export const DEVICES: ComponentDef[] = [
     id: 'pnp',
     name: 'PNP',
     tagPrefix: 'Q',
-    terminals: BJT_TERMINALS,
-    symbol: [...BJT_BODY, { t: 'path', d: 'M -6 6 L 7 8 L 2 16 Z', fill: '#0f172a' }],
+    // Emitter on top, where a PNP is drawn: towards the positive supply
+    terminals: [
+      { id: 'collector', x: 20, y: 40 },
+      { id: 'base', x: -40, y: 0 },
+      { id: 'emitter', x: 20, y: -40 },
+    ],
+    symbol: [...BJT_BODY, { t: 'path', d: 'M -6 -6 L 7 -8 L 2 -16 Z', fill: '#0f172a' }],
     props: [{ key: 'model', label: 'Modello', type: 'model', default: '2N3906', modelType: 'PNP' }],
     spice: { kind: 'bjt', collector: 'collector', base: 'base', emitter: 'emitter', modelProp: 'model', modelType: 'PNP' },
   },
