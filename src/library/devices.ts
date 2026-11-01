@@ -42,6 +42,25 @@ const BJT_BODY: Prim[] = [
   { t: 'line', x1: 20, y1: 20, x2: 20, y2: 40 },
 ];
 
+const MOS_TERMINALS = [
+  { id: 'drain', x: 20, y: -40 },
+  { id: 'gate', x: -40, y: 0 },
+  { id: 'source', x: 20, y: 40 },
+];
+
+const MOS_BODY: Prim[] = [
+  { t: 'line', x1: -40, y1: 0, x2: -12, y2: 0 },
+  { t: 'line', x1: -12, y1: -14, x2: -12, y2: 14, w: 2 },
+  { t: 'line', x1: -6, y1: -16, x2: -6, y2: -6, w: 3 },
+  { t: 'line', x1: -6, y1: -4, x2: -6, y2: 4, w: 3 },
+  { t: 'line', x1: -6, y1: 6, x2: -6, y2: 16, w: 3 },
+  { t: 'line', x1: -6, y1: -12, x2: 20, y2: -12 },
+  { t: 'line', x1: 20, y1: -12, x2: 20, y2: -40 },
+  { t: 'line', x1: -6, y1: 12, x2: 20, y2: 12 },
+  { t: 'line', x1: 20, y1: 12, x2: 20, y2: 40 },
+  { t: 'line', x1: -6, y1: 0, x2: 20, y2: 0 },
+];
+
 export const DEVICES: ComponentDef[] = [
   {
     id: 'resistor',
@@ -134,6 +153,30 @@ export const DEVICES: ComponentDef[] = [
     symbol: [...BJT_BODY, { t: 'path', d: 'M -6 6 L 7 8 L 2 16 Z', fill: '#0f172a' }],
     props: [{ key: 'model', label: 'Modello', type: 'model', default: '2N3906', modelType: 'PNP' }],
     spice: { kind: 'bjt', collector: 'collector', base: 'base', emitter: 'emitter', modelProp: 'model', modelType: 'PNP' },
+  },
+  {
+    id: 'nmos',
+    name: 'MOS N',
+    tagPrefix: 'M',
+    terminals: MOS_TERMINALS,
+    // The middle line is the bulk, tied to the source
+    symbol: [...MOS_BODY, { t: 'line', x1: 20, y1: 0, x2: 20, y2: 12 }, { t: 'path', d: 'M -6 0 L 4 -5 L 4 5 Z', fill: '#0f172a' }],
+    props: [{ key: 'model', label: 'Modello', type: 'model', default: 'MN1', modelType: 'NMOS' }],
+    spice: { kind: 'mos', drain: 'drain', gate: 'gate', source: 'source', modelProp: 'model', modelType: 'NMOS' },
+  },
+  {
+    id: 'pmos',
+    name: 'MOS P',
+    tagPrefix: 'M',
+    // Source on top, where a P channel is drawn: towards the positive supply
+    terminals: [
+      { id: 'drain', x: 20, y: 40 },
+      { id: 'gate', x: -40, y: 0 },
+      { id: 'source', x: 20, y: -40 },
+    ],
+    symbol: [...MOS_BODY, { t: 'line', x1: 20, y1: 0, x2: 20, y2: -12 }, { t: 'path', d: 'M 6 0 L -4 -5 L -4 5 Z', fill: '#0f172a' }],
+    props: [{ key: 'model', label: 'Modello', type: 'model', default: 'MP1', modelType: 'PMOS' }],
+    spice: { kind: 'mos', drain: 'drain', gate: 'gate', source: 'source', modelProp: 'model', modelType: 'PMOS' },
   },
   {
     id: 'ground',

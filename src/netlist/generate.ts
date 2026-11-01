@@ -1,6 +1,6 @@
 import { Circuit, ModelType, SpiceModel } from '../model/types';
 import { getDevice } from '../library/devices';
-import { findModel, modelType } from '../library/models';
+import { findModel, isVdmos, modelType } from '../library/models';
 import { computeConnectivity, terminalKey } from './connectivity';
 import { sourceSpec } from './source';
 
@@ -146,6 +146,15 @@ export function generateNetlist(circuit: Circuit, analysis: TranAnalysis): Netli
         if (model === null) break;
         const name = uniqueName('Q', el.tag);
         if (name) lines.push(`${name} ${node(s.collector)} ${node(s.base)} ${node(s.emitter)} ${model}`);
+        break;
+      }
+      case 'mos': {
+        const model = useModel(el.tag, String(el.props[s.modelProp] ?? '').trim(), s.modelType);
+        if (model === null) break;
+        const name = uniqueName('M', el.tag);
+        // A VDMOS has three terminals; a MOSFET has a fourth for the bulk, tied here to the source
+        const bulk = isVdmos(usedModels.get(model)!.card) ? '' : ` ${node(s.source)}`;
+        if (name) lines.push(`${name} ${node(s.drain)} ${node(s.gate)} ${node(s.source)}${bulk} ${model}`);
         break;
       }
     }

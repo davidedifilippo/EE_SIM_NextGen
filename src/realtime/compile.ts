@@ -1,6 +1,6 @@
 import { Circuit, ModelType } from '../model/types';
 import { getDevice } from '../library/devices';
-import { findModel, modelType } from '../library/models';
+import { findModel, isVdmos, modelType } from '../library/models';
 import { computeConnectivity, terminalKey } from '../netlist/connectivity';
 import { sourceSpec } from '../netlist/source';
 import { parseSpiceValue } from '../netlist/values';
@@ -45,6 +45,26 @@ export interface BjtParams {
   re: number;
 }
 
+/** Shichman-Hodges: the level 1 MOSFET and, with the smooth threshold, the VDMOS. */
+export interface MosParams {
+  polarity: 1 | -1;
+  beta: number;
+  /** Threshold in the sign of the N channel. */
+  vth: number;
+  lambda: number;
+  rd: number;
+  rs: number;
+  /** Width of the smooth threshold; 0 for a sharp one. */
+  subthreshold: number;
+  /** Scales the drain voltage in the triode region. */
+  mtriode: number;
+  /** A VDMOS applies lambda with the sign of the actual drain voltage. */
+  signedLambda: boolean;
+  /** Series resistance of the body diode, on a VDMOS only. */
+  rb: number;
+  body: DiodeParams;
+}
+
 export type CompiledDevice =
   | { kind: 'resistor'; element: number; a: NodeIndex; b: NodeIndex; g: number }
   | { kind: 'capacitor'; element: number; a: NodeIndex; b: NodeIndex; c: number }
@@ -53,7 +73,9 @@ export type CompiledDevice =
   /** a is the external anode, junction the node after the series resistance (a itself if rs is 0). */
   | { kind: 'diode'; element: number; a: NodeIndex; junction: NodeIndex; b: NodeIndex; params: DiodeParams }
   /** a is the collector and b the emitter; the primed nodes come after the series resistances. */
-  | { kind: 'bjt'; element: number; a: NodeIndex; b: NodeIndex; base: NodeIndex; cp: NodeIndex; bp: NodeIndex; ep: NodeIndex; params: BjtParams };
+  | { kind: 'bjt'; element: number; a: NodeIndex; b: NodeIndex; base: NodeIndex; cp: NodeIndex; bp: NodeIndex; ep: NodeIndex; params: BjtParams }
+  /** a is the drain, b the source and base the gate; the primed nodes come after the series resistances, bodyNode after that of the body diode. */
+  | { kind: 'mos'; element: number; a: NodeIndex; b: NodeIndex; base: NodeIndex; dp: NodeIndex; sp: NodeIndex; bodyNode: NodeIndex; params: MosParams };
 
 export interface CompiledCircuit {
   /** Node voltages followed by branch currents. */
@@ -138,6 +160,45 @@ export function parseBjtModel(card: string, polarity: 1 | -1): BjtParams {
     rb: param('RB', 0),
     rc: param('RC', 0),
     re: param('RE', 0),
+  };
+}
+
+/** Width and length SPICE assumes when a device line gives none. */
+const DEFAULT_CHANNEL = 100e-6;
+const SILICON_OXIDE_PERMITTIVITY = 3.9 * 8.854214871e-12;
+
+/** Same selection as the other models. Junction and gate capacitances, THETA, RQ and temperature are left out. */
+export function parseMosModel(card: string, polarity: 1 | -1): MosParams {
+  const param = (name: string, fallback: number) => cardParam(card, name) ?? fallback;
+  const vdmos = isVdmos(card);
+  const n = positive(cardParam(card, 'N'), 1);
+  const is = positive(cardParam(card, 'IS'), 1e-14);
+  const bv = cardParam(card, 'BV');
+  const nvt = n * THERMAL_VOLTAGE;
+  const breakdownNvt = param('NBV', n) * THERMAL_VOLTAGE;
+
+  let kp = cardParam(card, 'KP');
+  if (kp === null && !vdmos && cardParam(card, 'TOX')) {
+    kp = (param('UO', param('U0', 600)) * 1e-4 * SILICON_OXIDE_PERMITTIVITY) / param('TOX', 1e-7);
+  }
+  const effectiveLength = DEFAULT_CHANNEL - 2 * (vdmos ? 0 : param('LD', 0));
+  return {
+    polarity,
+    beta: vdmos ? (kp ?? 1) : ((kp ?? 2e-5) * DEFAULT_CHANNEL) / effectiveLength,
+    vth: polarity * param('VTO', param('VT0', 0)),
+    lambda: param('LAMBDA', 0),
+    rd: param('RD', 0),
+    rs: param('RS', 0),
+    subthreshold: vdmos ? param('KSUBTHRES', 0.1) : 0,
+    mtriode: vdmos ? positive(cardParam(card, 'MTRIODE'), 1) : 1,
+    signedLambda: vdmos,
+    rb: vdmos ? param('RB', 0) : 0,
+    body: {
+      is,
+      nvt,
+      rs: 0,
+      breakdown: vdmos && bv !== null && bv > 0 ? { voltage: breakdownVoltage(bv, param('IBV', 1e-10), is, breakdownNvt), nvt: breakdownNvt } : null,
+    },
   };
 }
 
@@ -238,6 +299,23 @@ export function compileCircuit(circuit: Circuit): CompileResult {
         });
         break;
       }
+      case 'mos': {
+        const card = modelCard(el.tag, String(el.props[s.modelProp] ?? ''), s.modelType);
+        if (!card) break;
+        const params = parseMosModel(card, s.modelType === 'NMOS' ? 1 : -1);
+        const [a, base, b] = [node(s.drain), node(s.gate), node(s.source)];
+        pending.push({
+          element,
+          needsBranch: false,
+          build: (_, nextNode) => {
+            const dp = params.rd > 0 ? nextNode() : a;
+            const sp = params.rs > 0 ? nextNode() : b;
+            const bodyNode = params.rb > 0 ? nextNode() : isVdmos(card) ? a : dp;
+            return { kind: 'mos', element, a, b, base, params, dp, sp, bodyNode };
+          },
+        });
+        break;
+      }
     }
   }
   if (errors.length > 0) return { ok: false, errors };
@@ -257,7 +335,7 @@ export function compileCircuit(circuit: Circuit): CompileResult {
 
   const signature = JSON.stringify([
     branch,
-    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : 0]),
+    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : 0]),
   ]);
   return { ok: true, compiled: { size: branch, devices, netIndex, elementIds, signature } };
 }

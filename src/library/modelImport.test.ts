@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { runTransient } from '../engine/ngspice';
 import { describeImport, normalizeModelCard, parseModelText } from './modelImport';
-import { modelType } from './models';
+import { isVdmos, modelType } from './models';
 
 const VENDOR_STYLE = `
 * A library file in the usual style
@@ -14,7 +14,7 @@ const VENDOR_STYLE = `
 
 .model DX5V6 D(Is=1n Rs=2 N=1.2 Bv=5.6 Ibv=20m Cjo=100p Iave=500m Vpk=5.6 mfg=Example type=zener)
 .model QP pnp is=1f bf=120
-.MODEL M1 NMOS (VTO=2)
+.MODEL J1 NJF (VTO=-2)
 .SUBCKT OPA 1 2 3
 .model INSIDE NPN(IS=1f)
 Q1 1 2 3 INSIDE
@@ -52,7 +52,7 @@ describe('parseModelText', () => {
   });
 
   it('explains what it cannot use', () => {
-    expect(skipped).toEqual(['M1: modello NMOS non ancora supportato', 'OPA: i sottocircuiti non sono ancora supportati']);
+    expect(skipped).toEqual(['J1: modello NJF non ancora supportato', 'OPA: i sottocircuiti non sono ancora supportati']);
   });
 
   it('finds nothing in text without models', () => {
@@ -168,6 +168,45 @@ describe('AKO models', () => {
   });
 });
 
+describe('MOSFET models', () => {
+  it('takes level 1 parameters and leaves out the rest', () => {
+    expect(normalizeModelCard('.model M NMOS(VTO=2 KP=20u NFS=1 mfg=X)')).toMatchObject({ type: 'NMOS', card: '.model M NMOS(VTO=2 KP=20u)', ignored: ['NFS', 'mfg'] });
+  });
+
+  it('accepts only level 1, saying why', () => {
+    expect(parseModelText('.model M NMOS(LEVEL=1 VTO=2)').models).toHaveLength(1);
+    expect(parseModelText('.model M NMOS(VTO=2)').models).toHaveLength(1);
+    expect(parseModelText('.model M PMOS(LEVEL=3 VTO=-2)')).toEqual({ models: [], skipped: ['M: per i MOSFET è supportato solo il livello 1, questo è il 3'] });
+  });
+
+  it('reads a VDMOS as the channel it has', () => {
+    const [n, p] = parseModelText('.model A VDMOS(Vto=2 Kp=1 mfg=X Vds=60)\n.model B VDMOS(pchan Vto=-2 Kp=1)').models;
+    expect(n).toMatchObject({ type: 'NMOS', card: '.model A VDMOS(VTO=2 KP=1)', ignored: ['mfg', 'Vds'] });
+    expect(p).toMatchObject({ type: 'PMOS', card: '.model B VDMOS(PCHAN VTO=-2 KP=1)' });
+    expect(modelType(p.card)).toBe('PMOS');
+    expect(isVdmos(p.card)).toBe(true);
+    expect(isVdmos('.model M NMOS(VTO=2)')).toBe(false);
+  });
+
+  it('keeps the channel through AKO', () => {
+    const { models } = parseModelText('.model B VDMOS(pchan Vto=-2 Kp=1)\n.model C ako:B(Kp=2)');
+    expect(models[1]).toMatchObject({ type: 'PMOS', card: '.model C VDMOS(PCHAN VTO=-2 KP=2)' });
+  });
+
+  it('unwraps a subcircuit around a VDMOS, but not around an NMOS that needs a bulk', () => {
+    expect(parseModelText('.subckt X D G S\nM1 D G S V\n.model V VDMOS(Vto=2)\n.ends').models[0]).toMatchObject({ name: 'X', type: 'NMOS' });
+    expect(parseModelText('.subckt X D G S\nM1 D G S N\n.model N NMOS(VTO=2)\n.ends').models).toEqual([]);
+  });
+
+  it('runs in ngspice in both forms', async () => {
+    const { models } = parseModelText('.model A VDMOS(Vto=2 Kp=.5 mfg=X Vds=60 Ron=2)\n.model B NMOS(VTO=2 KP=.5 mfg=X)');
+    const netlist = `t\nVD d 0 DC 5\nVG g 0 DC 3\nR1 d x 100\nM1 x g 0 A\nR2 d y 100\nM2 y g 0 0 B\n${models.map((m) => m.card).join('\n')}\n.tran 10u 100u\n.end\n`;
+    const result = await runTransient(netlist);
+    expect(result.voltages.get('x')![result.time.length - 1]).toBeLessThan(5);
+    expect(result.voltages.get('y')![result.time.length - 1]).toBeLessThan(5);
+  });
+});
+
 describe('names from other simulators', () => {
   it('keeps NK of a transistor under the name ngspice knows', () => {
     expect(normalizeModelCard('.model A NPN(BF=100 Nk=0.6)')).toMatchObject({ card: '.model A NPN(BF=100 NKF=0.6)', ignored: [] });
@@ -184,13 +223,13 @@ describe('describeImport', () => {
   });
 
   it('groups models that lost the same parameters', () => {
-    const lines = describeImport(parseModelText('.model A D(mfg=X Iave=1)\n.model B D(mfg=X Iave=2)\n.model C D(Vpk=1)\n.model E D(IS=1n)\n.model M NMOS(VTO=1)'));
-    expect(lines).toEqual(['Importati 4 modelli: A, B, C, E', '2 modelli: ignorati mfg, Iave', 'C: ignorati Vpk', 'M: modello NMOS non ancora supportato']);
+    const lines = describeImport(parseModelText('.model A D(mfg=X Iave=1)\n.model B D(mfg=X Iave=2)\n.model C D(Vpk=1)\n.model E D(IS=1n)\n.model M NJF(VTO=1)'));
+    expect(lines).toEqual(['Importati 4 modelli: A, B, C, E', '2 modelli: ignorati mfg, Iave', 'C: ignorati Vpk', 'M: modello NJF non ancora supportato']);
   });
 });
 
 describe('normalizeModelCard', () => {
-  it.each(['.model A', '.model bad\nname D(IS=1)', 'R1 a b 1k', '.model a;b D(IS=1)', '.model A NMOS(VTO=1)'])('refuses %j', (card) => {
+  it.each(['.model A', '.model bad\nname D(IS=1)', 'R1 a b 1k', '.model a;b D(IS=1)', '.model A NJF(VTO=1)'])('refuses %j', (card) => {
     expect(normalizeModelCard(card)).toBeNull();
   });
 

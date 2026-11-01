@@ -1,4 +1,4 @@
-import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams } from './compile';
+import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams, MosParams } from './compile';
 import { luFactor, luSolve } from './linear';
 
 /** Same default as SPICE: minimum conductance across a junction. */
@@ -99,6 +99,64 @@ function bjtOperatingPoint(p: BjtParams, vbe: number, vbc: number) {
   };
 }
 
+/** Keeps a gate voltage from jumping across the threshold in one iteration, as SPICE's FETLIM does. */
+function limitGate(next: number, old: number, vth: number): number {
+  const high = Math.abs(2 * (old - vth)) + 2;
+  const low = high / 2 + 2;
+  const on = vth + 3.5;
+  const delta = next - old;
+  if (old >= vth) {
+    if (old >= on) {
+      if (delta <= 0) return next >= on ? (-delta > low ? old - low : next) : Math.max(next, vth + 2);
+      return delta >= high ? old + high : next;
+    }
+    return delta <= 0 ? Math.max(next, vth - 0.5) : Math.min(next, vth + 4);
+  }
+  if (delta <= 0) return -delta > high ? old - high : next;
+  const edge = vth + 0.5;
+  return next <= edge ? (delta > low ? old + low : next) : edge;
+}
+
+/** Same for a drain voltage, as SPICE's LIMVDS does. */
+function limitDrain(next: number, old: number): number {
+  if (old >= 3.5) return next > old ? Math.min(next, 3 * old + 2) : next < 3.5 ? Math.max(next, 2) : next;
+  return next > old ? Math.min(next, 4) : Math.max(next, -0.5);
+}
+
+/** Channel current and conductances, with drain and source exchanged when the drain goes below the source. */
+function mosOperatingPoint(p: MosParams, vgs: number, vds: number) {
+  const isReversed = vds < 0;
+  const [vControl, vChannel] = isReversed ? [vgs - vds, -vds] : [vgs, vds];
+  const lambda = isReversed && p.signedLambda ? -p.lambda : p.lambda;
+
+  const over = vControl - p.vth;
+  let [vgst, dVgst] = [over, 1];
+  if (p.subthreshold > 0) {
+    const arg = over / p.subthreshold;
+    if (arg < 40) {
+      const e = Math.exp(arg);
+      vgst = p.subthreshold * Math.log1p(e);
+      dVgst = e / (1 + e);
+    }
+  }
+
+  let [id, gm, gds] = [0, 0, 0];
+  if (vgst > 0) {
+    const betap = p.beta * (1 + lambda * vChannel);
+    const vEff = vChannel * p.mtriode;
+    if (vgst <= vEff) {
+      id = (betap * vgst * vgst) / 2;
+      gm = betap * vgst * dVgst;
+      gds = (lambda * p.beta * vgst * vgst) / 2;
+    } else {
+      id = betap * vEff * (vgst - vEff / 2);
+      gm = betap * vEff * dVgst;
+      gds = betap * p.mtriode * (vgst - vEff) + lambda * p.beta * vEff * (vgst - vEff / 2);
+    }
+  }
+  return { id, gm, gds, isReversed };
+}
+
 /**
  * Modified nodal analysis with Newton-Raphson. Capacitors and inductors use trapezoidal
  * companion models, the default integration method of ngspice.
@@ -121,8 +179,10 @@ export class RealtimeEngine {
   private readonly vPrev: Float64Array;
   private readonly iPrev: Float64Array;
   private readonly vIter: Float64Array;
-  /** Base-collector junction voltage of a transistor. */
+  /** Base-collector junction voltage of a bipolar transistor, drain-source voltage of a MOSFET. */
   private readonly vIterBc: Float64Array;
+  /** Body diode voltage of a MOSFET. */
+  private readonly vIterBody: Float64Array;
 
   /** Step the base matrix is stamped for; 0 means the DC operating point. */
   private stampedStep: number | null = null;
@@ -141,12 +201,14 @@ export class RealtimeEngine {
     this.iPrev = new Float64Array(devices.length);
     this.vIter = new Float64Array(devices.length);
     this.vIterBc = new Float64Array(devices.length);
+    this.vIterBody = new Float64Array(devices.length);
     this.vCrit = new Float64Array(devices.length);
     devices.forEach((d, i) => {
       if (d.kind === 'diode') this.vCrit[i] = criticalVoltage(d.params.is, d.params.nvt);
+      else if (d.kind === 'mos') this.vCrit[i] = criticalVoltage(d.params.body.is, d.params.body.nvt);
       else if (d.kind === 'bjt') this.vCrit[i] = criticalVoltage(d.params.is, d.params.vt);
     });
-    this.isNonlinear = devices.some((d) => d.kind === 'diode' || d.kind === 'bjt');
+    this.isNonlinear = devices.some((d) => d.kind === 'diode' || d.kind === 'bjt' || d.kind === 'mos');
   }
 
   private voltage(node: number): number {
@@ -204,6 +266,11 @@ export class RealtimeEngine {
           if (d.params.rc > 0) this.addG(d.a, d.cp, 1 / d.params.rc);
           if (d.params.rb > 0) this.addG(d.base, d.bp, 1 / d.params.rb);
           if (d.params.re > 0) this.addG(d.b, d.ep, 1 / d.params.re);
+          break;
+        case 'mos':
+          if (d.params.rd > 0) this.addG(d.a, d.dp, 1 / d.params.rd);
+          if (d.params.rs > 0) this.addG(d.b, d.sp, 1 / d.params.rs);
+          if (d.params.rb > 0) this.addG(d.a, d.bodyNode, 1 / d.params.rb);
           break;
       }
     });
@@ -281,12 +348,63 @@ export class RealtimeEngine {
     return vbe !== rawBe || vbc !== rawBc;
   }
 
+  /** Adds the linearized MOSFET and its body diode, which runs from source to drain on an N channel. */
+  private stampMos(i: number, d: Extract<CompiledDevice, { kind: 'mos' }>): boolean {
+    const { polarity, vth, body } = d.params;
+    const [vg, vd, vs] = [this.voltage(d.base), this.voltage(d.dp), this.voltage(d.sp)];
+    const [rawGs, rawDs] = [polarity * (vg - vs), polarity * (vd - vs)];
+    const [oldGs, oldDs] = [this.vIter[i], this.vIterBc[i]];
+    let [vgs, vds] = [rawGs, rawDs];
+    if (oldDs >= 0) {
+      vgs = limitGate(rawGs, oldGs, vth);
+      vds = limitDrain(rawDs, oldDs);
+    } else {
+      // Below the source the drain acts as the source: the same limits, seen from there
+      const vgd = limitGate(rawGs - rawDs, oldGs - oldDs, vth);
+      // Recomputed only if limited: rounding would otherwise read as a change and Newton would never stop
+      if (vgd !== rawGs - rawDs) vds = rawGs - vgd;
+      vds = -limitDrain(-vds, -oldDs);
+    }
+    this.vIter[i] = vgs;
+    this.vIterBc[i] = vds;
+
+    const { id, gm, gds, isReversed } = mosOperatingPoint(d.params, vgs, vds);
+    // Current into the drain, by terminal voltages: the two modes only exchange the roles of drain and source
+    const [dVg, dVd, dVs] = isReversed ? [-gm, gm + gds, -gds] : [gm, gds, -(gm + gds)];
+    const nodeCurrent = isReversed ? -id : id;
+    const idEq = polarity * (nodeCurrent - dVg * vgs - dVd * vds);
+    // Conductances against vgs and vds: vs does not appear because they are relative to the source
+    this.addLu(d.dp, d.base, dVg);
+    this.addLu(d.dp, d.dp, dVd);
+    this.addLu(d.dp, d.sp, dVs);
+    this.addLu(d.sp, d.base, -dVg);
+    this.addLu(d.sp, d.dp, -dVd);
+    this.addLu(d.sp, d.sp, -dVs);
+    this.addRhs(d.dp, -idEq);
+    this.addRhs(d.sp, idEq);
+
+    const rawBody = polarity * (this.voltage(d.b) - this.voltage(d.bodyNode));
+    const vBody = limitDiode(rawBody, this.vIterBody[i], body, this.vCrit[i]);
+    this.vIterBody[i] = vBody;
+    const point = diodeOperatingPoint(vBody, body);
+    const g = point.g + GMIN;
+    const iEq = polarity * (point.i + GMIN * vBody - g * vBody);
+    this.addLu(d.b, d.b, g);
+    this.addLu(d.b, d.bodyNode, -g);
+    this.addLu(d.bodyNode, d.b, -g);
+    this.addLu(d.bodyNode, d.bodyNode, g);
+    this.addRhs(d.b, -iEq);
+    this.addRhs(d.bodyNode, iEq);
+    return vgs !== rawGs || vds !== rawDs || vBody !== rawBody;
+  }
+
   /** Adds the linearized diodes and transistors to the LU copy of the matrix and to the right-hand side. */
   private stampNonlinear(): boolean {
     const { lu, rhs, n } = this;
     let limited = false;
     this.compiled.devices.forEach((d, i) => {
       if (d.kind === 'bjt' && this.stampBjt(i, d)) limited = true;
+      if (d.kind === 'mos' && this.stampMos(i, d)) limited = true;
       if (d.kind !== 'diode') return;
       const raw = this.voltage(d.junction) - this.voltage(d.b);
       const v = limitDiode(raw, this.vIter[i], d.params, this.vCrit[i]);
@@ -368,11 +486,13 @@ export class RealtimeEngine {
     this.x.fill(0);
     this.vIter.fill(0);
     this.vIterBc.fill(0);
+    this.vIterBody.fill(0);
     if (!this.solve(this.time, 0, 1)) {
       // Source stepping: bring the sources up gradually, each solution seeding the next
       this.x.fill(0);
       this.vIter.fill(0);
       this.vIterBc.fill(0);
+      this.vIterBody.fill(0);
       for (let scale = 0.1; scale < 1.05; scale += 0.1) {
         if (!this.solve(this.time, 0, Math.min(scale, 1))) throw new SolverError('Punto di lavoro non trovato');
       }
@@ -388,13 +508,15 @@ export class RealtimeEngine {
     this.iPrev.set(previous.iPrev);
     this.vIter.set(previous.vIter);
     this.vIterBc.set(previous.vIterBc);
+    this.vIterBody.set(previous.vIterBody);
     // With another model the old junction voltage can sit far up the new exponential, where
     // Newton has nothing to hold on to: from zero, the limiter walks there safely
     this.compiled.devices.forEach((d, i) => {
       const before = previous.compiled.devices[i];
-      if ((d.kind === 'diode' || d.kind === 'bjt') && before.kind === d.kind && JSON.stringify(before.params) !== JSON.stringify(d.params)) {
+      if ((d.kind === 'diode' || d.kind === 'bjt' || d.kind === 'mos') && before.kind === d.kind && JSON.stringify(before.params) !== JSON.stringify(d.params)) {
         this.vIter[i] = 0;
         this.vIterBc[i] = 0;
+        this.vIterBody[i] = 0;
       }
     });
   }
@@ -404,6 +526,7 @@ export class RealtimeEngine {
     this.start.set(this.x);
     const startIter = this.vIter.slice();
     const startIterBc = this.vIterBc.slice();
+    const startIterBody = this.vIterBody.slice();
     if (this.solve(this.time + h, h, 1)) {
       this.commit(h);
       this.time += h;
@@ -413,6 +536,7 @@ export class RealtimeEngine {
     this.x.set(this.start);
     this.vIter.set(startIter);
     this.vIterBc.set(startIterBc);
+    this.vIterBody.set(startIterBody);
     this.step(h / 2, depth + 1);
     this.step(h / 2, depth + 1);
   }
@@ -437,6 +561,7 @@ export class RealtimeEngine {
         return diodeOperatingPoint(v, d.params).i + GMIN * v;
       }
       case 'bjt':
+      case 'mos':
         return this.terminalCurrents(index)[0];
     }
   }
@@ -444,6 +569,15 @@ export class RealtimeEngine {
   /** Current entering each terminal: first and second for two terminals, collector, base and emitter for a transistor. */
   terminalCurrents(index: number): number[] {
     const d = this.compiled.devices[index];
+    if (d.kind === 'mos') {
+      const { polarity, body } = d.params;
+      const vs = this.voltage(d.sp);
+      const { id, isReversed } = mosOperatingPoint(d.params, polarity * (this.voltage(d.base) - vs), polarity * (this.voltage(d.dp) - vs));
+      const vBody = polarity * (this.voltage(d.b) - this.voltage(d.bodyNode));
+      const diode = diodeOperatingPoint(vBody, body).i + GMIN * vBody;
+      const drain = polarity * ((isReversed ? -id : id) - diode);
+      return [drain, 0, -drain];
+    }
     if (d.kind !== 'bjt') {
       const current = this.deviceCurrent(index);
       return [current, -current];

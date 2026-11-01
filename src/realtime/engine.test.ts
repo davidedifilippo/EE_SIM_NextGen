@@ -3,7 +3,7 @@ import { formatSpiceValue, parseSpiceValue } from '../netlist/values';
 import { terminalKey } from '../netlist/connectivity';
 import { computeConnectivity } from '../netlist/connectivity';
 import { SpiceModel } from '../model/types';
-import { compileCircuit, parseBjtModel, parseDiodeModel } from './compile';
+import { compileCircuit, parseBjtModel, parseDiodeModel, parseMosModel } from './compile';
 import { RealtimeEngine, SolverError } from './engine';
 import { circuitFromNets, Part } from './testCircuits';
 import { parseWaveform } from './waveform';
@@ -232,6 +232,82 @@ describe('BJT', () => {
     const { engine } = build([V('V1', 'a', '0', 'DC 5'), R('R1', 'a', '0', '1k'), q], models);
     engine.initialize();
     expect(() => engine.step(1e-5)).not.toThrow();
+  });
+});
+
+describe('MOSFET', () => {
+  const nmos = (d: string, g: string, s: string, model = 'T'): Part => ({ def: 'nmos', tag: 'M1', nets: [d, g, s], props: { model } });
+  const T = [{ name: 'T', card: '.model T NMOS(VTO=2 KP=0.5 LAMBDA=0.01)' }];
+  const drainCurrent = (vg: string, vd: string, models = T, part = nmos('d', 'g', '0')) => {
+    const { engine, compiled } = build([V('VD', 'd', '0', `DC ${vd}`), V('VG', 'g', '0', `DC ${vg}`), part], models);
+    engine.initialize();
+    return engine.terminalCurrents(compiled.devices.findIndex((x) => x.kind === 'mos'));
+  };
+
+  it('reads the parameters, with the defaults of each kind', () => {
+    const level1 = parseMosModel('.model M NMOS(VTO=2 KP=20u)', 1);
+    expect(level1).toMatchObject({ beta: 20e-6, vth: 2, subthreshold: 0, mtriode: 1, signedLambda: false, rb: 0 });
+    expect(parseMosModel('.model M NMOS(VTO=2)', 1).beta).toBeCloseTo(2e-5, 12);
+    expect(parseMosModel('.model M PMOS(VTO=-2)', -1).vth).toBe(2);
+    const vdmos = parseMosModel('.model M VDMOS(VTO=2 RB=.1)', 1);
+    expect(vdmos).toMatchObject({ beta: 1, subthreshold: 0.1, signedLambda: true, rb: 0.1 });
+  });
+
+  it('computes KP from the oxide when it is missing', () => {
+    expect(parseMosModel('.model M NMOS(TOX=100n UO=600)', 1).beta).toBeCloseTo(600e-4 * (3.9 * 8.854214871e-12) / 100e-9, 10);
+  });
+
+  it('is off below the threshold', () => {
+    expect(Math.abs(drainCurrent('1', '5')[0])).toBeLessThan(1e-9);
+  });
+
+  it('saturates with the square law', () => {
+    expect(drainCurrent('3', '5')[0]).toBeCloseTo(0.25 * 1.05, 6);
+  });
+
+  it('follows the triode region at low drain voltage', () => {
+    expect(drainCurrent('5', '0.5')[0]).toBeCloseTo(0.5 * 1.005 * 0.5 * 2.75, 6);
+  });
+
+  it('draws no gate current and returns the drain current from the source', () => {
+    const [d, g, s] = drainCurrent('3', '5');
+    expect(g).toBe(0);
+    expect(s).toBe(-d);
+  });
+
+  it('exchanges drain and source when the drain goes below', () => {
+    expect(drainCurrent('3', '-0.2')[0]).toBeCloseTo(-0.5 * 1.002 * 0.2 * 1.1, 6);
+  });
+
+  it('conducts through the body diode when off', () => {
+    const models = [{ name: 'T', card: '.model T NMOS(VTO=2 KP=0.5)' }];
+    const { engine, node } = build([V('V1', 'in', '0', 'DC -5'), R('R1', 'in', 'd', '1k'), nmos('d', '0', '0')], models);
+    engine.initialize();
+    expect(engine.nodeVoltage(node('r1', 'b'))).toBeCloseTo(-0.65, 0);
+  });
+
+  it('turns everything around for a P channel', () => {
+    const models = [{ name: 'T', card: '.model T PMOS(VTO=-2 KP=0.5)' }];
+    const part: Part = { def: 'pmos', tag: 'M1', nets: ['d', 'g', 's'], props: { model: 'T' } };
+    const { engine, compiled } = build([V('VS', 's', '0', 'DC 5'), V('VG', 'g', '0', 'DC 2'), R('RD', 'd', '0', '1'), part], models);
+    engine.initialize();
+    const [id] = engine.terminalCurrents(compiled.devices.findIndex((x) => x.kind === 'mos'));
+    expect(id).toBeLessThan(-0.1);
+  });
+
+  it('has a smooth threshold on a VDMOS, as ngspice', () => {
+    const models = [{ name: 'T', card: '.model T VDMOS(VTO=2 KP=0.5 LAMBDA=0.01)' }];
+    expect(drainCurrent('2', '5', models)[0]).toBeCloseTo(1.26119e-3, 7);
+    expect(drainCurrent('2.2', '5', models)[0]).toBeCloseTo(1.1875e-2, 6);
+    expect(drainCurrent('3', '5', models)[0]).toBeCloseTo(0.262502, 5);
+    expect(drainCurrent('3', '-0.2', models)[0]).toBeCloseTo(-0.10978, 4);
+  });
+
+  it('refuses a model of the wrong kind', () => {
+    expect(compileCircuit(circuitFromNets('t', [{ def: 'nmos', tag: 'M1', nets: ['d', 'g', '0'], props: { model: 'MP1' } }]))).toEqual({
+      ok: false,
+      errors: ['M1: il modello "MP1" non è di tipo NMOS'],
+    });
   });
 });
 

@@ -34,9 +34,9 @@ export interface LiveFrame {
   edgeVoltage: Float64Array;
   edgeCurrent: Float64Array;
   deviceCurrent: Float64Array;
-  /** Voltage across each device, first terminal minus second; collector minus emitter for a transistor. */
+  /** Voltage across each device, first terminal minus second; collector minus emitter or drain minus source for a transistor. */
   deviceVoltage: Float64Array;
-  /** Base minus emitter voltage of a transistor, 0 for the rest. */
+  /** Base minus emitter or gate minus source voltage of a transistor, 0 for the rest. */
   deviceVbe: Float64Array;
   dotCurrent: Float64Array;
   /** Samples of the probes since the last frame. */
@@ -74,6 +74,8 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
       return [s.anode, s.cathode];
     case 'bjt':
       return [s.collector, s.base, s.emitter];
+    case 'mos':
+      return [s.drain, s.gate, s.source];
   }
 };
 
@@ -157,7 +159,7 @@ export class LiveSimulation {
         case 'current':
           return () => sign * engine.deviceCurrent(index);
         case 'vbe':
-          return device.kind === 'bjt' ? () => engine.nodeVoltage(device.base) - engine.nodeVoltage(device.b) : () => NaN;
+          return device.kind === 'bjt' || device.kind === 'mos' ? () => engine.nodeVoltage(device.base) - engine.nodeVoltage(device.b) : () => NaN;
         case 'ib':
           return device.kind === 'bjt' ? () => engine.terminalCurrents(index)[1] : () => NaN;
       }
@@ -252,7 +254,7 @@ export class LiveSimulation {
       const currents = engine.terminalCurrents(i);
       deviceCurrent[i] = currents[0];
       deviceVoltage[i] = engine.nodeVoltage(d.a) - engine.nodeVoltage(d.b);
-      if (d.kind === 'bjt') deviceVbe[i] = engine.nodeVoltage(d.base) - engine.nodeVoltage(d.b);
+      if (d.kind === 'bjt' || d.kind === 'mos') deviceVbe[i] = engine.nodeVoltage(d.base) - engine.nodeVoltage(d.b);
       const { firstDot } = layout.devices[i];
       if (currents.length === 2) dotCurrent[firstDot] = currents[0];
       else currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));

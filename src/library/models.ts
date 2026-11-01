@@ -16,16 +16,25 @@ const Q2N3906: SpiceModel = {
   card: '.model 2N3906 PNP(IS=1.41f VAF=18.7 BF=180.7 NE=1.5 ISE=0 IKF=80m BR=4.977 NC=2 ISC=0 IKR=0 RC=2.5 CJC=9.728p MJC=.5776 VJC=.75 FC=.5 CJE=8.063p MJE=.3677 VJE=.75 TR=33.42n TF=179.3p ITF=.4 VTF=4 XTF=2 RB=10)',
 };
 
-const LIBRARY: SpiceModel[] = [D1N4148, DZ5V1, Q2N3904, Q2N3906];
+/** Generic parts of level 1, with round values for lessons. */
+const MN1: SpiceModel = { name: 'MN1', card: '.model MN1 NMOS(VTO=2 KP=0.2 LAMBDA=0.01)' };
+const MP1: SpiceModel = { name: 'MP1', card: '.model MP1 PMOS(VTO=-2 KP=0.1 LAMBDA=0.01)' };
+
+const LIBRARY: SpiceModel[] = [D1N4148, DZ5V1, Q2N3904, Q2N3906, MN1, MP1];
 
 /** A model of the circuit, or of the library. The circuit's own take precedence. */
 export function findModel(circuit: Circuit, name: string): SpiceModel | undefined {
   return circuit.models.find((m) => m.name === name) ?? LIBRARY.find((m) => m.name === name);
 }
 
+/** A VDMOS counts as the N or P channel part it is: only the netlist and the engine see the difference. */
 export function modelType(card: string): string | null {
-  return /^\s*\.model\s+\S+\s+([a-z]+)/i.exec(card)?.[1].toUpperCase() ?? null;
+  const type = /^\s*\.model\s+\S+\s+([a-z]+)/i.exec(card)?.[1].toUpperCase() ?? null;
+  if (type !== 'VDMOS') return type;
+  return /[\s(]pchan\b/i.test(card) ? 'PMOS' : 'NMOS';
 }
+
+export const isVdmos = (card: string) => /^\s*\.model\s+\S+\s+vdmos\b/i.test(card);
 
 /** Circuit first, then the personal library, then the built-in models, each name once. */
 export function modelsOfType(circuit: Circuit, type: ModelType, library: SpiceModel[] = []): SpiceModel[] {
@@ -43,7 +52,7 @@ export const isBuiltInModel = (model: SpiceModel) => LIBRARY.some((m) => m.name 
 function usedModelNames(circuit: Circuit): string[] {
   const names = circuit.elements.flatMap((el) => {
     const spice = getDevice(el.def)?.spice;
-    return spice && (spice.kind === 'diode' || spice.kind === 'bjt') ? [String(el.props[spice.modelProp] ?? '')] : [];
+    return spice && (spice.kind === 'diode' || spice.kind === 'bjt' || spice.kind === 'mos') ? [String(el.props[spice.modelProp] ?? '')] : [];
   });
   return [...new Set(names)];
 }

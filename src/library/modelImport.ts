@@ -1,4 +1,5 @@
 import { ModelType, SpiceModel } from '../model/types';
+import { isVdmos } from './models';
 import { parseSpiceValue } from '../netlist/values';
 import { evaluateExpression, ParamScope, readParams } from './spiceExpression';
 
@@ -12,7 +13,11 @@ const BJT_PARAMS = new Set(
 const DIODE_PARAMS = new Set(
   'IS JS RS N TT CJO CJ0 CJ VJ PB M MJ EG XTI KF AF FC BV IBV IB NBV IKF IK IKR TNOM TREF LEVEL ISR NR ISW JSW CJSW CJP TLEV TLEVC TM1 TM2 TTT1 TTT2 TRS TRS1 TRS2 TCV FCS'.split(' '),
 );
-const ACCEPTED: Record<ModelType, Set<string>> = { D: DIODE_PARAMS, NPN: BJT_PARAMS, PNP: BJT_PARAMS };
+const MOS1_PARAMS = new Set('VTO VT0 KP GAMMA PHI LAMBDA RD RS CBD CBS IS PB CGSO CGDO CGBO RSH CJ MJ CJSW MJSW JS TOX NSUB NSS TPG LD UO U0 KF AF FC TNOM LEVEL'.split(' '));
+const VDMOS_PARAMS = new Set(
+  'VTO KP PHI LAMBDA THETA RD RS RG RQ VQ MTRIODE TNOM KF AF TRD1 TRD2 TRG1 TRG2 TRS1 TRS2 CGDMIN CGDMAX A CGS CJO IS BV IBV NBV RB N TT EG XTI FC M VJ KSUBTHRES SUBSHIFT TKSUBTHRES1 TKSUBTHRES2 BEX VTOTC TCVTH MU CTHJ'.split(' '),
+);
+const acceptedFor = (keyword: string) => (keyword === 'D' ? DIODE_PARAMS : keyword === 'VDMOS' ? VDMOS_PARAMS : keyword === 'NPN' || keyword === 'PNP' ? BJT_PARAMS : MOS1_PARAMS);
 
 const MODEL_NAME = /^[A-Za-z0-9_.+-]+$/;
 /** Same parameter under the name LTspice uses, kept instead of being lost. */
@@ -32,7 +37,7 @@ export interface ModelImport {
   skipped: string[];
 }
 
-const isModelType = (type: string): type is ModelType => type === 'D' || type === 'NPN' || type === 'PNP';
+const KEYWORDS = new Set(['D', 'NPN', 'PNP', 'NMOS', 'PMOS', 'VDMOS']);
 const UNRESOLVED = '{?}';
 
 /** One model statement on one line, with only what ngspice accepts. Null if it is not a usable model. */
@@ -44,20 +49,25 @@ export function normalizeModelCard(statement: string, scope: ParamScope = new Ma
   });
   const match = /^\s*\.model\s+(\S+?)\s+([a-z]+)\s*(?:\((.*)\)|(.*))\s*$/is.exec(computed);
   if (!match || !MODEL_NAME.test(match[1])) return null;
-  const type = match[2].toUpperCase();
-  if (!isModelType(type)) return null;
+  const keyword = match[2].toUpperCase();
+  if (!KEYWORDS.has(keyword)) return null;
 
   const body = (match[3] ?? match[4] ?? '').replace(/[(),]/g, ' ');
   const kept: string[] = [];
   const ignored: string[] = [];
   const unresolved: string[] = [];
   for (const [, name, value] of body.matchAll(/([a-z_][\w.]*)\s*=\s*(\S+)/gi)) {
-    const known = type === 'D' ? name.toUpperCase() : (BJT_ALIASES[name.toUpperCase()] ?? name.toUpperCase());
+    const upper = name.toUpperCase();
+    const known = keyword === 'NPN' || keyword === 'PNP' ? (BJT_ALIASES[upper] ?? upper) : upper;
     if (value === UNRESOLVED) unresolved.push(name);
-    else if (ACCEPTED[type].has(known) && parseSpiceValue(value) !== null) kept.push(`${known}=${value}`);
+    else if (acceptedFor(keyword).has(known) && parseSpiceValue(value) !== null) kept.push(`${known}=${value}`);
     else ignored.push(name);
   }
-  return { name: match[1], type, card: `.model ${match[1]} ${type}(${kept.join(' ')})`, ignored, unresolved };
+  // The channel of a VDMOS is a bare word among the parameters
+  const isPchan = keyword === 'VDMOS' && /(^|\s)pchan(\s|$)/i.test(body);
+  const params = [...(isPchan ? ['PCHAN'] : []), ...kept].join(' ');
+  const type = (keyword === 'VDMOS' ? (isPchan ? 'PMOS' : 'NMOS') : keyword) as ModelType;
+  return { name: match[1], type, card: `.model ${match[1]} ${keyword}(${params})`, ignored, unresolved };
 }
 
 /** Joins continuation lines and drops comments, as SPICE reads a file. */
@@ -73,7 +83,7 @@ function logicalLines(text: string): string[] {
 }
 
 const isDirective = (line: string, name: string) => line.toLowerCase().startsWith(name);
-const NODES_OF: Record<string, number> = { q: 3, d: 2 };
+const NODES_OF: Record<string, number> = { q: 3, d: 2, m: 3 };
 
 /**
  * Many manufacturers wrap a single part in a subcircuit, only to compute its model from datasheet
@@ -101,7 +111,8 @@ function unwrapSubcircuit(head: string, body: string[], globals: ParamScope): Im
   let scope = readParams(headParams, globals);
   for (const line of body) if (isDirective(line, '.param')) scope = readParams(line.slice('.param'.length), scope);
   const model = normalizeModelCard(statement.replace(/^(\.model\s+)\S+/i, `$1${name}`), scope);
-  const fits = model && (nodeCount === 2 ? model.type === 'D' : model.type !== 'D');
+  const reference0 = reference[0].toLowerCase();
+  const fits = model && (reference0 === 'd' ? model.type === 'D' : reference0 === 'q' ? model.type === 'NPN' || model.type === 'PNP' : isVdmos(model.card));
   return fits ? model : null;
 }
 
@@ -112,13 +123,14 @@ function resolveAko(line: string, models: Map<string, ImportedModel>, scope: Par
   const [, name, baseName, overrides = ''] = AKO.exec(line)!;
   const base = [...models.values()].find((m) => m.name.toLowerCase() === baseName.toLowerCase());
   if (!base) return `${name}: il modello di partenza ${baseName} non è nel testo`;
-  const own = normalizeModelCard(`.model ${name} ${base.type}(${overrides})`, scope);
+  const keyword = /^\s*\.model\s+\S+\s+([a-z]+)/i.exec(base.card)![1];
+  const own = normalizeModelCard(`.model ${name} ${keyword}(${overrides})`, scope);
   if (!own) return `${name}: nome non valido`;
 
   const pairs = (card: string) => [.../\((.*)\)/.exec(card)![1].matchAll(/(\S+?)=(\S+)/g)].map(([, key, value]): [string, string] => [key, value]);
   const merged = new Map([...pairs(base.card), ...pairs(own.card)]);
-  const body = [...merged].map(([key, value]) => `${key}=${value}`).join(' ');
-  return { ...own, card: `.model ${name} ${base.type}(${body})` };
+  const body = [...(/\(PCHAN/.test(base.card) ? ['PCHAN'] : []), ...[...merged].map(([key, value]) => `${key}=${value}`)].join(' ');
+  return { ...own, type: base.type, card: `.model ${name} ${keyword}(${body})` };
 }
 
 /** Lines for the person importing: models that lost the same parameters share one line. */
@@ -146,7 +158,10 @@ export function parseModelText(text: string): ModelImport {
   }
 
   const add = (model: ImportedModel) => {
-    if (model.unresolved.length > 0) skipped.push(`${model.name}: valori non calcolabili per ${model.unresolved.join(', ')}`);
+    const level = /[\s(]LEVEL=(\S+?)[\s)]/i.exec(model.card)?.[1];
+    if ((model.type === 'NMOS' || model.type === 'PMOS') && !isVdmos(model.card) && level !== undefined && parseSpiceValue(level) !== 1) {
+      skipped.push(`${model.name}: per i MOSFET è supportato solo il livello 1, questo è il ${level}`);
+    } else if (model.unresolved.length > 0) skipped.push(`${model.name}: valori non calcolabili per ${model.unresolved.join(', ')}`);
     else models.set(model.name, model);
   };
 

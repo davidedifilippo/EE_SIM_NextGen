@@ -167,13 +167,14 @@ const ElementItem: React.FC<{
   if (!def) return null;
   const bounds = getBounds(def);
   // A transistor has leads above and below too: its labels always go beside it
-  const isBesideLabel = elem.rot === 90 || elem.rot === 270 || def.spice.kind === 'bjt';
+  const isTransistor = def.spice.kind === 'bjt' || def.spice.kind === 'mos';
+  const isBesideLabel = elem.rot === 90 || elem.rot === 270 || isTransistor;
   const value = def.id === 'vsource' ? sourceLabel(elem.props) : def.props[0] ? String(elem.props[def.props[0].key] ?? '') : '';
   const labelProps = !isBesideLabel
     ? { x: 0, textAnchor: 'middle' as const }
-    : def.spice.kind === 'bjt' && elem.rot === 180
+    : isTransistor && elem.rot === 180
       ? { x: -28, textAnchor: 'end' as const }
-      : { x: def.spice.kind === 'bjt' ? 28 : 24, textAnchor: 'start' as const };
+      : { x: isTransistor ? 28 : 24, textAnchor: 'start' as const };
 
   return (
     <g

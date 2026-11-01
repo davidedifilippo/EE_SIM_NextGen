@@ -107,6 +107,18 @@ describe('generateNetlist', () => {
     expect(text.match(/\.model 2N3904/g)).toHaveLength(1);
   });
 
+  it('ties the bulk of a MOSFET to the source, and writes three nodes for a VDMOS', () => {
+    const level1 = circuitFromNets('t', [{ def: 'nmos', tag: 'M1', nets: ['d', 'g', 's'], props: { model: 'MN1' } }]);
+    const read = generateNetlist(level1, TRAN);
+    const [nd, ng, ns] = ['drain', 'gate', 'source'].map((t) => read.nodeOf.get(`m1:${t}`));
+    expect(read.text).toContain(`M1 ${nd} ${ng} ${ns} ${ns} MN1`);
+    const vdmos = circuitFromNets('t', [{ def: 'pmos', tag: 'M1', nets: ['d', 'g', 's'], props: { model: 'VP' } }]);
+    vdmos.models.push({ name: 'VP', card: '.model VP VDMOS(PCHAN VTO=-2)' });
+    const other = generateNetlist(vdmos, TRAN);
+    const [d2, g2, s2] = ['drain', 'gate', 'source'].map((t) => other.nodeOf.get(`m1:${t}`));
+    expect(other.text).toContain(`M1 ${d2} ${g2} ${s2} VP`);
+  });
+
   it('refuses a model of the wrong kind', () => {
     const c = circuitFromNets('t', [{ def: 'pnp', tag: 'Q1', nets: ['c', 'b', '0'], props: { model: '2N3904' } }]);
     expect(generateNetlist(c, TRAN).errors).toContain('Q1: il modello "2N3904" non è di tipo PNP');

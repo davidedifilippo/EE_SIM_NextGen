@@ -85,10 +85,11 @@ export const LiveReadout: React.FC<{
   deviceIndex: number;
   /** See drawingSign. */
   sign: 1 | -1;
-  /** Set for a transistor: where its collector, base and emitter dots start. */
+  /** Set for a transistor: where its dots start, collector or drain first. */
   transistorFirstDot: number | null;
+  isMos: boolean;
   frameRef: React.MutableRefObject<LiveFrame | null>;
-}> = ({ deviceIndex, sign, transistorFirstDot, frameRef }) => {
+}> = ({ deviceIndex, sign, transistorFirstDot, isMos, frameRef }) => {
   const [rows, setRows] = React.useState<[string, string][] | null>(null);
 
   React.useEffect(() => {
@@ -98,7 +99,13 @@ export const LiveReadout: React.FC<{
       const volts = (v: number | undefined) => formatEngineering(v ?? 0, 'V');
       const amps = (i: number | undefined) => formatEngineering(i ?? 0, 'A');
       setRows(
-        transistorFirstDot === null
+        isMos && transistorFirstDot !== null
+          ? [
+              ['Vds', volts(frame.deviceVoltage[deviceIndex])],
+              ['Vgs', volts(frame.deviceVbe[deviceIndex])],
+              ['Id', amps(frame.dotCurrent[transistorFirstDot])],
+            ]
+          : transistorFirstDot === null
           ? [
               ['Tensione', volts(sign * frame.deviceVoltage[deviceIndex])],
               ['Corrente', amps(sign * frame.deviceCurrent[deviceIndex])],
@@ -114,7 +121,7 @@ export const LiveReadout: React.FC<{
     refresh();
     const timer = setInterval(refresh, 200);
     return () => clearInterval(timer);
-  }, [deviceIndex, sign, transistorFirstDot, frameRef]);
+  }, [deviceIndex, sign, transistorFirstDot, isMos, frameRef]);
 
   if (!rows) return null;
   return (

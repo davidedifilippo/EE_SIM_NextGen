@@ -50,9 +50,10 @@ export function currentLabels(circuit: Circuit, layout: LiveLayout): CurrentLabe
   const byId = new Map(circuit.elements.map((el) => [el.id, el]));
   return layout.devices.flatMap((device): CurrentLabel[] => {
     const el = byId.get(device.elementId)!;
-    if (getDevice(el.def)?.spice.kind === 'bjt') {
+    const kind = getDevice(el.def)?.spice.kind;
+    if (kind === 'bjt' || kind === 'mos') {
       const isFlipped = el.rot === 180;
-      return ['Ic', 'Ib', 'Ie'].map((name, k) => ({
+      return (kind === 'bjt' ? ['Ic', 'Ib', 'Ie'] : ['Id', 'Ig', 'Is']).map((name, k) => ({
         dot: device.firstDot + k,
         name,
         x: el.x + (isFlipped ? -28 : 28),

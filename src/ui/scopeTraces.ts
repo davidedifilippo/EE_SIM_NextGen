@@ -25,6 +25,7 @@ export function elementProbes(el: Element): ProbeChoice[] {
     label,
     probe: { id: `${kind}:${el.id}`, kind, elementId: el.id },
   });
+  if (spice.kind === 'mos') return [choice('Vds', 'voltage'), choice('Vgs', 'vbe'), choice('Id', 'current')];
   return spice.kind === 'bjt'
     ? [choice('Vce', 'voltage'), choice('Vbe', 'vbe'), choice('Ic', 'current'), choice('Ib', 'ib')]
     : [choice('Tensione', 'voltage'), choice('Corrente', 'current')];
@@ -59,8 +60,11 @@ export function liveTraces(traces: ScopeTrace[], circuit: Circuit): ScopeTrace[]
 export function traceLabel(probe: ScopeProbe, circuit: Circuit): string {
   if (probe.kind !== 'node') {
     const tag = circuit.elements.find((el) => el.id === probe.elementId)?.tag ?? '?';
-    const isBjt = getDevice(circuit.elements.find((el) => el.id === probe.elementId)?.def ?? '')?.spice.kind === 'bjt';
-    const names = { voltage: isBjt ? 'Vce' : 'V', current: isBjt ? 'Ic' : 'I', vbe: 'Vbe', ib: 'Ib' };
+    const kind = getDevice(circuit.elements.find((el) => el.id === probe.elementId)?.def ?? '')?.spice.kind;
+    const names =
+      kind === 'mos'
+        ? { voltage: 'Vds', current: 'Id', vbe: 'Vgs', ib: 'Ig' }
+        : { voltage: kind === 'bjt' ? 'Vce' : 'V', current: kind === 'bjt' ? 'Ic' : 'I', vbe: 'Vbe', ib: 'Ib' };
     return `${names[probe.kind]}(${tag})`;
   }
   const { netOf, wireNet } = computeConnectivity(circuit);

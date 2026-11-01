@@ -4,7 +4,7 @@ import { Circuit, Element, SpiceModel, Wire } from '../model/types';
 import { D1N4148 } from '../samples/halfWaveRectifier';
 
 export interface Part {
-  def: 'resistor' | 'capacitor' | 'inductor' | 'vsource' | 'diode' | 'zener' | 'npn' | 'pnp';
+  def: 'resistor' | 'capacitor' | 'inductor' | 'vsource' | 'diode' | 'zener' | 'npn' | 'pnp' | 'nmos' | 'pmos';
   tag: string;
   /** In the order of the terminals of the device. */
   nets: string[];
@@ -57,6 +57,8 @@ const SIN_50HZ = 'SIN(0 10 50)';
 const diode = (tag: string, a: string, b: string): Part => ({ def: 'diode', tag, nets: [a, b], props: { model: 'D1N4148' } });
 const zener = (tag: string, a: string, b: string): Part => ({ def: 'zener', tag, nets: [a, b], props: { model: 'DZ5V1' } });
 const bjt = (def: 'npn' | 'pnp', tag: string, c: string, b: string, e: string, model: string): Part => ({ def, tag, nets: [c, b, e], props: { model } });
+const mos = (def: 'nmos' | 'pmos', tag: string, d: string, g: string, s: string, model: string): Part => ({ def, tag, nets: [d, g, s], props: { model } });
+const imported = (text: string) => parseModelText(text).models.map(({ name, card }) => ({ name, card }));
 const part = (def: Part['def'], tag: string, a: string, b: string, value: string): Part => ({
   def,
   tag,
@@ -294,6 +296,97 @@ export const AGREEMENT_CASES: TestCase[] = [
     stop: 30e-3,
     dt: 10e-6,
     models: parseModelText('.model QK NPN(IS=1f BF=300 IKF=10m Nk=0.7 VAF=80 RE=.1 Vceo=45)').models.map(({ name, card }) => ({ name, card })),
+  },
+  {
+    name: 'NMOS: amplificatore a source comune',
+    parts: [
+      part('vsource', 'VDD', 'vdd', '0', 'DC 12'),
+      part('vsource', 'V1', 'g', '0', 'SIN(2.5 200m 100)'),
+      part('resistor', 'RD', 'vdd', 'd', '1k'),
+      mos('nmos', 'M1', 'd', 'g', '0', 'MN1'),
+    ],
+    probes: ['d'],
+    stop: 30e-3,
+    dt: 10e-6,
+  },
+  {
+    name: 'NMOS: interruttore con carico',
+    parts: [
+      part('vsource', 'VDD', 'vdd', '0', 'DC 12'),
+      part('vsource', 'V1', 'g', '0', 'PULSE(0 10 0 2m 2m 4m 12m)'),
+      part('resistor', 'RL', 'vdd', 'd', '100'),
+      mos('nmos', 'M1', 'd', 'g', '0', 'MN1'),
+    ],
+    probes: ['d'],
+    stop: 25e-3,
+    dt: 5e-6,
+  },
+  {
+    name: 'PMOS: source follower',
+    parts: [
+      part('vsource', 'VDD', 'vdd', '0', 'DC 12'),
+      part('vsource', 'V1', 'g', '0', 'SIN(5 2 100)'),
+      part('resistor', 'RS', 'vdd', 's', '1k'),
+      mos('pmos', 'M1', '0', 'g', 's', 'MP1'),
+    ],
+    probes: ['s'],
+    stop: 30e-3,
+    dt: 10e-6,
+  },
+  {
+    name: 'CMOS: invertitore',
+    parts: [
+      part('vsource', 'VDD', 'vdd', '0', 'DC 10'),
+      part('vsource', 'V1', 'in', '0', 'SIN(5 5 5)'),
+      mos('pmos', 'M1', 'out', 'in', 'vdd', 'MP1'),
+      mos('nmos', 'M2', 'out', 'in', '0', 'MN1'),
+      part('resistor', 'RL', 'out', '0', '10k'),
+    ],
+    probes: ['out'],
+    stop: 250e-3,
+    dt: 20e-6,
+  },
+  {
+    name: 'NMOS: diodo di body in conduzione e RD, RS',
+    parts: [
+      part('vsource', 'V1', 'in', '0', 'SIN(0 5 100)'),
+      part('vsource', 'VG', 'g', '0', 'DC 0'),
+      part('resistor', 'R1', 'in', 'd', '1k'),
+      mos('nmos', 'M1', 'd', 'g', '0', 'MR'),
+    ],
+    probes: ['d'],
+    stop: 30e-3,
+    dt: 10e-6,
+    models: imported('.model MR NMOS(VTO=2 KP=0.05 LAMBDA=0.02 RD=2 RS=1 IS=1e-12 mfg=X)'),
+  },
+  {
+    name: 'VDMOS N: soglia morbida e diodo di body',
+    parts: [
+      part('vsource', 'VDD', 'vdd', '0', 'DC 10'),
+      part('vsource', 'V1', 'g', '0', 'SIN(2 1.2 100)'),
+      part('resistor', 'RD', 'vdd', 'd', '50'),
+      mos('nmos', 'M1', 'd', 'g', '0', 'VN'),
+      part('vsource', 'V2', 'in', '0', 'SIN(0 6 100)'),
+      part('resistor', 'R2', 'in', 'x', '100'),
+      mos('nmos', 'M2', 'x', '0', '0', 'VN'),
+    ],
+    probes: ['d', 'x'],
+    stop: 30e-3,
+    dt: 10e-6,
+    models: imported('.model VN VDMOS(Rg=3 Vto=1.6 Rd=.3 Rs=.2 Rb=.1 Kp=.17 Lambda=.01 Cjo=50p Cgs=50p Cgdmax=80p Cgdmin=12p Is=1e-13 N=1.1 Vds=60 Ron=2 Qg=1.5n mfg=Prova)'),
+  },
+  {
+    name: 'VDMOS P: mtriode e breakdown del body',
+    parts: [
+      part('vsource', 'VDD', 'vdd', '0', 'DC 10'),
+      part('vsource', 'V1', 'g', '0', 'SIN(7 3 100)'),
+      part('resistor', 'RD', 'd', '0', '100'),
+      mos('pmos', 'M1', 'd', 'g', 'vdd', 'VP'),
+    ],
+    probes: ['d'],
+    stop: 30e-3,
+    dt: 10e-6,
+    models: imported('.model VP VDMOS(pchan Vto=-2 Kp=.3 Lambda=.01 mtriode=1.3 ksubthres=.05 Rd=.2 Rs=.1 Bv=60 Ibv=1u mfg=Prova)'),
   },
   {
     name: 'limitatore a diodi in antiparallelo',
