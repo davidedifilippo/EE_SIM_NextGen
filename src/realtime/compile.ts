@@ -2,6 +2,7 @@ import { Circuit, ModelType } from '../model/types';
 import { getDevice } from '../library/devices';
 import { findModel, isVdmos, modelType } from '../library/models';
 import { computeConnectivity, terminalKey } from '../netlist/connectivity';
+import { OPAMP_GAIN } from '../netlist/generate';
 import { sourceSpec } from '../netlist/source';
 import { parseSpiceValue } from '../netlist/values';
 import { parseWaveform, Waveform } from './waveform';
@@ -77,7 +78,7 @@ export type CompiledDevice =
   /** a is the drain, b the source and base the gate; the primed nodes come after the series resistances, bodyNode after that of the body diode. */
   | { kind: 'mos'; element: number; a: NodeIndex; b: NodeIndex; base: NodeIndex; dp: NodeIndex; sp: NodeIndex; bodyNode: NodeIndex; params: MosParams }
   /** a is the output, b is always ground. */
-  | { kind: 'opamp'; element: number; a: NodeIndex; b: NodeIndex; plus: NodeIndex; minus: NodeIndex; high: number; low: number; branch: number };
+  | { kind: 'opamp'; element: number; a: NodeIndex; b: NodeIndex; plus: NodeIndex; minus: NodeIndex; high: number; low: number; /** Time constant of the open loop pole; 0 for no limit. */ tau: number; branch: number };
 
 export interface CompiledCircuit {
   /** Node voltages followed by branch currents. */
@@ -307,8 +308,15 @@ export function compileCircuit(circuit: Circuit): CompileResult {
           errors.push(`${el.tag}: alimentazioni non valide`);
           break;
         }
+        const gbwText = String(el.props[s.gbwProp] ?? '').trim();
+        const gbw = gbwText ? parseSpiceValue(gbwText) : 0;
+        if (gbw === null || gbw < 0) {
+          errors.push(`${el.tag}: GBW non valido "${gbwText}"`);
+          break;
+        }
+        const tau = gbw > 0 ? OPAMP_GAIN / (2 * Math.PI * gbw) : 0;
         const [a, plus, minus] = [node(s.out), node(s.plus), node(s.minus)];
-        pending.push({ element, needsBranch: true, build: (branch) => ({ kind: 'opamp', element, a, b: -1, plus, minus, high, low, branch }) });
+        pending.push({ element, needsBranch: true, build: (branch) => ({ kind: 'opamp', element, a, b: -1, plus, minus, high, low, tau, branch }) });
         break;
       }
       case 'mos': {

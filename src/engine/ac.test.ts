@@ -11,7 +11,8 @@ const C = (tag: string, a: string, b: string, value: string): Part => ({ def: 'c
 const L = (tag: string, a: string, b: string, value: string): Part => ({ def: 'inductor', tag, nets: [a, b], props: { value } });
 const SINE: Part['props'] = { shape: 'sin', amplitude: '5', offset: '0', frequency: '50', phase: '0', spec: '' };
 const SIGNAL: Part = { def: 'vsource', tag: 'V1', nets: ['in', '0'], props: SINE };
-const opAmp = (minus: string, plus: string, out: string): Part => ({ def: 'opamp', tag: 'U1', nets: [minus, plus, out], props: { high: '15', low: '-15' } });
+const opAmp = (minus: string, plus: string, out: string, gbw = ''): Part => ({ def: 'opamp', tag: 'U1', nets: [minus, plus, out], props: { high: '15', low: '-15', gbw } });
+const nonInverting = (gain: number, gbw: string): Part[] => [SIGNAL, R('R1', 'n', '0', '100'), R('R2', 'n', 'out', String(100 * (gain - 1))), opAmp('n', 'in', 'out', gbw)];
 
 const ANALYSIS: AcAnalysis = { type: 'ac', from: '1', to: '1meg', pointsPerDecade: 100 };
 
@@ -75,6 +76,26 @@ describe('AC analysis against the formulas', () => {
     const s = await sweep([SIGNAL, R('R1', 'in', 'n', '1k'), R('R2', 'n', 'out', '10k'), C('C1', 'n', 'out', '10n'), opAmp('n', '0', 'out')], 'r2', 'b', { type: 'ac', from: '10', to: '100k', pointsPerDecade: 100 });
     expect(s.summary.peak).toBeCloseTo(20, 2);
     expect(s.summary.upper!).toBeCloseTo(1 / (2 * Math.PI * 1e4 * 1e-8), -1);
+  });
+
+  it('bandwidth: gain 1000 and GBW 1 MHz give 60 dB up to 1 kHz', async () => {
+    const s = await sweep(nonInverting(1000, '1meg'), 'r2', 'b');
+    expect(s.summary.peak).toBeCloseTo(60, 1);
+    expect(s.summary.upper! / 1000).toBeCloseTo(1, 1);
+    expect(s.at(1000).phase).toBeCloseTo(-45, -1);
+    expect(s.at(1e5).gain).toBeCloseTo(20, 0);
+  });
+
+  it('the same op amp has 10 kHz at gain 100, and a follower its whole GBW', async () => {
+    expect((await sweep(nonInverting(100, '1meg'), 'r2', 'b')).summary.upper! / 1e4).toBeCloseTo(1, 1);
+    const follower: Part[] = [SIGNAL, opAmp('out', 'in', 'out', '1meg'), R('RL', 'out', '0', '10k')];
+    const s = await sweep(follower, 'rl', 'a', { type: 'ac', from: '1k', to: '100meg', pointsPerDecade: 100 });
+    expect(s.summary.upper! / 1e6).toBeCloseTo(1, 1);
+  });
+
+  it('without GBW, it stays flat where the real part would have fallen', async () => {
+    const s = await sweep(nonInverting(1000, ''), 'r2', 'b');
+    expect(s.at(1e5).gain).toBeCloseTo(60, 1);
   });
 
   it('a transistor amplifies around its DC bias, taken from the offsets and DC sources', async () => {

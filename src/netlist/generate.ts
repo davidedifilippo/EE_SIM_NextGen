@@ -55,6 +55,8 @@ export function describeNodes(circuit: Circuit, nodeOf: Map<string, string>): Ma
 
 /** Open loop gain of the ideal op amp, shared with the real-time engine. */
 export const OPAMP_GAIN = 1e6;
+/** How fast the pole of an op amp with a limited bandwidth comes to rest on a rail, in seconds: short enough not to show. */
+const OPAMP_RAIL_TIME = 100e-9;
 
 /**
  * kicked names the op amps with nowhere stable to rest at the start, as in an oscillator: an exact
@@ -173,13 +175,31 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
           errors.push(`${el.tag}: alimentazioni non valide`);
           break;
         }
+        const gbwText = String(el.props[s.gbwProp] ?? '').trim();
+        const gbw = gbwText ? parseSpiceValue(gbwText) : 0;
+        if (gbw === null || gbw < 0) {
+          errors.push(`${el.tag}: GBW non valido "${gbwText}"`);
+          break;
+        }
         const name = uniqueName('B', el.tag);
         const step = analysis.type === 'tran' ? (parseSpiceValue(analysis.step) ?? 0) : 0;
         const kick = kicked.has(el.id) ? `+${high - low}*u(time-1e-12)*u(${step}-time)` : '';
         if (name) {
           // A very fast pole on the output: without it, ngspice can fail on a diode inside the loop
           const inner = `x${name}`;
-          lines.push(`${name} ${inner} 0 V = max(${low}, min(${high}, ${OPAMP_GAIN}*(v(${node(s.plus)})-v(${node(s.minus)})${kick})))`);
+          const drive = `${OPAMP_GAIN}*(v(${node(s.plus)})-v(${node(s.minus)})${kick})`;
+          if (gbw > 0) {
+            // The pole is a capacitor charged towards the drive, stopped at the rails so that it does not
+            // wind up: past them, a saturated output would take seconds to come back
+            const pole = `s${name}`;
+            const capacitance = OPAMP_GAIN / (2 * Math.PI * gbw);
+            const stop = capacitance / OPAMP_RAIL_TIME;
+            lines.push(`BI${name} 0 ${pole} I = max(min(${drive}-v(${pole}), ${stop}*(${high}-v(${pole}))), ${stop}*(${low}-v(${pole})))`);
+            lines.push(`CP${name} ${pole} 0 ${capacitance}`);
+            lines.push(`${name} ${inner} 0 V = v(${pole})`);
+          } else {
+            lines.push(`${name} ${inner} 0 V = max(${low}, min(${high}, ${drive}))`);
+          }
           lines.push(`RO${name} ${inner} ${node(s.out)} 0.1`, `CO${name} ${node(s.out)} 0 100p`);
         }
         break;

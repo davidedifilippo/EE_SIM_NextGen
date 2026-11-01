@@ -439,6 +439,57 @@ describe('ideal op amp', () => {
     expect(output(true)).toBe(15);
   });
 
+  describe('with a GBW', () => {
+    const limited = (gbw = '1meg'): Part => ({ def: 'opamp', tag: 'U1', nets: ['n', 'in', 'o'], props: { high: '15', low: '-15', gbw } });
+    const amplifier = (input: string, gbw?: string) => [V('V1', 'in', '0', input), R('R1', 'n', '0', '100'), R('R2', 'n', 'o', '99.9k'), limited(gbw)];
+    const amplitude = (f: number) => {
+      const { engine, node } = build(amplifier(`SIN(0 1m ${f})`));
+      engine.initialize();
+      let peak = 0;
+      const dt = 1 / f / 400;
+      for (let i = 0; i < 8000; i++) {
+        engine.step(dt);
+        if (i > 4000) peak = Math.max(peak, Math.abs(engine.nodeVoltage(node('u1', 'out'))));
+      }
+      return peak / 1e-3;
+    };
+
+    it('keeps its gain inside the band', () => {
+      expect(amplitude(10)).toBeCloseTo(1000, -1);
+    });
+
+    it('loses 3 dB at GBW over gain', () => {
+      expect(amplitude(1000)).toBeCloseTo(1000 / Math.SQRT2, -1);
+    });
+
+    it('falls with frequency beyond it', () => {
+      expect(amplitude(10000)).toBeCloseTo(100, -1);
+    });
+
+    it('settles at the same DC as the ideal one', () => {
+      const { engine, node } = build(amplifier('DC 1m'));
+      engine.initialize();
+      expect(out(node, engine)).toBeCloseTo(1, 2);
+    });
+
+    it('comes back from saturation at once, without winding up', () => {
+      const { engine, node } = build([V('V1', 'in', '0', 'PULSE(1 -1 10m 1u 1u 10m 40m)'), { ...limited(), nets: ['0', 'in', 'o'] }]);
+      engine.initialize();
+      for (let i = 0; i < 950; i++) engine.step(1e-5);
+      expect(out(node, engine)).toBe(15);
+      for (let i = 0; i < 100; i++) engine.step(1e-5);
+      expect(out(node, engine)).toBe(-15);
+    });
+
+    it('refuses a GBW that makes no sense, and treats empty as ideal', () => {
+      expect(compileCircuit(circuitFromNets('t', [limited('abc')]))).toEqual({ ok: false, errors: ['U1: GBW non valido "abc"'] });
+      expect(compileCircuit(circuitFromNets('t', [limited('-5')]))).toEqual({ ok: false, errors: ['U1: GBW non valido "-5"'] });
+      const ideal = compileCircuit(circuitFromNets('t', [limited('')]));
+      if (!ideal.ok) throw new Error();
+      expect(ideal.compiled.devices[0]).toMatchObject({ kind: 'opamp', tau: 0 });
+    });
+  });
+
   it('survives open inputs, as a drawing in progress has', () => {
     const { engine } = build([V('V1', 'a', '0', 'DC 5'), R('R1', 'a', '0', '1k'), U('n', 'p', 'o')]);
     engine.initialize();

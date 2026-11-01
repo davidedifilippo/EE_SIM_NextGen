@@ -59,7 +59,7 @@ const zener = (tag: string, a: string, b: string): Part => ({ def: 'zener', tag,
 const bjt = (def: 'npn' | 'pnp', tag: string, c: string, b: string, e: string, model: string): Part => ({ def, tag, nets: [c, b, e], props: { model } });
 const mos = (def: 'nmos' | 'pmos', tag: string, d: string, g: string, s: string, model: string): Part => ({ def, tag, nets: [d, g, s], props: { model } });
 /** Nets in the order of the terminals: inverting input, non inverting input, output. */
-const opAmp = (tag: string, minus: string, plus: string, out: string, high = '15', low = '-15'): Part => ({ def: 'opamp', tag, nets: [minus, plus, out], props: { high, low } });
+const opAmp = (tag: string, minus: string, plus: string, out: string, high = '15', low = '-15', gbw = ''): Part => ({ def: 'opamp', tag, nets: [minus, plus, out], props: { high, low, gbw } });
 const imported = (text: string) => parseModelText(text).models.map(({ name, card }) => ({ name, card }));
 const part = (def: Part['def'], tag: string, a: string, b: string, value: string): Part => ({
   def,
@@ -76,6 +76,8 @@ export const RELAXATION_OSCILLATOR: Part[] = [
   part('resistor', 'R2', 'out', 'p', '10k'),
   part('resistor', 'R3', 'p', '0', '10k'),
 ];
+
+export const SLOW_RELAXATION_OSCILLATOR: Part[] = [opAmp('U1', 'n', 'p', 'out', '15', '-15', '1meg'), ...RELAXATION_OSCILLATOR.slice(1)];
 
 export const BJT_BIAS: Part[] = [
   part('vsource', 'V1', 'vcc', '0', 'DC 10'),
@@ -452,6 +454,33 @@ export const AGREEMENT_CASES: TestCase[] = [
     dt: 5e-6,
     // Without capacitances: those of a real diode show up when the output jumps from rail to rail
     models: imported('.model DDC D(IS=2.52n RS=0.568 N=1.752)'),
+  },
+  {
+    name: 'op amp con GBW: guadagno 1000 oltre la banda',
+    parts: [part('vsource', 'V1', 'in', '0', 'SIN(0 10m 5k)'), part('resistor', 'R1', 'n', '0', '100'), part('resistor', 'R2', 'n', 'out', '99.9k'), opAmp('U1', 'n', 'in', 'out', '15', '-15', '1meg')],
+    probes: ['out'],
+    stop: 2e-3,
+    dt: 1e-6,
+  },
+  {
+    name: 'op amp con GBW: entra e esce dalla saturazione',
+    parts: [part('vsource', 'V1', 'in', '0', 'SIN(0 2 100)'), part('resistor', 'R1', 'in', 'n', '1k'), part('resistor', 'R2', 'n', 'out', '10k'), opAmp('U1', 'n', '0', 'out', '15', '-15', '1meg')],
+    probes: ['out'],
+    stop: 30e-3,
+    dt: 5e-6,
+  },
+  {
+    name: 'op amp con GBW: integratore',
+    parts: [
+      part('vsource', 'V1', 'in', '0', 'PULSE(-1 1 0 100u 100u 4.9m 10m)'),
+      part('resistor', 'R1', 'in', 'n', '10k'),
+      part('capacitor', 'C1', 'n', 'out', '1u'),
+      part('resistor', 'R2', 'n', 'out', '1meg'),
+      opAmp('U1', 'n', '0', 'out', '15', '-15', '1meg'),
+    ],
+    probes: ['out'],
+    stop: 50e-3,
+    dt: 10e-6,
   },
   {
     name: 'limitatore a diodi in antiparallelo',

@@ -198,6 +198,9 @@ export class RealtimeEngine {
   private readonly unitRhs: Float64Array;
   private readonly opAmps: { index: number; device: Extract<CompiledDevice, { kind: 'opamp' }> }[] = [];
   private opAmpChanges = 0;
+  private stepForOpAmps = 0;
+  /** Set while asking whether a loop runs away, which does not depend on how fast it does. */
+  private isProbingLoops = false;
   /** Op amps just sent to a rail: the last solution still assumes them linear, and says nothing about them. */
   private readonly opAmpsToHold = new Set<number>();
 
@@ -444,8 +447,16 @@ export class RealtimeEngine {
     }
 
     if (state === LINEAR) {
-      if (d.plus >= 0) lu[d.branch * n + d.plus] -= OPAMP_GAIN;
-      if (d.minus >= 0) lu[d.branch * n + d.minus] += OPAMP_GAIN;
+      // With a limited bandwidth the output follows the drive through a pole, integrated as the capacitors are
+      const k = d.tau > 0 && this.stepForOpAmps > 0 && !this.isProbingLoops ? this.stepForOpAmps / (2 * d.tau) : 0;
+      const hasPole = k > 0;
+      const gain = hasPole ? k * OPAMP_GAIN : OPAMP_GAIN;
+      if (d.plus >= 0) lu[d.branch * n + d.plus] -= gain;
+      if (d.minus >= 0) lu[d.branch * n + d.minus] += gain;
+      if (hasPole) {
+        if (d.a >= 0) lu[d.branch * n + d.a] += k;
+        rhs[d.branch] = (1 - k) * this.vPrev[i] + k * this.iPrev[i];
+      }
     } else {
       rhs[d.branch] = state === 1 ? d.high : d.low;
     }
@@ -481,9 +492,11 @@ export class RealtimeEngine {
    * at the operating point, with its capacitor open, and only runs away once time passes.
    */
   unstableOpAmps(): string[] {
+    this.isProbingLoops = true;
     this.stampBase(FIRST_INSTANT);
     this.lu.set(this.base);
     this.stampNonlinear();
+    this.isProbingLoops = false;
     if (!luFactor(this.lu, this.n, this.pivots)) return [];
     return this.opAmps.filter(({ index, device }) => this.opAmpState[index] === LINEAR && this.isUnstable(device)).map(({ device }) => this.compiled.elementIds[device.element]);
   }
@@ -526,6 +539,7 @@ export class RealtimeEngine {
   private solve(t: number, h: number, sourceScale: number): boolean {
     const { n, x, rhs, lu, base, pivots } = this;
     this.stampBase(h);
+    this.stepForOpAmps = h;
 
     if (!this.isNonlinear) {
       this.stampRhs(t, h, sourceScale);
@@ -573,6 +587,9 @@ export class RealtimeEngine {
       } else if (d.kind === 'inductor') {
         this.vPrev[i] = h > 0 ? this.voltage(d.a) - this.voltage(d.b) : 0;
         this.iPrev[i] = this.x[d.branch];
+      } else if (d.kind === 'opamp') {
+        this.vPrev[i] = this.voltage(d.a);
+        this.iPrev[i] = OPAMP_GAIN * (this.voltage(d.plus) - this.voltage(d.minus));
       }
     });
   }
@@ -596,6 +613,14 @@ export class RealtimeEngine {
       }
     }
     this.commit(0);
+    // With a pole, a loop that cannot rest would still rest on an exact zero, since nothing moves it:
+    // it gets the same push the first instant gives an ideal op amp
+    if (this.opAmps.some(({ device }) => device.tau > 0)) {
+      const stuck = new Set(this.unstableOpAmps());
+      for (const { index, device } of this.opAmps) {
+        if (device.tau > 0 && stuck.has(this.compiled.elementIds[device.element])) this.opAmpState[index] = 1;
+      }
+    }
   }
 
   /** Takes over voltages, currents and time from an engine running the same topology. */

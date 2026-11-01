@@ -6,7 +6,7 @@ import { runTransient } from '../engine/ngspice';
 import { compileCircuit } from './compile';
 import { RealtimeEngine } from './engine';
 import { opAmpsToKick } from './liveSimulation';
-import { AGREEMENT_CASES, BJT_BIAS, circuitFromNets, RELAXATION_OSCILLATOR, TestCase } from './testCircuits';
+import { AGREEMENT_CASES, BJT_BIAS, circuitFromNets, RELAXATION_OSCILLATOR, SLOW_RELAXATION_OSCILLATOR, TestCase } from './testCircuits';
 
 /** Maximum allowed difference between the two engines, as a fraction of the signal's full scale. */
 const TOLERANCE = 0.01;
@@ -95,8 +95,11 @@ describe('real-time engine against ngspice', () => {
     expect(Math.abs(ib - spiceIb) / spiceIb).toBeLessThan(TOLERANCE);
   });
 
-  it('oscillates at the same frequency, the one of the formula', async () => {
-    const circuit = circuitFromNets('oscillatore', RELAXATION_OSCILLATOR);
+  it.each([
+    ['ideale', RELAXATION_OSCILLATOR],
+    ['con GBW', SLOW_RELAXATION_OSCILLATOR],
+  ])('oscillates at the same frequency, the one of the formula: %s', async (_, parts) => {
+    const circuit = circuitFromNets('oscillatore', parts);
     const dt = 5e-6;
     const stop = 120e-3;
     const netlist = generateNetlist(circuit, { type: 'tran', step: String(dt), stop: String(stop), maxStep: String(dt) }, opAmpsToKick(circuit));

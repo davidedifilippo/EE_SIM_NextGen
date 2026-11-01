@@ -204,8 +204,9 @@ export const DEVICES: ComponentDef[] = [
     props: [
       { key: 'high', label: 'Alimentazione + (V)', type: 'text', default: '15' },
       { key: 'low', label: 'Alimentazione − (V)', type: 'text', default: '-15' },
+      { key: 'gbw', label: 'GBW (Hz), vuoto se ideale', type: 'text', default: '' },
     ],
-    spice: { kind: 'opamp', plus: 'plus', minus: 'minus', out: 'out', highProp: 'high', lowProp: 'low' },
+    spice: { kind: 'opamp', plus: 'plus', minus: 'minus', out: 'out', highProp: 'high', lowProp: 'low', gbwProp: 'gbw' },
   },
   {
     id: 'ground',
