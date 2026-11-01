@@ -1,11 +1,11 @@
 import React from 'react';
 import { SOURCE_GLYPHS } from '../library/devices';
 import { Element } from '../model/types';
-import { SourceShape, sourceShape, sourceSpec } from '../netlist/source';
+import { dutyCycle, MAX_DUTY, MIN_DUTY, SourceShape, sourceShape, sourceSpec } from '../netlist/source';
 import { parseSpiceValue } from '../netlist/values';
 import { waveformStats } from '../realtime/waveform';
 import { formatEngineering } from './chartMath';
-import { ValueSlider } from './ValueSlider';
+import { RangeSlider, ValueSlider } from './ValueSlider';
 
 const SHAPES: { shape: SourceShape; label: string }[] = [
   { shape: 'sin', label: 'Sinusoide' },
@@ -65,13 +65,22 @@ export const SourceInspector: React.FC<Props> = ({ props, onChange }) => {
       {(shape === 'sin' || shape === 'square') && (
         <>
           {field('amplitude', 'Valore massimo (V)', { slider: true })}
-          <label>
-            Valore efficace
-            <input value={stats ? formatEngineering(stats.rms, 'V') : '—'} readOnly tabIndex={-1} />
-          </label>
+          {shape === 'sin' && (
+            <label>
+              Valore efficace
+              <input value={stats ? formatEngineering(stats.rms, 'V') : '—'} readOnly tabIndex={-1} />
+            </label>
+          )}
           {field('offset', 'Offset (V)', { optional: true })}
           {field('frequency', 'Frequenza (Hz)', { slider: true })}
           {shape === 'sin' && field('phase', 'Fase iniziale (°)', { optional: true })}
+          {shape === 'square' && (
+            <label>
+              Duty cycle (%)
+              <input value={String(props.duty ?? '')} aria-invalid={dutyCycle(props) === null} onChange={(e) => set('duty', e.target.value)} />
+              <RangeSlider value={String(props.duty ?? '')} label="Duty cycle" min={MIN_DUTY} max={MAX_DUTY} onChange={(next, record) => set('duty', next, record)} />
+            </label>
+          )}
         </>
       )}
 

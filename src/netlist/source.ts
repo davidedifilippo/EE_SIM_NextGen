@@ -6,6 +6,8 @@ type SourceProps = Record<string, string | number>;
 
 /** Square edges, as a fraction of the period. Both engines then start from the low level. */
 const SQUARE_EDGE = 1e-4;
+export const MIN_DUTY = 1;
+export const MAX_DUTY = 99;
 
 /** An element with a raw spec and no shape is an advanced source. */
 export function sourceShape(props: SourceProps): SourceShape {
@@ -18,6 +20,13 @@ const field = (props: SourceProps, key: string) => parseSpiceValue(String(props[
 
 /** Fields that may be left empty count as 0. */
 const optionalField = (props: SourceProps, key: string) => (String(props[key] ?? '').trim() === '' ? 0 : field(props, key));
+
+/** Duty cycle in percent, 50 if left empty, or null if out of range. */
+export function dutyCycle(props: SourceProps): number | null {
+  if (String(props.duty ?? '').trim() === '') return 50;
+  const duty = field(props, 'duty');
+  return duty !== null && duty >= MIN_DUTY && duty <= MAX_DUTY ? duty : null;
+}
 
 /** Text of an advanced source. It must stay on one line: anything else could inject extra SPICE commands. */
 function customSpec(props: SourceProps): string | null {
@@ -39,9 +48,12 @@ export function sourceSpec(props: SourceProps): string | null {
   if (offset === null || frequency === null || frequency <= 0) return null;
 
   if (shape === 'square') {
+    const duty = dutyCycle(props);
+    if (duty === null) return null;
     const period = 1 / frequency;
     const edge = period * SQUARE_EDGE;
-    return `PULSE(${offset - amplitude} ${offset + amplitude} 0 ${edge} ${edge} ${period / 2 - edge} ${period})`;
+    // Measured at half height: the high time includes half of each edge
+    return `PULSE(${offset - amplitude} ${offset + amplitude} 0 ${edge} ${edge} ${(period * duty) / 100 - edge} ${period})`;
   }
 
   const phase = optionalField(props, 'phase');

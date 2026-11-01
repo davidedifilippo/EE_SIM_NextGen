@@ -71,6 +71,7 @@ export const DEVICES: ComponentDef[] = [
       { key: 'offset', label: 'Offset', type: 'text', default: '0' },
       { key: 'frequency', label: 'Frequenza', type: 'text', default: '50' },
       { key: 'phase', label: 'Fase iniziale', type: 'text', default: '0' },
+      { key: 'duty', label: 'Duty cycle', type: 'text', default: '50' },
       { key: 'spec', label: 'Stringa ngspice', type: 'text', default: '' },
     ],
     spice: { kind: 'vsource', pos: 'pos', neg: 'neg' },

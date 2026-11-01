@@ -153,6 +153,17 @@ export const AGREEMENT_CASES: TestCase[] = [
     dt: 5e-6,
   },
   {
+    name: 'onda quadra con duty cycle del 25%',
+    parts: [
+      { def: 'vsource', tag: 'V1', nets: ['in', '0'], props: { shape: 'square', amplitude: '5', offset: '0', frequency: '100', duty: '25' } },
+      part('resistor', 'R1', 'in', 'out', '1k'),
+      part('capacitor', 'C1', 'out', '0', '1u'),
+    ],
+    probes: ['out'],
+    stop: 30e-3,
+    dt: 5e-6,
+  },
+  {
     name: 'limitatore a diodi in antiparallelo',
     parts: [part('vsource', 'V1', 'in', '0', SIN_50HZ), part('resistor', 'R1', 'in', 'out', '1k'), diode('D1', 'out', '0'), diode('D2', '0', 'out')],
     probes: ['out'],

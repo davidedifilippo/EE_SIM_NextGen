@@ -12,6 +12,31 @@ const STEPS = 1000;
 /** The slider spans from a tenth to ten times the value at the start of the drag. */
 const DECADES = 1;
 
+/** Linear slider between two limits, for values that have a fixed range. */
+export const RangeSlider: React.FC<Props & { min: number; max: number }> = ({ value, label, onChange, min, max }) => {
+  const parsed = parseSpiceValue(value);
+  const hasRecorded = useRef(false);
+
+  return (
+    <input
+      type="range"
+      className="value-slider"
+      aria-label={`Regola ${label}`}
+      min={min}
+      max={max}
+      step={1}
+      value={Math.max(min, Math.min(max, parsed ?? (min + max) / 2))}
+      onPointerDown={() => {
+        hasRecorded.current = false;
+      }}
+      onChange={(e) => {
+        onChange(e.target.value, !hasRecorded.current);
+        hasRecorded.current = true;
+      }}
+    />
+  );
+};
+
 /** Logarithmic slider, usable with a finger, for changing a value while the circuit runs. */
 export const ValueSlider: React.FC<Props> = ({ value, label, onChange }) => {
   const parsed = parseSpiceValue(value);

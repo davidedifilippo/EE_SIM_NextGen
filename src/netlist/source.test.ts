@@ -29,6 +29,32 @@ describe('sourceSpec', () => {
     expect(stats.rms).toBeCloseTo(Math.sqrt(26), 2);
   });
 
+  it('gives the high level the share of the period set by the duty cycle', () => {
+    const stats = waveformStats(sourceSpec({ ...sine, shape: 'square', amplitude: '5', offset: '1', frequency: '1k', duty: '25' })!)!;
+    expect(stats.max).toBe(6);
+    expect(stats.min).toBe(-4);
+    expect(stats.rms).toBeCloseTo(Math.sqrt(21), 2);
+  });
+
+  it('leaves the square wave as it was at 50%, empty or not set', () => {
+    const square = { ...sine, shape: 'square', amplitude: '5', frequency: '100' };
+    const expected = sourceSpec(square);
+    expect(sourceSpec({ ...square, duty: '50' })).toBe(expected);
+    expect(sourceSpec({ ...square, duty: ' ' })).toBe(expected);
+  });
+
+  it.each(['1', '99', '12.5'])('accepts a duty cycle of %s', (duty) => {
+    expect(sourceSpec({ ...sine, shape: 'square', duty })).not.toBeNull();
+  });
+
+  it.each(['0', '100', '150', '-5', 'abc'])('rejects a duty cycle of %s', (duty) => {
+    expect(sourceSpec({ ...sine, shape: 'square', duty })).toBeNull();
+  });
+
+  it('ignores the duty cycle of a sine', () => {
+    expect(sourceSpec({ ...sine, duty: 'abc' })).toBe('SIN(0 10 50)');
+  });
+
   it('uses only the voltage for DC', () => {
     expect(sourceSpec({ ...sine, shape: 'dc', amplitude: '12', frequency: 'x' })).toBe('DC 12');
   });

@@ -17,7 +17,7 @@ export interface RectifierOptions {
 /** 10 V peak, 50 Hz source -> D1 -> 1 kΩ load to ground. The output is the node shared with R1. */
 export function halfWaveRectifier(opts: RectifierOptions = {}): Circuit {
   const elements: Element[] = [
-    { id: 'v1', def: 'vsource', x: 0, y: 0, rot: 90, tag: 'V1', props: { shape: 'sin', amplitude: '10', offset: '0', frequency: '50', phase: '0', spec: '' } },
+    { id: 'v1', def: 'vsource', x: 0, y: 0, rot: 90, tag: 'V1', props: { shape: 'sin', amplitude: '10', offset: '0', frequency: '50', phase: '0', duty: '50', spec: '' } },
     { id: 'd1', def: 'diode', x: 120, y: -40, rot: opts.reversed ? 180 : 0, tag: 'D1', props: { model: 'D1N4148' } },
     { id: 'r1', def: 'resistor', x: 220, y: 0, rot: 90, tag: 'R1', props: { value: '1k' } },
     { id: 'gnd', def: 'ground', x: 120, y: 40, rot: 0, tag: '', props: {} },
