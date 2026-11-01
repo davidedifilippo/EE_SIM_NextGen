@@ -1,15 +1,25 @@
-import { runTransient, TranResult } from './ngspice';
+import { loadEngine, runTransient, TranResult } from './ngspice';
 
-export type WorkerRequest = { id: number; netlist: string };
-export type WorkerResponse = { id: number; ok: true; result: TranResult } | { id: number; ok: false; error: string };
+export type WorkerRequest = { type: 'preload' } | { type: 'run'; id: number; netlist: string };
+export type WorkerResponse =
+  | { type: 'ready' }
+  | { type: 'result'; id: number; ok: true; result: TranResult }
+  | { type: 'result'; id: number; ok: false; error: string };
+
+const reply = (response: WorkerResponse) => self.postMessage(response);
 
 self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
-  const { id, netlist } = e.data;
-  let response: WorkerResponse;
-  try {
-    response = { id, ok: true, result: await runTransient(netlist) };
-  } catch (err) {
-    response = { id, ok: false, error: err instanceof Error ? err.message : String(err) };
+  if (e.data.type === 'preload') {
+    // A failure here is not reported: the first run tries again and shows the error
+    loadEngine().then(() => reply({ type: 'ready' }), () => undefined);
+    return;
   }
-  self.postMessage(response);
+  const { id, netlist } = e.data;
+  try {
+    const result = await runTransient(netlist);
+    reply({ type: 'ready' });
+    reply({ type: 'result', id, ok: true, result });
+  } catch (err) {
+    reply({ type: 'result', id, ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
 };

@@ -14,7 +14,15 @@ function getSimulation(): Promise<Simulation> {
     await sim.start();
     return sim;
   })();
+  // A failed start must not stay cached, or every later run would fail the same way
+  simulation.catch(() => {
+    simulation = null;
+  });
   return simulation;
+}
+
+export async function loadEngine(): Promise<void> {
+  await getSimulation();
 }
 
 export async function runTransient(netlist: string): Promise<TranResult> {

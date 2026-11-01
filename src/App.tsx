@@ -7,7 +7,7 @@ import { SchematicCanvas } from './editor/SchematicCanvas';
 import { PropertiesPanel } from './ui/PropertiesPanel';
 import { Series, TransientChart } from './ui/TransientChart';
 import { TranResult } from './engine/ngspice';
-import { simulate } from './engine/ngspiceClient';
+import { isEngineReady, preloadEngine, simulate } from './engine/ngspiceClient';
 import { LiveFrame } from './realtime/liveSimulation';
 import { LiveOverlay } from './ui/LiveOverlay';
 import { LiveLegend, LiveLegendHandle, SourceStats, SPEEDS } from './ui/LiveControls';
@@ -18,6 +18,8 @@ interface Run {
   series: Series[];
   netlist: string;
 }
+
+const ENGINE_PRELOAD_DELAY_MS = 2000;
 
 export const App: React.FC = () => {
   const [circuit, setCircuit] = useState<Circuit>(() => halfWaveRectifier({ capacitor: '100u' }));
@@ -32,6 +34,14 @@ export const App: React.FC = () => {
   const [run, setRun] = useState<Run | null>(null);
   const [liveRunning, setLiveRunning] = useState(true);
   const [speed, setSpeed] = useState(20e-3);
+
+  // ngspice arrives in the background once the page is up, so the first analysis finds it ready
+  useEffect(() => {
+    const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
+    if (saveData) return;
+    const timer = setTimeout(preloadEngine, ENGINE_PRELOAD_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, []);
 
   const live = useLiveSimulation(circuit, liveRunning, speed);
   const legendRef = useRef<LiveLegendHandle>(null);
@@ -163,7 +173,7 @@ export const App: React.FC = () => {
             <input value={step} onChange={(e) => setStep(e.target.value)} />
           </label>
           <button className="primary" onClick={runSimulation} disabled={running}>
-            {running ? 'Analisi…' : 'Analisi precisa'}
+            {running ? (isEngineReady() ? 'Analisi…' : 'Carico ngspice…') : 'Analisi precisa'}
           </button>
         </div>
       </header>
