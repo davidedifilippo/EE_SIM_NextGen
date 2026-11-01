@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import { LiveFrame, LiveLayout } from '../realtime/liveSimulation';
-import { voltageColor } from './liveColors';
 
 interface Props {
   layout: LiveLayout;
@@ -18,9 +17,10 @@ const MIN_VOLTAGE_SCALE = 1e-3;
 const MIN_CURRENT_SCALE = 1e-9;
 /** Below this fraction of the largest current a wire shows no dots. */
 const DOT_THRESHOLD = 0.01;
+const DOT_COLOR = '#f97316';
 
 /**
- * Draws voltages and currents on the wires. It updates SVG attributes directly: going through
+ * Draws the currents as moving dots. It updates SVG attributes directly: going through
  * React at animation rate would re-render the whole schematic.
  */
 export const LiveOverlay: React.FC<Props> = ({ layout, frameRef, onScale }) => {
@@ -31,7 +31,6 @@ export const LiveOverlay: React.FC<Props> = ({ layout, frameRef, onScale }) => {
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    const wires = [...root.querySelectorAll<SVGLineElement>('[data-live="wire"]')];
     const edgeDots = [...root.querySelectorAll<SVGLineElement>('[data-live="edge-dots"]')];
     const deviceDots = [...root.querySelectorAll<SVGLineElement>('[data-live="device-dots"]')];
     const edgeOffset = new Float64Array(edgeDots.length);
@@ -56,7 +55,7 @@ export const LiveOverlay: React.FC<Props> = ({ layout, frameRef, onScale }) => {
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
       const frame = frameRef.current;
-      if (!frame || frame.edgeVoltage.length !== wires.length || frame.deviceCurrent.length !== deviceDots.length) {
+      if (!frame || frame.edgeCurrent.length !== edgeDots.length || frame.deviceCurrent.length !== deviceDots.length) {
         onScaleRef.current(maxV, null);
         return;
       }
@@ -69,10 +68,6 @@ export const LiveOverlay: React.FC<Props> = ({ layout, frameRef, onScale }) => {
       for (const i of frame.deviceCurrent) peakI = Math.max(peakI, Math.abs(i));
       maxV = Math.max(peakV, maxV * decay, MIN_VOLTAGE_SCALE);
       maxI = Math.max(peakI, maxI * decay, MIN_CURRENT_SCALE);
-
-      wires.forEach((line, i) => {
-        line.style.stroke = voltageColor(frame.edgeVoltage[i] / maxV);
-      });
 
       // No new frame means paused: the dots stop with the simulation
       const moving = frame.time !== lastTime;
@@ -92,14 +87,11 @@ export const LiveOverlay: React.FC<Props> = ({ layout, frameRef, onScale }) => {
 
   return (
     <g ref={rootRef} pointerEvents="none" data-testid="live-overlay">
-      {layout.graph.edges.map((e, i) => (
-        <line key={i} data-live="wire" x1={e.a.x} y1={e.a.y} x2={e.b.x} y2={e.b.y} strokeWidth={3} strokeLinecap="round" stroke="transparent" />
-      ))}
       {layout.devices.map((d) => (
-        <line key={d.elementId} data-live="device-dots" x1={d.a.x} y1={d.a.y} x2={d.b.x} y2={d.b.y} stroke="#0f172a" strokeWidth={4.5} strokeLinecap="round" style={dotStyle} />
+        <line key={d.elementId} data-live="device-dots" x1={d.a.x} y1={d.a.y} x2={d.b.x} y2={d.b.y} stroke={DOT_COLOR} strokeWidth={4.5} strokeLinecap="round" style={dotStyle} />
       ))}
       {layout.graph.edges.map((e, i) => (
-        <line key={i} data-live="edge-dots" x1={e.a.x} y1={e.a.y} x2={e.b.x} y2={e.b.y} stroke="#0f172a" strokeWidth={4.5} strokeLinecap="round" style={dotStyle} />
+        <line key={i} data-live="edge-dots" x1={e.a.x} y1={e.a.y} x2={e.b.x} y2={e.b.y} stroke={DOT_COLOR} strokeWidth={4.5} strokeLinecap="round" style={dotStyle} />
       ))}
     </g>
   );

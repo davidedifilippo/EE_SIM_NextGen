@@ -3,6 +3,7 @@ import { Circuit, Element } from '../model/types';
 import { getDevice } from '../library/devices';
 import { LiveFrame, LiveLayout } from '../realtime/liveSimulation';
 import { LiveReadout } from './LiveControls';
+import { SourceInspector } from './SourceInspector';
 import { ValueSlider } from './ValueSlider';
 
 interface Props {
@@ -34,7 +35,9 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
     <div className="properties">
       <strong>{def ? def.name : `${selectedIds.size} oggetti selezionati`}</strong>
       {deviceIndex >= 0 && <LiveReadout deviceIndex={deviceIndex} frameRef={frameRef} />}
+      {single && def?.id === 'vsource' && <SourceInspector props={single.props} onChange={(props, record) => update({ props }, record)} />}
       {single &&
+        def?.id !== 'vsource' &&
         def?.props.map((p) => {
           const value = String(single.props[p.key] ?? '');
           const setValue = (next: string, record = true) => update({ props: { ...single.props, [p.key]: next } }, record);

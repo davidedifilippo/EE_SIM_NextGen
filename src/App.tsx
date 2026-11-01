@@ -226,6 +226,17 @@ export const App: React.FC = () => {
 
       {(errors.length > 0 || run) && (
         <section className="results">
+          <button
+            className="close-results"
+            aria-label="Chiudi risultati"
+            title="Chiudi"
+            onClick={() => {
+              setRun(null);
+              setErrors([]);
+            }}
+          >
+            ×
+          </button>
           {errors.length > 0 && (
             <ul className="errors" role="alert">
               {errors.map((err) => (

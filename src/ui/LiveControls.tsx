@@ -1,9 +1,9 @@
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import { Circuit } from '../model/types';
+import { sourceSpec } from '../netlist/source';
 import { LiveFrame } from '../realtime/liveSimulation';
 import { waveformStats } from '../realtime/waveform';
 import { formatEngineering, pickTimeUnit } from './chartMath';
-import { NEGATIVE, NEUTRAL, POSITIVE, toCss } from './liveColors';
 
 export const SPEEDS: { label: string; simSecondsPerSecond: number }[] = [
   { label: '1 ms/s', simSecondsPerSecond: 1e-3 },
@@ -17,18 +17,15 @@ export interface LiveLegendHandle {
   update: (maxVoltage: number, frame: LiveFrame | null, keptUp: number) => void;
 }
 
-/** Color scale and clock, updated directly at animation rate. */
+/** Voltage peak and clock, updated directly at animation rate. */
 export const LiveLegend = forwardRef<LiveLegendHandle, { errors: string[] }>(({ errors }, ref) => {
-  const lowRef = useRef<HTMLSpanElement>(null);
-  const highRef = useRef<HTMLSpanElement>(null);
+  const peakRef = useRef<HTMLSpanElement>(null);
   const timeRef = useRef<HTMLSpanElement>(null);
   const slowRef = useRef<HTMLSpanElement>(null);
 
   useImperativeHandle(ref, () => ({
     update(maxVoltage, frame, keptUp) {
-      const label = formatEngineering(maxVoltage, 'V');
-      if (highRef.current) highRef.current.textContent = `+${label}`;
-      if (lowRef.current) lowRef.current.textContent = `-${label}`;
+      if (peakRef.current) peakRef.current.textContent = `±${formatEngineering(maxVoltage, 'V')}`;
       if (timeRef.current && frame) {
         const unit = pickTimeUnit(frame.time || 1e-3);
         timeRef.current.textContent = `t = ${(frame.time / unit.factor).toFixed(1).replace('.', ',')} ${unit.symbol}`;
@@ -45,14 +42,7 @@ export const LiveLegend = forwardRef<LiveLegendHandle, { errors: string[] }>(({ 
         </div>
       ) : (
         <>
-          <div className="live-scale">
-            <span ref={lowRef}>-</span>
-            <span
-              className="live-scale-bar"
-              style={{ background: `linear-gradient(to right, ${toCss(NEGATIVE)}, ${toCss(NEUTRAL)}, ${toCss(POSITIVE)})` }}
-            />
-            <span ref={highRef}>+</span>
-          </div>
+          <span ref={peakRef} className="live-peak" />
           <span ref={timeRef} className="live-time" />
           <span ref={slowRef} className="live-slow" hidden>
             Circuito troppo pesante: animazione rallentata
@@ -67,7 +57,8 @@ LiveLegend.displayName = 'LiveLegend';
 /** Bar over the canvas with the values of the selected signal generator. */
 export const SourceStats: React.FC<{ circuit: Circuit; selectedIds: Set<string> }> = ({ circuit, selectedIds }) => {
   const source = selectedIds.size === 1 ? circuit.elements.find((el) => selectedIds.has(el.id) && el.def === 'vsource') : undefined;
-  const stats = source ? waveformStats(String(source.props.spec ?? '')) : null;
+  const spec = source ? sourceSpec(source.props) : null;
+  const stats = spec ? waveformStats(spec) : null;
   if (!stats) return null;
 
   const rows: [string, string][] = [

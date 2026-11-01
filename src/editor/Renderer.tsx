@@ -1,7 +1,8 @@
 // Adapted from PowerCad_NextGen (see THIRD_PARTY_NOTICES.md).
 import React from 'react';
 import { Circuit, ComponentDef, Element, Prim, Pt, Rotation, Wire } from '../model/types';
-import { getDevice } from '../library/devices';
+import { elementSymbol, getDevice } from '../library/devices';
+import { sourceLabel } from '../netlist/source';
 import { Box, dist, isPointOnSegment, localToWorld } from '../utils/geometry';
 
 type Press = React.PointerEvent;
@@ -158,7 +159,7 @@ const ElementItem: React.FC<{
   if (!def) return null;
   const bounds = getBounds(def);
   const isVertical = elem.rot === 90 || elem.rot === 270;
-  const value = def.props[0] ? String(elem.props[def.props[0].key] ?? '') : '';
+  const value = def.id === 'vsource' ? sourceLabel(elem.props) : def.props[0] ? String(elem.props[def.props[0].key] ?? '') : '';
   const labelProps = isVertical
     ? { x: 24, textAnchor: 'start' as const }
     : { x: 0, textAnchor: 'middle' as const };
@@ -185,7 +186,7 @@ const ElementItem: React.FC<{
           pointerEvents="none"
         />
       )}
-      {def.symbol.map((prim, idx) => (
+      {elementSymbol(def, elem).map((prim, idx) => (
         <PrimitiveItem key={idx} prim={prim} />
       ))}
 

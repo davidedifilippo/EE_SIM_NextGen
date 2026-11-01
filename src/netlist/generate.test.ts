@@ -108,7 +108,7 @@ describe('generateNetlist', () => {
 
   it('rejects multi-line source specs', () => {
     const c = halfWaveRectifier();
-    c.elements[0].props.spec = 'DC 1\n.control';
+    c.elements[0].props = { shape: 'custom', spec: 'DC 1\n.control' };
     expect(generateNetlist(c, TRAN).errors[0]).toContain('sorgente non valida');
   });
 

@@ -1,6 +1,7 @@
 import { Circuit } from '../model/types';
 import { getDevice } from '../library/devices';
 import { computeConnectivity, terminalKey } from './connectivity';
+import { sourceSpec } from './source';
 
 export interface TranAnalysis {
   type: 'tran';
@@ -106,9 +107,9 @@ export function generateNetlist(circuit: Circuit, analysis: TranAnalysis): Netli
         break;
       }
       case 'vsource': {
-        const spec = String(el.props.spec ?? '').trim();
-        if (!spec || !isSingleLine(spec)) {
-          errors.push(`${el.tag}: sorgente non valida "${spec}"`);
+        const spec = sourceSpec(el.props);
+        if (!spec) {
+          errors.push(`${el.tag}: sorgente non valida`);
           break;
         }
         const name = uniqueName('V', el.tag);

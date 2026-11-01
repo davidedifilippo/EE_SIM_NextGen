@@ -1,4 +1,5 @@
 import { ComponentDef, Prim, Rotation, Circuit, Element, Pt } from '../model/types';
+import { SourceShape, sourceShape } from '../netlist/source';
 
 const twoPin = (a: string, b: string) => [
   { id: a, x: -40, y: 0 },
@@ -9,6 +10,22 @@ const leads = (inner: number): Prim[] => [
   { t: 'line', x1: -40, y1: 0, x2: -inner, y2: 0 },
   { t: 'line', x1: inner, y1: 0, x2: 40, y2: 0 },
 ];
+
+const SOURCE_BODY: Prim[] = [
+  ...leads(18),
+  { t: 'circle', cx: 0, cy: 0, r: 18, fill: '#ffffff' },
+  { t: 'line', x1: -14, y1: 0, x2: -8, y2: 0 },
+  { t: 'line', x1: -11, y1: -3, x2: -11, y2: 3 },
+  { t: 'line', x1: 8, y1: 0, x2: 14, y2: 0 },
+];
+
+/** What is drawn inside the generator, and on the buttons that choose the signal. */
+export const SOURCE_GLYPHS: Record<SourceShape, string> = {
+  sin: 'M -6 0 Q -3 -9 0 0 T 6 0',
+  square: 'M -6 4 L -6 -4 L 0 -4 L 0 4 L 6 4',
+  dc: 'M -6 -2 L 6 -2 M -6 2 L 6 2',
+  custom: 'M -6 3 L -3 -5 L -1 1 L 2 -3 L 6 4',
+};
 
 export const DEVICES: ComponentDef[] = [
   {
@@ -47,15 +64,15 @@ export const DEVICES: ComponentDef[] = [
     name: 'Generatore',
     tagPrefix: 'V',
     terminals: twoPin('pos', 'neg'),
-    symbol: [
-      ...leads(18),
-      { t: 'circle', cx: 0, cy: 0, r: 18, fill: '#ffffff' },
-      { t: 'line', x1: -14, y1: 0, x2: -8, y2: 0 },
-      { t: 'line', x1: -11, y1: -3, x2: -11, y2: 3 },
-      { t: 'line', x1: 8, y1: 0, x2: 14, y2: 0 },
-      { t: 'path', d: 'M -6 0 Q -3 -9 0 0 T 6 0' },
+    symbol: [...SOURCE_BODY, { t: 'path', d: SOURCE_GLYPHS.sin }],
+    props: [
+      { key: 'shape', label: 'Tipo di segnale', type: 'text', default: 'sin' },
+      { key: 'amplitude', label: 'Valore massimo', type: 'text', default: '10' },
+      { key: 'offset', label: 'Offset', type: 'text', default: '0' },
+      { key: 'frequency', label: 'Frequenza', type: 'text', default: '50' },
+      { key: 'phase', label: 'Fase iniziale', type: 'text', default: '0' },
+      { key: 'spec', label: 'Stringa ngspice', type: 'text', default: '' },
     ],
-    props: [{ key: 'spec', label: 'Sorgente', type: 'text', default: 'SIN(0 10 50)' }],
     spice: { kind: 'vsource', pos: 'pos', neg: 'neg' },
   },
   {
@@ -90,6 +107,11 @@ const byId = new Map(DEVICES.map((d) => [d.id, d]));
 
 export function getDevice(id: string): ComponentDef | undefined {
   return byId.get(id);
+}
+
+export function elementSymbol(def: ComponentDef, element: Element): Prim[] {
+  if (def.id !== 'vsource') return def.symbol;
+  return [...SOURCE_BODY, { t: 'path', d: SOURCE_GLYPHS[sourceShape(element.props)] }];
 }
 
 /** First free tag for the prefix: deleting R1 from R1, R2 gives R1 again, never a duplicate R2. */

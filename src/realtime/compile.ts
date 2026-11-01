@@ -1,6 +1,7 @@
 import { Circuit } from '../model/types';
 import { getDevice } from '../library/devices';
 import { computeConnectivity, terminalKey } from '../netlist/connectivity';
+import { sourceSpec } from '../netlist/source';
 import { parseSpiceValue } from '../netlist/values';
 import { parseWaveform, Waveform } from './waveform';
 
@@ -96,9 +97,10 @@ export function compileCircuit(circuit: Circuit): CompileResult {
         break;
       }
       case 'vsource': {
-        const wave = parseWaveform(String(el.props.spec ?? ''));
+        const spec = sourceSpec(el.props);
+        const wave = spec && parseWaveform(spec);
         if (!wave) {
-          errors.push(`${el.tag}: sorgente non valida "${el.props.spec ?? ''}"`);
+          errors.push(`${el.tag}: sorgente non valida${spec ? ` "${spec}"` : ''}`);
           break;
         }
         const [a, b] = [node(s.pos), node(s.neg)];
