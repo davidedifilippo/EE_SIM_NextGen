@@ -57,6 +57,8 @@ export interface Element {
   x: number;
   y: number;
   rot: Rotation;
+  /** Mirrored top to bottom, before the rotation. */
+  flip?: boolean;
   tag: string;
   props: Record<string, string | number>;
 }

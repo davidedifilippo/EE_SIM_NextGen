@@ -1,4 +1,4 @@
-import { TranResult } from './ngspice';
+import { AcResult, TranResult } from './ngspice';
 import type { WorkerRequest, WorkerResponse } from './ngspice.worker';
 
 const TIMEOUT_MS = 60_000;
@@ -40,7 +40,7 @@ export function preloadEngine() {
   w.postMessage(request);
 }
 
-function runInWorker(netlist: string): Promise<TranResult> {
+function runInWorker(netlist: string, isAc: boolean): Promise<TranResult | AcResult> {
   return new Promise((resolve, reject) => {
     const w = getWorker();
     const id = nextId++;
@@ -70,14 +70,17 @@ function runInWorker(netlist: string): Promise<TranResult> {
 
     w.addEventListener('message', onMessage);
     w.addEventListener('error', onError);
-    const request: WorkerRequest = { type: 'run', id, netlist };
+    const request: WorkerRequest = { type: 'run', id, netlist, isAc };
     w.postMessage(request);
   });
 }
 
 /** Runs one simulation at a time, because the engine holds a single netlist. */
-export function simulate(netlist: string): Promise<TranResult> {
-  const job = queue.then(() => runInWorker(netlist));
+function enqueue(netlist: string, isAc: boolean): Promise<TranResult | AcResult> {
+  const job = queue.then(() => runInWorker(netlist, isAc));
   queue = job.catch(() => undefined);
   return job;
 }
+
+export const simulate = (netlist: string) => enqueue(netlist, false) as Promise<TranResult>;
+export const simulateAc = (netlist: string) => enqueue(netlist, true) as Promise<AcResult>;

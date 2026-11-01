@@ -162,7 +162,7 @@ export const SchematicCanvas: React.FC<Props> = ({
     let best: { label?: string; worldPos: Pt; d: number } | null = null;
     for (const elem of circuit.elements) {
       for (const term of getDevice(elem.def)?.terminals ?? []) {
-        const tWorld = localToWorld(elem.x, elem.y, term, elem.rot);
+        const tWorld = localToWorld(elem.x, elem.y, term, elem.rot, elem.flip);
         const d = dist(worldPt, tWorld);
         if (d <= maxDist && (!best || d < best.d)) {
           best = { label: elem.tag ? `${elem.tag}.${term.id}` : term.id, worldPos: snapPt(tWorld), d };
@@ -532,7 +532,7 @@ export const SchematicCanvas: React.FC<Props> = ({
     }
     if (!isAlreadySelected) onSelectIds(new Set([elem.id]));
 
-    const terminalsOf = (el: Element) => (getDevice(el.def)?.terminals ?? []).map((t) => localToWorld(el.x, el.y, t, el.rot));
+    const terminalsOf = (el: Element) => (getDevice(el.def)?.terminals ?? []).map((t) => localToWorld(el.x, el.y, t, el.rot, el.flip));
     const otherTerminals = circuit.elements.filter((el) => el.id !== elem.id).flatMap(terminalsOf);
     dragRef.current = {
       type: 'element',

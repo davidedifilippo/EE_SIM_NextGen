@@ -87,7 +87,7 @@ export function buildLiveLayout(circuit: Circuit, compiled: CompiledCircuit): Li
   for (const el of circuit.elements) {
     const def = getDevice(el.def);
     for (const t of def?.terminals ?? []) {
-      const pt = localToWorld(el.x, el.y, t, el.rot);
+      const pt = localToWorld(el.x, el.y, t, el.rot, el.flip);
       terminals.push(pt);
       if (def?.spice.kind === 'ground') grounds.push(pt);
     }
@@ -98,7 +98,7 @@ export function buildLiveLayout(circuit: Circuit, compiled: CompiledCircuit): Li
   const devices = compiled.elementIds.map((id): LiveDevice => {
     const el = byId.get(id)!;
     const def = getDevice(el.def)!;
-    const at = (terminal: string) => localToWorld(el.x, el.y, def.terminals.find((t) => t.id === terminal)!, el.rot);
+    const at = (terminal: string) => localToWorld(el.x, el.y, def.terminals.find((t) => t.id === terminal)!, el.rot, el.flip);
     const points = terminalsOf(def.spice as Exclude<SpiceDef, { kind: 'ground' }>).map(at);
     const firstDot = dots.length;
     // Through a two-terminal device in one run; in a transistor, each lead meets at the center

@@ -23,6 +23,13 @@ describe('circuit file', () => {
     expect(generateNetlist(read, analysis).text).toBe(generateNetlist(circuit, analysis).text);
   });
 
+  it('keeps a mirrored part mirrored', () => {
+    const circuit = halfWaveRectifier();
+    circuit.elements[0].flip = true;
+    expect(parseCircuitFile(serializeCircuit(circuit)).elements[0].flip).toBe(true);
+    expect(parseCircuitFile(serializeCircuit(halfWaveRectifier())).elements[0]).not.toHaveProperty('flip');
+  });
+
   it('drops the fields it does not know', () => {
     const read = parseCircuitFile(
       edited((f) => {

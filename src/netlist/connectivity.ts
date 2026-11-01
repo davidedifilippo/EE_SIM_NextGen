@@ -39,7 +39,7 @@ export function computeConnectivity(circuit: Circuit): Connectivity {
 
   for (const el of circuit.elements) {
     for (const t of getDevice(el.def)?.terminals ?? []) {
-      terminals.push({ key: terminalKey(el.id, t.id), pt: localToWorld(el.x, el.y, t, el.rot) });
+      terminals.push({ key: terminalKey(el.id, t.id), pt: localToWorld(el.x, el.y, t, el.rot, el.flip) });
     }
   }
 

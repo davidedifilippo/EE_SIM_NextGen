@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Circuit, ComponentDef, Rotation, SpiceModel } from './model/types';
-import { DEVICES } from './library/devices';
+import { canMirror, DEVICES, getDevice } from './library/devices';
 import { circuitForSaving, withLibraryModels } from './library/models';
-import { describeNodes, generateNetlist } from './netlist/generate';
+import { Analysis, describeNodes, generateNetlist } from './netlist/generate';
 import { isDcSource } from './netlist/source';
 import { halfWaveRectifier } from './samples/halfWaveRectifier';
 import { SchematicCanvas } from './editor/SchematicCanvas';
@@ -10,9 +10,11 @@ import { libraryAtStart, mergeModels, saveLibrary } from './storage/modelLibrary
 import { downloadCircuit, INVALID_FILE, loadAutosave, MAX_FILE_BYTES, parseCircuitFile, saveAutosave } from './storage/circuitFile';
 import { PropertiesPanel } from './ui/PropertiesPanel';
 import { Series, TransientChart } from './ui/TransientChart';
-import { TranResult } from './engine/ngspice';
-import { isEngineReady, preloadEngine, simulate } from './engine/ngspiceClient';
+import { AcResult, TranResult } from './engine/ngspice';
+import { isEngineReady, preloadEngine, simulate, simulateAc } from './engine/ngspiceClient';
 import { LiveFrame, opAmpsToKick, ScopeProbe } from './realtime/liveSimulation';
+import { AcSeries, BodeChart } from './ui/BodeChart';
+import { hasSignal } from './ui/bode';
 import { DcValues } from './ui/DcValues';
 import { LiveOverlay } from './ui/LiveOverlay';
 import { LiveLegend, LiveLegendHandle, SourceStats, SPEEDS } from './ui/LiveControls';
@@ -20,11 +22,12 @@ import { ScopePanel } from './ui/ScopePanel';
 import { liveTraces, MAX_TRACES, nextSlot, ScopeTrace, traceLabel } from './ui/scopeTraces';
 import { useLiveSimulation } from './ui/useLiveSimulation';
 
-interface Run {
-  result: TranResult;
-  series: Series[];
-  netlist: string;
-}
+type Run =
+  | { kind: 'tran'; result: TranResult; series: Series[]; netlist: string }
+  | { kind: 'ac'; result: AcResult; series: AcSeries[]; netlist: string };
+
+/** Enough for a smooth curve and a cutoff read to three figures, without weighing on the chart. */
+const AC_POINTS_PER_DECADE = 100;
 
 const ENGINE_PRELOAD_DELAY_MS = 2000;
 const AUTOSAVE_DELAY_MS = 300;
@@ -43,6 +46,9 @@ export const App: React.FC = () => {
   const [activeDef, setActiveDef] = useState<ComponentDef | null>(null);
   const [stop, setStop] = useState('100m');
   const [step, setStep] = useState('20u');
+  const [analysisKind, setAnalysisKind] = useState<'tran' | 'ac'>('tran');
+  const [acFrom, setAcFrom] = useState('10');
+  const [acTo, setAcTo] = useState('100k');
   const [running, setRunning] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [run, setRun] = useState<Run | null>(null);
@@ -190,6 +196,13 @@ export const App: React.FC = () => {
     setSelectedIds(new Set());
   }, [circuit, selectedIds, handleChange]);
 
+  const mirrorSelected = useCallback(() => {
+    handleChange({
+      ...circuit,
+      elements: circuit.elements.map((el) => (selectedIds.has(el.id) && canMirror(getDevice(el.def)) ? { ...el, flip: !el.flip } : el)),
+    });
+  }, [circuit, selectedIds, handleChange]);
+
   const rotateSelected = useCallback(() => {
     handleChange({
       ...circuit,
@@ -199,8 +212,11 @@ export const App: React.FC = () => {
     });
   }, [circuit, selectedIds, handleChange]);
 
-  const analysis = useMemo(() => ({ type: 'tran', step, stop, maxStep: step }) as const, [step, stop]);
-  const netlist = useMemo(() => generateNetlist(resolved, analysis, opAmpsToKick(resolved)), [resolved, analysis]);
+  const analysis = useMemo<Analysis>(
+    () => (analysisKind === 'ac' ? { type: 'ac', from: acFrom, to: acTo, pointsPerDecade: AC_POINTS_PER_DECADE } : { type: 'tran', step, stop, maxStep: step }),
+    [analysisKind, acFrom, acTo, step, stop],
+  );
+  const netlist = useMemo(() => generateNetlist(resolved, analysis, analysis.type === 'tran' ? opAmpsToKick(resolved) : undefined), [resolved, analysis]);
 
   const runSimulation = async () => {
     if (netlist.errors.length > 0) {
@@ -210,13 +226,21 @@ export const App: React.FC = () => {
     setErrors([]);
     setRunning(true);
     try {
-      const result = await simulate(netlist.text);
       const labels = describeNodes(resolved, netlist.nodeOf);
-      const series = [...result.voltages.keys()]
-        .filter((node) => labels.has(node))
-        .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
-        .map((node) => ({ node, label: `${node} (${labels.get(node)})` }));
-      setRun({ result, series, netlist: netlist.text });
+      const seriesOf = (nodes: string[]) =>
+        nodes
+          .filter((node) => labels.has(node))
+          .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
+          .map((node) => ({ node, label: `${node} (${labels.get(node)})` }));
+      if (analysis.type === 'ac') {
+        const result = await simulateAc(netlist.text);
+        // A node with no signal at all, such as a DC supply, has no gain to draw
+        const nodes = [...result.voltages].filter(([, v]) => hasSignal(v.re, v.im)).map(([node]) => node);
+        setRun({ kind: 'ac', result, series: seriesOf(nodes), netlist: netlist.text });
+      } else {
+        const result = await simulate(netlist.text);
+        setRun({ kind: 'tran', result, series: seriesOf([...result.voltages.keys()]), netlist: netlist.text });
+      }
     } catch (err) {
       setErrors([err instanceof Error ? err.message : String(err)]);
     } finally {
@@ -275,13 +299,35 @@ export const App: React.FC = () => {
         </div>
         <div className="analysis">
           <label>
-            Durata
-            <input value={stop} onChange={(e) => setStop(e.target.value)} />
+            Analisi
+            <select className="analysis-kind" value={analysisKind} onChange={(e) => setAnalysisKind(e.target.value as 'tran' | 'ac')}>
+              <option value="tran">Nel tempo</option>
+              <option value="ac">In frequenza (AC)</option>
+            </select>
           </label>
-          <label>
-            Passo
-            <input value={step} onChange={(e) => setStep(e.target.value)} />
-          </label>
+          {analysisKind === 'tran' ? (
+            <>
+              <label>
+                Durata
+                <input value={stop} onChange={(e) => setStop(e.target.value)} />
+              </label>
+              <label>
+                Passo
+                <input value={step} onChange={(e) => setStep(e.target.value)} />
+              </label>
+            </>
+          ) : (
+            <>
+              <label>
+                Da (Hz)
+                <input value={acFrom} onChange={(e) => setAcFrom(e.target.value)} />
+              </label>
+              <label>
+                A (Hz)
+                <input value={acTo} onChange={(e) => setAcTo(e.target.value)} />
+              </label>
+            </>
+          )}
           <button className="primary" onClick={runSimulation} disabled={running}>
             {running ? (isEngineReady() ? 'Analisi…' : 'Carico ngspice…') : 'Analisi precisa'}
           </button>
@@ -329,6 +375,7 @@ export const App: React.FC = () => {
             selectedIds={selectedIds}
             onChange={handleChange}
             onRotateSelected={rotateSelected}
+            onMirrorSelected={mirrorSelected}
             onDeleteSelected={deleteSelected}
             layout={live.layout}
             frameRef={live.frameRef}
@@ -373,8 +420,9 @@ export const App: React.FC = () => {
               ))}
             </ul>
           )}
-          {isStale && <p className="stale">Il circuito è cambiato: il grafico mostra la simulazione precedente.</p>}
-          {run && <TransientChart result={run.result} series={run.series} />}
+          {isStale && <p className="stale">Il circuito o l'analisi sono cambiati: il grafico mostra la simulazione precedente.</p>}
+          {run?.kind === 'tran' && <TransientChart result={run.result} series={run.series} />}
+          {run?.kind === 'ac' && <BodeChart key={run.netlist} result={run.result} series={run.series} />}
         </section>
       )}
     </div>

@@ -151,6 +151,7 @@ function getBounds(def: ComponentDef) {
   const maxX = Math.max(20, ...xs);
   const minY = Math.min(-20, ...ys);
   const maxY = Math.max(20, ...ys);
+  if (def.spice.kind === 'opamp') return { x: minX, y: -30, w: maxX - minX, h: 60 };
   return def.spice.kind === 'ground'
     ? { x: -14, y: -2, w: 28, h: 26 }
     : { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
@@ -169,8 +170,10 @@ const ElementItem: React.FC<{
   // A transistor has leads above and below too: its labels always go beside it
   const isTransistor = def.spice.kind === 'bjt' || def.spice.kind === 'mos';
   const isBesideLabel = elem.rot === 90 || elem.rot === 270 || isTransistor;
-  const value = def.id === 'vsource' ? sourceLabel(elem.props) : def.spice.kind === 'opamp' ? `${elem.props.high} / ${elem.props.low} V` : def.props[0] ? String(elem.props[def.props[0].key] ?? '') : '';
-  const labelProps = !isBesideLabel
+  const value = def.id === 'vsource' ? sourceLabel(elem.props) : def.spice.kind === 'opamp' ? '' : def.props[0] ? String(elem.props[def.props[0].key] ?? '') : '';
+  const labelProps = def.spice.kind === 'opamp' && !isBesideLabel
+    ? { x: 8, textAnchor: 'start' as const } // Clear of the sloping side of the triangle
+    : !isBesideLabel
     ? { x: 0, textAnchor: 'middle' as const }
     : isTransistor && elem.rot === 180
       ? { x: -28, textAnchor: 'end' as const }
@@ -178,7 +181,7 @@ const ElementItem: React.FC<{
 
   return (
     <g
-      transform={`translate(${elem.x}, ${elem.y}) rotate(${elem.rot})`}
+      transform={`translate(${elem.x}, ${elem.y}) rotate(${elem.rot})${elem.flip ? ' scale(1, -1)' : ''}`}
       onPointerDown={onDown}
       style={{ cursor: 'move' }}
       data-tag={elem.tag}
@@ -204,7 +207,7 @@ const ElementItem: React.FC<{
 
       {/* Labels are counter-rotated so they stay upright and keep their world position */}
       {def.tagPrefix && (
-        <g transform={`rotate(${-elem.rot})`} pointerEvents="none" fontSize={11}>
+        <g transform={`${elem.flip ? 'scale(1, -1) ' : ''}rotate(${-elem.rot})`} pointerEvents="none" fontSize={11}>
           <text y={isBesideLabel ? -4 : -24} fontWeight={700} fill="#0f172a" {...labelProps}>
             {elem.tag}
           </text>
@@ -215,7 +218,7 @@ const ElementItem: React.FC<{
       )}
 
       {def.terminals.map((term) => {
-        const worldPos = localToWorld(elem.x, elem.y, term, elem.rot);
+        const worldPos = localToWorld(elem.x, elem.y, term, elem.rot, elem.flip);
         return (
           <g
             key={term.id}

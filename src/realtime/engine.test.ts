@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { formatSpiceValue, parseSpiceValue } from '../netlist/values';
 import { terminalKey } from '../netlist/connectivity';
 import { computeConnectivity } from '../netlist/connectivity';
-import { SpiceModel } from '../model/types';
+import { Circuit, SpiceModel } from '../model/types';
 import { compileCircuit, parseBjtModel, parseDiodeModel, parseMosModel } from './compile';
 import { RealtimeEngine, SolverError } from './engine';
 import { circuitFromNets, Part, RELAXATION_OSCILLATOR } from './testCircuits';
@@ -405,6 +405,38 @@ describe('ideal op amp', () => {
     ['', '-15'],
   ])('refuses the rails %j and %j', (high, low) => {
     expect(compileCircuit(circuitFromNets('t', [U('n', '0', 'o', high, low)]))).toEqual({ ok: false, errors: ['U1: alimentazioni non valide'] });
+  });
+
+  it('exchanges the inputs when mirrored, as the wires stay where they are', () => {
+    const elements = (flip: boolean): Circuit => ({
+      title: 't',
+      models: [],
+      elements: [
+        { id: 'v1', def: 'vsource', x: -200, y: 0, rot: 90, tag: 'V1', props: { spec: 'DC 1' } },
+        { id: 'g', def: 'ground', x: -200, y: 100, rot: 0, tag: '', props: {} },
+        { id: 'r1', def: 'resistor', x: 100, y: 40, rot: 90, tag: 'R1', props: { value: '1k' } },
+        { id: 'u1', def: 'opamp', x: 0, y: 0, rot: 0, flip, tag: 'U1', props: { high: '15', low: '-15' } },
+      ],
+      wires: [
+        // Upper input to the source, lower input to ground, load on the output
+        { id: 'a', pts: [{ x: -200, y: -40 }, { x: -40, y: -40 }, { x: -40, y: -10 }] },
+        { id: 'b', pts: [{ x: -200, y: 40 }, { x: -200, y: 100 }, { x: -40, y: 100 }, { x: -40, y: 10 }] },
+        { id: 'c', pts: [{ x: 40, y: 0 }, { x: 100, y: 0 }] },
+        { id: 'd', pts: [{ x: 100, y: 80 }, { x: 100, y: 100 }, { x: -40, y: 100 }] },
+      ],
+    });
+    const output = (flip: boolean) => {
+      const circuit = elements(flip);
+      const result = compileCircuit(circuit);
+      if (!result.ok) throw new Error(result.errors.join());
+      const engine = new RealtimeEngine(result.compiled);
+      engine.initialize();
+      const u = result.compiled.devices.find((d) => d.kind === 'opamp')!;
+      return engine.nodeVoltage(u.a);
+    };
+    // The minus input is on top by default, with the source on it: the output goes to the low rail
+    expect(output(false)).toBe(-15);
+    expect(output(true)).toBe(15);
   });
 
   it('survives open inputs, as a drawing in progress has', () => {

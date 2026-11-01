@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { waveformStats } from '../realtime/waveform';
-import { sourceLabel, sourceShape, sourceSpec } from './source';
+import { sourceAcSpec, sourceLabel, sourceShape, sourceSpec } from './source';
 
 const sine = { shape: 'sin', amplitude: '10', offset: '0', frequency: '50', phase: '0', spec: '' };
 
@@ -80,6 +80,29 @@ describe('sourceSpec', () => {
     ['advanced text on two lines', { shape: 'custom', spec: 'DC 1\n.control' }],
   ])('rejects an invalid %s', (_, change) => {
     expect(sourceSpec({ ...sine, ...change })).toBeNull();
+  });
+});
+
+describe('sourceAcSpec', () => {
+  it('gives a signal 1 V, whatever its amplitude, on top of its offset', () => {
+    expect(sourceAcSpec({ ...sine, amplitude: '325' })).toBe('DC 0 AC 1');
+    expect(sourceAcSpec({ ...sine, offset: '2.5' })).toBe('DC 2.5 AC 1');
+    expect(sourceAcSpec({ ...sine, shape: 'square', offset: '1' })).toBe('DC 1 AC 1');
+  });
+
+  it('leaves DC as it is', () => {
+    expect(sourceAcSpec({ ...sine, shape: 'dc', amplitude: '12' })).toBe('DC 12');
+    expect(sourceAcSpec({ spec: 'DC 5' })).toBe('DC 5');
+  });
+
+  it('takes the level from an advanced source when it can', () => {
+    expect(sourceAcSpec({ spec: 'SIN(2 5 50)' })).toBe('DC 2 AC 1');
+    expect(sourceAcSpec({ spec: 'PULSE(-1 1 0)' })).toBe('DC -1 AC 1');
+    expect(sourceAcSpec({ spec: 'PWL(0 1 1m 2)' })).toBe('DC 0 AC 1');
+  });
+
+  it('passes on what is not valid', () => {
+    expect(sourceAcSpec({ ...sine, frequency: 'x' })).toBeNull();
   });
 });
 

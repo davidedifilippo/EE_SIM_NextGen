@@ -70,6 +70,20 @@ export function isDcSource(props: SourceProps): boolean {
   return spec !== null && parseSpiceValue(spec.replace(/^dc\s+/i, '')) !== null;
 }
 
+/**
+ * The source for an AC sweep: its DC level for the operating point and, if it carries a signal,
+ * 1 V at all frequencies, so that the result reads directly as the gain.
+ */
+export function sourceAcSpec(props: SourceProps): string | null {
+  const spec = sourceSpec(props);
+  if (spec === null) return null;
+  if (isDcSource(props)) return spec;
+  const shape = sourceShape(props);
+  if (shape === 'sin' || shape === 'square') return `DC ${optionalField(props, 'offset') ?? 0} AC 1`;
+  const first = parseSpiceValue(/^\s*(?:sin|pulse)\s*\(\s*([^\s,)]+)/i.exec(spec)?.[1] ?? '');
+  return `DC ${first ?? 0} AC 1`;
+}
+
 /** What the schematic shows next to the source. */
 export function sourceLabel(props: SourceProps): string {
   const shape = sourceShape(props);

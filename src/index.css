@@ -54,6 +54,15 @@ body,
   width: 64px;
 }
 
+.analysis select.analysis-kind {
+  width: auto;
+}
+
+.bode-legend .viz-legend-item {
+  flex-wrap: wrap;
+  text-align: left;
+}
+
 button,
 input,
 select {
@@ -315,6 +324,10 @@ button.close-results {
 .properties select {
   width: 100%;
   color: #0f172a;
+}
+
+.properties > .button-row {
+  flex-wrap: wrap;
 }
 
 .properties input[readonly] {

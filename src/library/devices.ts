@@ -188,18 +188,18 @@ export const DEVICES: ComponentDef[] = [
     name: 'Op. amp',
     tagPrefix: 'U',
     terminals: [
-      { id: 'minus', x: -40, y: -20 },
-      { id: 'plus', x: -40, y: 20 },
+      { id: 'minus', x: -40, y: -10 },
+      { id: 'plus', x: -40, y: 10 },
       { id: 'out', x: 40, y: 0 },
     ],
     symbol: [
-      { t: 'line', x1: -40, y1: -20, x2: -24, y2: -20 },
-      { t: 'line', x1: -40, y1: 20, x2: -24, y2: 20 },
+      { t: 'line', x1: -40, y1: -10, x2: -24, y2: -10 },
+      { t: 'line', x1: -40, y1: 10, x2: -24, y2: 10 },
       { t: 'line', x1: 28, y1: 0, x2: 40, y2: 0 },
-      { t: 'path', d: 'M -24 -28 L 28 0 L -24 28 Z', fill: '#ffffff' },
-      { t: 'line', x1: -20, y1: -20, x2: -12, y2: -20 },
-      { t: 'line', x1: -20, y1: 20, x2: -12, y2: 20 },
-      { t: 'line', x1: -16, y1: 16, x2: -16, y2: 24 },
+      { t: 'path', d: 'M -24 -30 L 28 0 L -24 30 Z', fill: '#ffffff' },
+      { t: 'line', x1: -20, y1: -10, x2: -15, y2: -10, w: 1.2 },
+      { t: 'line', x1: -20, y1: 10, x2: -15, y2: 10, w: 1.2 },
+      { t: 'line', x1: -17.5, y1: 7.5, x2: -17.5, y2: 12.5, w: 1.2 },
     ],
     props: [
       { key: 'high', label: 'Alimentazione + (V)', type: 'text', default: '15' },
@@ -232,6 +232,9 @@ export function elementSymbol(def: ComponentDef, element: Element): Prim[] {
   if (def.id !== 'vsource') return def.symbol;
   return [...SOURCE_BODY, { t: 'path', d: SOURCE_GLYPHS[sourceShape(element.props)] }];
 }
+
+/** Parts that are not the same when mirrored: on the others a mirror would change nothing. */
+export const canMirror = (def: ComponentDef | undefined) => def?.spice.kind === 'opamp' || def?.spice.kind === 'bjt' || def?.spice.kind === 'mos';
 
 /** First free tag for the prefix: deleting R1 from R1, R2 gives R1 again, never a duplicate R2. */
 export function nextTag(prefix: string, elements: Element[]): string {

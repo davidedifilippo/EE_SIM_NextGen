@@ -1,6 +1,6 @@
 import React from 'react';
 import { Circuit, Element, SpiceModel } from '../model/types';
-import { getDevice } from '../library/devices';
+import { canMirror, getDevice } from '../library/devices';
 import { ImportedModel } from '../library/modelImport';
 import { modelsOfType } from '../library/models';
 import { drawingSign, LiveFrame, LiveLayout, ScopeProbe } from '../realtime/liveSimulation';
@@ -15,6 +15,7 @@ interface Props {
   selectedIds: Set<string>;
   onChange: (next: Circuit, record?: boolean) => void;
   onRotateSelected: () => void;
+  onMirrorSelected: () => void;
   onDeleteSelected: () => void;
   layout: LiveLayout | null;
   frameRef: React.MutableRefObject<LiveFrame | null>;
@@ -26,7 +27,7 @@ interface Props {
   onToggleProbe: (probe: ScopeProbe) => void;
 }
 
-export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onRotateSelected, onDeleteSelected, layout, frameRef, library, onImportModels, onRemoveModel, scopeIds, isScopeFull, onToggleProbe }) => {
+export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onRotateSelected, onMirrorSelected, onDeleteSelected, layout, frameRef, library, onImportModels, onRemoveModel, scopeIds, isScopeFull, onToggleProbe }) => {
   if (selectedIds.size === 0) {
     return <p className="hint">Seleziona un componente per modificarne i valori. Per collegare, parti da un terminale.</p>;
   }
@@ -116,6 +117,11 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
       )}
       <div className="button-row">
         {selected.length > 0 && <button onClick={onRotateSelected}>Ruota</button>}
+        {selected.some((el) => canMirror(getDevice(el.def))) && (
+          <button title="Scambia sopra e sotto: per un op. amp, gli ingressi + e −" onClick={onMirrorSelected}>
+            Specchia
+          </button>
+        )}
         <button className="danger" onClick={onDeleteSelected}>
           Elimina
         </button>

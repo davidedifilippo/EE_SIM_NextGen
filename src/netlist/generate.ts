@@ -2,7 +2,7 @@ import { Circuit, ModelType, SpiceModel } from '../model/types';
 import { getDevice } from '../library/devices';
 import { findModel, isVdmos, modelType } from '../library/models';
 import { computeConnectivity, terminalKey } from './connectivity';
-import { sourceSpec } from './source';
+import { sourceAcSpec, sourceSpec } from './source';
 import { parseSpiceValue } from './values';
 
 export interface TranAnalysis {
@@ -11,6 +11,15 @@ export interface TranAnalysis {
   stop: string;
   maxStep?: string;
 }
+
+export interface AcAnalysis {
+  type: 'ac';
+  from: string;
+  to: string;
+  pointsPerDecade: number;
+}
+
+export type Analysis = TranAnalysis | AcAnalysis;
 
 export interface NetlistResult {
   /** Empty when errors is not empty. */
@@ -51,7 +60,7 @@ export const OPAMP_GAIN = 1e6;
  * kicked names the op amps with nowhere stable to rest at the start, as in an oscillator: an exact
  * solver would stay there forever, so they get a push during the first step, as noise would give.
  */
-export function generateNetlist(circuit: Circuit, analysis: TranAnalysis, kicked: Set<string> = new Set()): NetlistResult {
+export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Set<string> = new Set()): NetlistResult {
   const errors: string[] = [];
   const { netOf, unconnected } = computeConnectivity(circuit);
 
@@ -87,6 +96,7 @@ export function generateNetlist(circuit: Circuit, analysis: TranAnalysis, kicked
   const lines: string[] = [];
   const usedNames = new Set<string>();
   const usedModels = new Map<string, SpiceModel>();
+  let hasAcSource = false;
 
   const uniqueName = (prefix: string, tag: string) => {
     if (!SPICE_NAME.test(tag)) {
@@ -133,13 +143,14 @@ export function generateNetlist(circuit: Circuit, analysis: TranAnalysis, kicked
         break;
       }
       case 'vsource': {
-        const spec = sourceSpec(el.props);
+        const spec = analysis.type === 'ac' ? sourceAcSpec(el.props) : sourceSpec(el.props);
         if (!spec) {
           errors.push(`${el.tag}: sorgente non valida`);
           break;
         }
         const name = uniqueName('V', el.tag);
         if (name) lines.push(`${name} ${node(s.pos)} ${node(s.neg)} ${spec}`);
+        if (spec.includes(' AC ')) hasAcSource = true;
         break;
       }
       case 'diode': {
@@ -163,7 +174,7 @@ export function generateNetlist(circuit: Circuit, analysis: TranAnalysis, kicked
           break;
         }
         const name = uniqueName('B', el.tag);
-        const step = parseSpiceValue(analysis.step) ?? 0;
+        const step = analysis.type === 'tran' ? (parseSpiceValue(analysis.step) ?? 0) : 0;
         const kick = kicked.has(el.id) ? `+${high - low}*u(time-1e-12)*u(${step}-time)` : '';
         if (name) {
           // A very fast pole on the output: without it, ngspice can fail on a diode inside the loop
@@ -190,8 +201,16 @@ export function generateNetlist(circuit: Circuit, analysis: TranAnalysis, kicked
     if (!isSingleLine(m.card)) errors.push(`Modello ${m.name}: la card deve stare su una riga`);
   }
   if (!isSingleLine(circuit.title)) errors.push('Il titolo deve stare su una riga');
-  for (const [label, value] of [['Durata', analysis.stop], ['Passo', analysis.step], ['Passo massimo', analysis.maxStep ?? '1']]) {
+  const checks = analysis.type === 'tran'
+    ? [['Durata', analysis.stop], ['Passo', analysis.step], ['Passo massimo', analysis.maxStep ?? '1']]
+    : [['Da', analysis.from], ['A', analysis.to]];
+  for (const [label, value] of checks) {
     if (!SPICE_VALUE.test(value.trim())) errors.push(`${label}: valore non valido "${value}"`);
+  }
+  if (analysis.type === 'ac') {
+    const [from, to] = [parseSpiceValue(analysis.from), parseSpiceValue(analysis.to)];
+    if (from !== null && to !== null && (from <= 0 || to <= from)) errors.push('La frequenza "A" deve essere maggiore di "Da", ed entrambe positive');
+    if (!hasAcSource) errors.push("Per l'analisi AC serve un generatore di segnale: sinusoide, onda quadra o avanzato");
   }
 
   const nodeOf = new Map<string, string>();
@@ -199,7 +218,10 @@ export function generateNetlist(circuit: Circuit, analysis: TranAnalysis, kicked
 
   if (errors.length > 0) return { text: '', errors, nodeOf };
 
-  const tran = `.tran ${analysis.step} ${analysis.stop}${analysis.maxStep ? ` 0 ${analysis.maxStep}` : ''}`;
-  const text = [circuit.title, ...lines, ...modelCards.map((m) => m.card), tran, '.end', ''].join('\n');
+  const command =
+    analysis.type === 'ac'
+      ? `.ac dec ${analysis.pointsPerDecade} ${analysis.from} ${analysis.to}`
+      : `.tran ${analysis.step} ${analysis.stop}${analysis.maxStep ? ` 0 ${analysis.maxStep}` : ''}`;
+  const text = [circuit.title, ...lines, ...modelCards.map((m) => m.card), command, '.end', ''].join('\n');
   return { text, errors, nodeOf };
 }

@@ -25,6 +25,32 @@ export async function loadEngine(): Promise<void> {
   await getSimulation();
 }
 
+export interface AcResult {
+  frequency: number[];
+  /** Node voltages as real and imaginary parts, keyed like TranResult. */
+  voltages: Map<string, { re: number[]; im: number[] }>;
+}
+
+export async function runAc(netlist: string): Promise<AcResult> {
+  const sim = await getSimulation();
+  sim.setNetList(netlist);
+  const result = await sim.runSim();
+
+  const errors = sim.getError();
+  if (errors.length > 0) throw new Error(`ngspice: ${errors.join('\n')}`);
+  if (result.dataType !== 'complex') throw new Error('ngspice: risultato reale inatteso per una analisi AC');
+
+  const frequency = result.data.find((d) => d.type === 'frequency')?.values.map((v) => v.real);
+  if (!frequency) throw new Error('ngspice: nessun asse delle frequenze nel risultato');
+
+  const voltages = new Map<string, { re: number[]; im: number[] }>();
+  for (const d of result.data) {
+    if (d.type !== 'voltage') continue;
+    voltages.set(d.name.toLowerCase().replace(/^v\((.*)\)$/, '$1'), { re: d.values.map((v) => v.real), im: d.values.map((v) => v.img) });
+  }
+  return { frequency, voltages };
+}
+
 export async function runTransient(netlist: string): Promise<TranResult> {
   const sim = await getSimulation();
   sim.setNetList(netlist);

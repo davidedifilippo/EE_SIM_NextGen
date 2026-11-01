@@ -21,9 +21,9 @@ export function rotatePt(p: Pt, rot: Rotation): Pt {
   }
 }
 
-/** Transform local terminal point to absolute world coords */
-export function localToWorld(elemX: number, elemY: number, local: Pt, rot: Rotation): Pt {
-  const r = rotatePt(local, rot);
+/** Transform local terminal point to absolute world coords. A mirrored part is flipped top to bottom before it turns. */
+export function localToWorld(elemX: number, elemY: number, local: Pt, rot: Rotation, flip = false): Pt {
+  const r = rotatePt(flip ? { x: local.x, y: -local.y } : local, rot);
   return { x: elemX + r.x, y: elemY + r.y };
 }
 

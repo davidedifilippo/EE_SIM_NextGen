@@ -133,6 +133,33 @@ describe('generateNetlist', () => {
     expect(generateNetlist(c, { type: 'tran', step: '1', stop: '10' }).text).not.toContain('u(time)');
   });
 
+  describe('AC', () => {
+    const AC = { type: 'ac', from: '10', to: '100k', pointsPerDecade: 50 } as const;
+
+    it('sweeps by decades, with the signal at 1 V', () => {
+      const { text, errors } = generateNetlist(halfWaveRectifier(), AC);
+      expect(errors).toEqual([]);
+      expect(text).toContain('.ac dec 50 10 100k');
+      expect(text).toContain('DC 0 AC 1');
+      expect(text).not.toContain('.tran');
+    });
+
+    it('needs a signal to apply', () => {
+      const c = halfWaveRectifier();
+      c.elements[0].props = { shape: 'dc', amplitude: '5' };
+      expect(generateNetlist(c, AC).errors[0]).toContain('serve un generatore di segnale');
+    });
+
+    it.each([
+      [{ from: 'abc' }, 'Da: valore non valido "abc"'],
+      [{ to: '1\n.control' }, 'A: valore non valido "1\n.control"'],
+      [{ from: '0' }, 'La frequenza "A" deve essere maggiore di "Da", ed entrambe positive'],
+      [{ from: '100', to: '10' }, 'La frequenza "A" deve essere maggiore di "Da", ed entrambe positive'],
+    ])('checks the range %o', (change, message) => {
+      expect(generateNetlist(halfWaveRectifier(), { ...AC, ...change }).errors).toContain(message);
+    });
+  });
+
   it('refuses rails that make no sense', () => {
     const c = circuitFromNets('t', [{ def: 'opamp', tag: 'U1', nets: ['n', 'p', 'o'], props: { high: '1\n.control', low: '-5' } }]);
     expect(generateNetlist(c, TRAN).errors).toContain('U1: alimentazioni non valide');
