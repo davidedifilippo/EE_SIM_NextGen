@@ -210,6 +210,17 @@ describe('generateNetlist', () => {
     });
   });
 
+  it('writes a transformer as two coupled inductors, with the secondary from the ratio', () => {
+    const c = circuitFromNets('t', [{ def: 'transformer', tag: 'T1', nets: ['a', 'b', 'c', 'd'], props: { ratio: '10', inductance: '4', coupling: '0.98' } }]);
+    const { text, nodeOf } = generateNetlist(c, TRAN);
+    const [p1, p2, s1, s2] = ['p1', 'p2', 's1', 's2'].map((t) => nodeOf.get(`t1:${t}`));
+    expect(text).toContain(`LPT1 xpT1 ${p2} 4`);
+    expect(text).toContain(`LST1 xsT1 ${s2} 0.04`);
+    expect(text).toContain(`RWPT1 ${p1} xpT1 0.001`);
+    expect(text).toContain('KT1 LPT1 LST1 0.98');
+    expect(text).toContain(`RST1 ${s1} 0 1g`);
+  });
+
   it('refuses rails that make no sense', () => {
     const c = circuitFromNets('t', [{ def: 'opamp', tag: 'U1', nets: ['n', 'p', 'o'], props: { high: '1\n.control', low: '-5' } }]);
     expect(generateNetlist(c, TRAN).errors).toContain('U1: alimentazioni non valide');

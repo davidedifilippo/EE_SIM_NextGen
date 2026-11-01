@@ -209,6 +209,36 @@ export const DEVICES: ComponentDef[] = [
     spice: { kind: 'opamp', plus: 'plus', minus: 'minus', out: 'out', highProp: 'high', lowProp: 'low', gbwProp: 'gbw' },
   },
   {
+    id: 'transformer',
+    name: 'Trasformatore',
+    tagPrefix: 'T',
+    // The upper terminals are in phase, as the dots say
+    terminals: [
+      { id: 'p1', x: -40, y: -20 },
+      { id: 'p2', x: -40, y: 20 },
+      { id: 's1', x: 40, y: -20 },
+      { id: 's2', x: 40, y: 20 },
+    ],
+    symbol: [
+      { t: 'line', x1: -40, y1: -20, x2: -14, y2: -20 },
+      { t: 'line', x1: -40, y1: 20, x2: -14, y2: 20 },
+      { t: 'line', x1: 14, y1: -20, x2: 40, y2: -20 },
+      { t: 'line', x1: 14, y1: 20, x2: 40, y2: 20 },
+      { t: 'path', d: 'M -14 -20 A 5 5 0 0 1 -14 -10 A 5 5 0 0 1 -14 0 A 5 5 0 0 1 -14 10 A 5 5 0 0 1 -14 20' },
+      { t: 'path', d: 'M 14 -20 A 5 5 0 0 0 14 -10 A 5 5 0 0 0 14 0 A 5 5 0 0 0 14 10 A 5 5 0 0 0 14 20' },
+      { t: 'line', x1: -3, y1: -22, x2: -3, y2: 22 },
+      { t: 'line', x1: 3, y1: -22, x2: 3, y2: 22 },
+      { t: 'circle', cx: -19, cy: -25, r: 2, fill: '#0f172a' },
+      { t: 'circle', cx: 19, cy: -25, r: 2, fill: '#0f172a' },
+    ],
+    props: [
+      { key: 'ratio', label: 'Rapporto spire N1/N2', type: 'text', default: '10' },
+      { key: 'inductance', label: 'Induttanza primaria (H)', type: 'text', default: '10' },
+      { key: 'coupling', label: 'Accoppiamento k (minore di 1)', type: 'text', default: '0.999' },
+    ],
+    spice: { kind: 'transformer', p1: 'p1', p2: 'p2', s1: 's1', s2: 's2', ratioProp: 'ratio', inductanceProp: 'inductance', couplingProp: 'coupling' },
+  },
+  {
     id: 'ground',
     name: 'Massa',
     terminals: [{ id: 'g', x: 0, y: 0 }],
@@ -235,7 +265,7 @@ export function elementSymbol(def: ComponentDef, element: Element): Prim[] {
 }
 
 /** Parts that are not the same when mirrored: on the others a mirror would change nothing. */
-export const canMirror = (def: ComponentDef | undefined) => def?.spice.kind === 'opamp' || def?.spice.kind === 'bjt' || def?.spice.kind === 'mos';
+export const canMirror = (def: ComponentDef | undefined) => def?.spice.kind === 'opamp' || def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' || def?.spice.kind === 'transformer';
 
 /** First free tag for the prefix: deleting R1 from R1, R2 gives R1 again, never a duplicate R2. */
 export function nextTag(prefix: string, elements: Element[]): string {

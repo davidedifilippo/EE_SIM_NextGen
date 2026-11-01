@@ -4,7 +4,7 @@ import { Circuit, Element, SpiceModel, Wire } from '../model/types';
 import { D1N4148 } from '../samples/halfWaveRectifier';
 
 export interface Part {
-  def: 'resistor' | 'capacitor' | 'inductor' | 'vsource' | 'diode' | 'zener' | 'npn' | 'pnp' | 'nmos' | 'pmos' | 'opamp';
+  def: 'resistor' | 'capacitor' | 'inductor' | 'vsource' | 'diode' | 'zener' | 'npn' | 'pnp' | 'nmos' | 'pmos' | 'opamp' | 'transformer';
   tag: string;
   /** In the order of the terminals of the device. */
   nets: string[];
@@ -30,7 +30,8 @@ export function circuitFromNets(title: string, parts: Part[]): Circuit {
     elements.push({ id: p.tag.toLowerCase(), def: p.def, x: 0, y, rot: 0, tag: p.tag, props: p.props });
     getDevice(p.def)!.terminals.forEach((t, i) => {
       // Leads leave on their own level, so that they only ever cross each other
-      const leadY = y + (t.y < 0 ? -60 : t.y > 0 ? 80 : t.x < 0 ? 20 : -20);
+      const side = t.y !== 0 && t.x > 0 ? 20 : 0;
+      const leadY = y + (t.y < 0 ? -60 - side : t.y > 0 ? 80 + side : t.x < 0 ? 20 : -20);
       wires.push({
         id: `${p.tag}_${t.id}`,
         pts: [
@@ -60,6 +61,8 @@ const bjt = (def: 'npn' | 'pnp', tag: string, c: string, b: string, e: string, m
 const mos = (def: 'nmos' | 'pmos', tag: string, d: string, g: string, s: string, model: string): Part => ({ def, tag, nets: [d, g, s], props: { model } });
 /** Nets in the order of the terminals: inverting input, non inverting input, output. */
 const opAmp = (tag: string, minus: string, plus: string, out: string, high = '15', low = '-15', gbw = ''): Part => ({ def: 'opamp', tag, nets: [minus, plus, out], props: { high, low, gbw } });
+/** Nets in the order of the terminals: the two of the primary, then those of the secondary. */
+const transformer = (tag: string, p1: string, p2: string, s1: string, s2: string, ratio = '10', inductance = '10', coupling = '0.999'): Part => ({ def: 'transformer', tag, nets: [p1, p2, s1, s2], props: { ratio, inductance, coupling } });
 const imported = (text: string) => parseModelText(text).models.map(({ name, card }) => ({ name, card }));
 const part = (def: Part['def'], tag: string, a: string, b: string, value: string): Part => ({
   def,
@@ -480,6 +483,36 @@ export const AGREEMENT_CASES: TestCase[] = [
     ],
     probes: ['out'],
     stop: 50e-3,
+    dt: 10e-6,
+  },
+  {
+    name: 'trasformatore: riduttore con carico',
+    parts: [part('vsource', 'V1', 'in', '0', 'SIN(0 325 50)'), transformer('T1', 'in', '0', 'out', '0'), part('resistor', 'RL', 'out', '0', '100')],
+    probes: ['out'],
+    stop: 60e-3,
+    dt: 10e-6,
+  },
+  {
+    name: 'trasformatore: elevatore con k basso e fase invertita',
+    parts: [part('vsource', 'V1', 'in', '0', 'SIN(0 5 1k)'), part('resistor', 'R1', 'in', 'p', '10'), transformer('T1', 'p', '0', '0', 'out', '0.5', '100m', '0.9'), part('resistor', 'RL', 'out', '0', '1k')],
+    probes: ['out', 'p'],
+    stop: 5e-3,
+    dt: 1e-6,
+  },
+  {
+    name: 'trasformatore: alimentatore con ponte di Graetz isolato',
+    parts: [
+      part('vsource', 'V1', 'in', '0', 'SIN(0 325 50)'),
+      transformer('T1', 'in', '0', 'a', 'b'),
+      diode('D1', 'a', 'out'),
+      diode('D2', 'b', 'out'),
+      diode('D3', '0', 'a'),
+      diode('D4', '0', 'b'),
+      part('resistor', 'RL', 'out', '0', '1k'),
+      part('capacitor', 'C1', 'out', '0', '470u'),
+    ],
+    probes: ['out'],
+    stop: 100e-3,
     dt: 10e-6,
   },
   {

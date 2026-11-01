@@ -497,6 +497,88 @@ describe('ideal op amp', () => {
   });
 });
 
+describe('transformer', () => {
+  const T = (nets: string[], ratio = '10', inductance = '10', coupling = '0.999'): Part => ({ def: 'transformer', tag: 'T1', nets, props: { ratio, inductance, coupling } });
+  const peaks = (engine: RealtimeEngine, read: () => number, seconds = 0.1, dt = 1e-5) => {
+    let peak = 0;
+    const steps = Math.round(seconds / dt);
+    for (let i = 0; i < steps; i++) {
+      engine.step(dt);
+      if (i > steps / 2) peak = Math.max(peak, Math.abs(read()));
+    }
+    return peak;
+  };
+
+  it('divides the voltage by the turns ratio, and multiplies the current', () => {
+    const { engine, compiled, node } = build([V('V1', 'in', '0', 'SIN(0 100 50)'), T(['in', '0', 'out', '0']), R('RL', 'out', '0', '100')]);
+    engine.initialize();
+    const out = node('t1', 's1');
+    const t = compiled.devices.findIndex((d) => d.kind === 'transformer');
+    expect(peaks(engine, () => engine.nodeVoltage(out))).toBeCloseTo(10, 0);
+    expect(peaks(engine, () => engine.terminalCurrents(t)[2])).toBeCloseTo(0.1, 2);
+    // The load seen through the ratio, 10 mA, plus the magnetizing current
+    expect(peaks(engine, () => engine.terminalCurrents(t)[0])).toBeLessThan(0.08);
+  });
+
+  it('keeps the upper terminals in phase, and turns over when the secondary does', () => {
+    const inPhase = build([V('V1', 'in', '0', 'SIN(0 100 50)'), T(['in', '0', 'out', '0']), R('RL', 'out', '0', '1k')]);
+    const reversed = build([V('V1', 'in', '0', 'SIN(0 100 50)'), T(['in', '0', '0', 'out']), R('RL', 'out', '0', '1k')]);
+    inPhase.engine.initialize();
+    reversed.engine.initialize();
+    for (let i = 0; i < 2500; i++) {
+      inPhase.engine.step(1e-5);
+      reversed.engine.step(1e-5);
+    }
+    // A quarter of a period past a whole one, at the positive peak of the source
+    expect(inPhase.engine.nodeVoltage(inPhase.node('t1', 's1'))).toBeGreaterThan(9);
+    expect(reversed.engine.nodeVoltage(reversed.node('t1', 's2'))).toBeLessThan(-9);
+  });
+
+  it('passes no DC: the secondary sees nothing, the primary is a short', () => {
+    const { engine, node } = build([V('V1', 'in', '0', 'DC 10'), R('R1', 'in', 'p', '100'), T(['p', '0', 'out', '0']), R('RL', 'out', '0', '100')]);
+    engine.initialize();
+    expect(engine.nodeVoltage(node('t1', 's1'))).toBeCloseTo(0, 6);
+    expect(engine.nodeVoltage(node('t1', 'p1'))).toBeCloseTo(0, 3);
+  });
+
+  it('survives a DC generator right on the primary, through the resistance of the winding', () => {
+    const { engine, compiled } = build([V('V1', 'in', '0', 'DC 1'), T(['in', '0', 'x', 'y'])]);
+    engine.initialize();
+    expect(engine.terminalCurrents(compiled.devices.findIndex((d) => d.kind === 'transformer'))[0]).toBeCloseTo(-1000 * -1, 0);
+  });
+
+  it('works with an open secondary, drawing only the magnetizing current', () => {
+    const { engine, compiled } = build([V('V1', 'in', '0', 'SIN(0 100 50)'), T(['in', '0', 'x', 'y'])]);
+    engine.initialize();
+    const t = compiled.devices.findIndex((d) => d.kind === 'transformer');
+    // Starting from zero at the zero of the sine the flux has an offset, as on a real switch-on: twice the peak
+    expect(peaks(engine, () => engine.terminalCurrents(t)[0])).toBeCloseTo((2 * 100) / (2 * Math.PI * 50 * 10), 2);
+  });
+
+  it('keeps its state when a value changes', () => {
+    const parts = (ratio: string) => [V('V1', 'in', '0', 'SIN(0 100 50)'), T(['in', '0', 'out', '0'], ratio), R('RL', 'out', '0', '100')];
+    const first = build(parts('10'));
+    first.engine.initialize();
+    for (let i = 0; i < 300; i++) first.engine.step(1e-5);
+    const changed = compileCircuit(circuitFromNets('t', parts('5')));
+    if (!changed.ok) throw new Error();
+    expect(changed.compiled.signature).toBe(first.engine.compiled.signature);
+    const next = new RealtimeEngine(changed.compiled);
+    next.adoptState(first.engine);
+    expect(() => next.step(1e-5)).not.toThrow();
+  });
+
+  it.each([
+    ['0', '10', '0.99'],
+    ['10', '-1', '0.99'],
+    ['10', '10', '1'],
+    ['10', '10', '0'],
+    ['abc', '10', '0.99'],
+  ])('refuses ratio %s, inductance %s and coupling %s', (ratio, inductance, coupling) => {
+    expect(compileCircuit(circuitFromNets('t', [T(['a', '0', 'b', '0'], ratio, inductance, coupling)]))).toEqual({ ok: false, errors: ['T1: rapporto, induttanza o accoppiamento non validi'] });
+  });
+});
+
 describe('RealtimeEngine', () => {
   it('solves a divider, with the source current in SPICE sign', () => {
     const { engine, node, compiled } = build([V('V1', 'in', '0', 'DC 12'), R('R1', 'in', 'out', '1k'), R('R2', 'out', '0', '2k')]);

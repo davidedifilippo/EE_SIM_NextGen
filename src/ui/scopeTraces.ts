@@ -25,6 +25,7 @@ export function elementProbes(el: Element): ProbeChoice[] {
     label,
     probe: { id: `${kind}:${el.id}`, kind, elementId: el.id },
   });
+  if (spice.kind === 'transformer') return [choice('V1', 'voltage'), choice('I1', 'current'), choice('V2', 'vbe'), choice('I2', 'ib')];
   if (spice.kind === 'mos') return [choice('Vds', 'voltage'), choice('Vgs', 'vbe'), choice('Id', 'current')];
   return spice.kind === 'bjt'
     ? [choice('Vce', 'voltage'), choice('Vbe', 'vbe'), choice('Ic', 'current'), choice('Ib', 'ib')]
@@ -62,7 +63,9 @@ export function traceLabel(probe: ScopeProbe, circuit: Circuit): string {
     const tag = circuit.elements.find((el) => el.id === probe.elementId)?.tag ?? '?';
     const kind = getDevice(circuit.elements.find((el) => el.id === probe.elementId)?.def ?? '')?.spice.kind;
     const names =
-      kind === 'mos'
+      kind === 'transformer'
+        ? { voltage: 'V1', current: 'I1', vbe: 'V2', ib: 'I2' }
+        : kind === 'mos'
         ? { voltage: 'Vds', current: 'Id', vbe: 'Vgs', ib: 'Ig' }
         : { voltage: kind === 'bjt' ? 'Vce' : 'V', current: kind === 'bjt' ? 'Ic' : 'I', vbe: 'Vbe', ib: 'Ib' };
     return `${names[probe.kind]}(${tag})`;

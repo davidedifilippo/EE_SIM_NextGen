@@ -36,7 +36,7 @@ export interface LiveFrame {
   deviceCurrent: Float64Array;
   /** Voltage across each device, first terminal minus second; collector minus emitter or drain minus source for a transistor. */
   deviceVoltage: Float64Array;
-  /** Base minus emitter or gate minus source voltage of a transistor, 0 for the rest. */
+  /** Base minus emitter or gate minus source of a transistor, voltage of the secondary of a transformer, 0 for the rest. */
   deviceVbe: Float64Array;
   dotCurrent: Float64Array;
   /** Samples of the probes since the last frame. */
@@ -78,6 +78,8 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
       return [s.drain, s.gate, s.source];
     case 'opamp':
       return [s.out, s.plus, s.minus];
+    case 'transformer':
+      return [s.p1, s.p2, s.s1, s.s2];
   }
 };
 
@@ -101,8 +103,9 @@ export function buildLiveLayout(circuit: Circuit, compiled: CompiledCircuit): Li
     const at = (terminal: string) => localToWorld(el.x, el.y, def.terminals.find((t) => t.id === terminal)!, el.rot, el.flip);
     const points = terminalsOf(def.spice as Exclude<SpiceDef, { kind: 'ground' }>).map(at);
     const firstDot = dots.length;
-    // Through a two-terminal device in one run; in a transistor, each lead meets at the center
+    // Through a two-terminal device in one run; a transformer has one per winding; in a transistor, each lead meets at the center
     if (points.length === 2) dots.push({ a: points[0], b: points[1] });
+    else if (points.length === 4) dots.push({ a: points[0], b: points[1] }, { a: points[2], b: points[3] });
     else points.forEach((p) => dots.push({ a: p, b: { x: el.x, y: el.y } }));
     return { elementId: id, terminals: points, firstDot };
   });
@@ -175,8 +178,10 @@ export class LiveSimulation {
         case 'current':
           return () => sign * engine.deviceCurrent(index);
         case 'vbe':
+          if (device.kind === 'transformer') return () => engine.nodeVoltage(device.c) - engine.nodeVoltage(device.d);
           return device.kind === 'bjt' || device.kind === 'mos' ? () => engine.nodeVoltage(device.base) - engine.nodeVoltage(device.b) : () => NaN;
         case 'ib':
+          if (device.kind === 'transformer') return () => engine.terminalCurrents(index)[2];
           return device.kind === 'bjt' ? () => engine.terminalCurrents(index)[1] : () => NaN;
       }
     });
@@ -270,9 +275,11 @@ export class LiveSimulation {
       const currents = engine.terminalCurrents(i);
       deviceCurrent[i] = currents[0];
       deviceVoltage[i] = engine.nodeVoltage(d.a) - engine.nodeVoltage(d.b);
+      if (d.kind === 'transformer') deviceVbe[i] = engine.nodeVoltage(d.c) - engine.nodeVoltage(d.d);
       if (d.kind === 'bjt' || d.kind === 'mos') deviceVbe[i] = engine.nodeVoltage(d.base) - engine.nodeVoltage(d.b);
       const { firstDot } = layout.devices[i];
       if (currents.length === 2) dotCurrent[firstDot] = currents[0];
+      else if (currents.length === 4) [dotCurrent[firstDot], dotCurrent[firstDot + 1]] = [currents[0], currents[2]];
       else currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
       // The wires give each terminal the current that enters it
       currents.forEach((current, k) => {

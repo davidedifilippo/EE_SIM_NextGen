@@ -17,6 +17,14 @@ describe('probe choices', () => {
     expect(elementProbes(q).map((c) => unitOf(c.probe))).toEqual(['V', 'V', 'A', 'A']);
   });
 
+  it('offers both windings of a transformer', () => {
+    const c = circuitFromNets('t', [{ def: 'transformer', tag: 'T1', nets: ['a', 'b', 'c', 'd'], props: { ratio: '10', inductance: '1', coupling: '0.9' } }]);
+    const choices = elementProbes(c.elements[0]);
+    expect(choices.map((x) => x.label)).toEqual(['V1', 'I1', 'V2', 'I2']);
+    expect(choices.map((x) => unitOf(x.probe))).toEqual(['V', 'A', 'V', 'A']);
+    expect(traceLabel(choices[2].probe, c)).toBe('V2(T1)');
+  });
+
   it('offers nothing on ground', () => {
     expect(elementProbes(circuit.elements.find((e) => e.def === 'ground')!)).toEqual([]);
   });

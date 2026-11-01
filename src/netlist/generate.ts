@@ -77,6 +77,16 @@ export function describeNodes(circuit: Circuit, nodeOf: Map<string, string>): Ma
   return new Map([...terminals].map(([node, names]) => [node, names.join(', ')]));
 }
 
+const TRANSFORMER_LEAK = '1g';
+export const TRANSFORMER_WINDING_RESISTANCE = 1e-3;
+
+/** The two inductances from what is asked of the part, or null if it makes no sense. A coupling of 1 has no solution. */
+export function transformerWindings(ratio: unknown, inductance: unknown, coupling: unknown) {
+  const [n, primary, k] = [ratio, inductance, coupling].map((v) => parseSpiceValue(String(v ?? '')));
+  if (n === null || primary === null || k === null || n <= 0 || primary <= 0 || k <= 0 || k >= 1) return null;
+  return { primary, secondary: primary / (n * n), coupling: k };
+}
+
 /** Open loop gain of the ideal op amp, shared with the real-time engine. */
 export const OPAMP_GAIN = 1e6;
 /** How fast the pole of an op amp with a limited bandwidth comes to rest on a rail, in seconds: short enough not to show. */
@@ -191,6 +201,23 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         if (model === null) break;
         const name = uniqueName('Q', el.tag);
         if (name) lines.push(`${name} ${node(s.collector)} ${node(s.base)} ${node(s.emitter)} ${model}`);
+        break;
+      }
+      case 'transformer': {
+        const windings = transformerWindings(el.props[s.ratioProp], el.props[s.inductanceProp], el.props[s.couplingProp]);
+        if (!windings) {
+          errors.push(`${el.tag}: rapporto, induttanza o accoppiamento non validi`);
+          break;
+        }
+        const name = uniqueName('T', el.tag);
+        if (name) {
+          const [p1, p2, s1, s2] = [node(s.p1), node(s.p2), node(s.s1), node(s.s2)];
+          // Series resistance, as any real winding has: at DC an ideal one would short the generator on it
+          lines.push(`RWP${name} ${p1} xp${name} ${TRANSFORMER_WINDING_RESISTANCE}`, `RWS${name} ${s1} xs${name} ${TRANSFORMER_WINDING_RESISTANCE}`);
+          lines.push(`LP${name} xp${name} ${p2} ${windings.primary}`, `LS${name} xs${name} ${s2} ${windings.secondary}`, `K${name} LP${name} LS${name} ${windings.coupling}`);
+          // A winding isolated from ground, as in a bridge rectifier, leaves ngspice with no DC reference
+          lines.push(`RP${name} ${p1} 0 ${TRANSFORMER_LEAK}`, `RS${name} ${s1} 0 ${TRANSFORMER_LEAK}`);
+        }
         break;
       }
       case 'opamp': {

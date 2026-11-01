@@ -170,7 +170,7 @@ const ElementItem: React.FC<{
   // A transistor has leads above and below too: its labels always go beside it
   const isTransistor = def.spice.kind === 'bjt' || def.spice.kind === 'mos';
   const isBesideLabel = elem.rot === 90 || elem.rot === 270 || isTransistor;
-  const value = def.id === 'vsource' ? sourceLabel(elem.props) : def.spice.kind === 'opamp' ? '' : def.props[0] ? String(elem.props[def.props[0].key] ?? '') : '';
+  const value = def.id === 'vsource' ? sourceLabel(elem.props) : def.spice.kind === 'opamp' ? '' : def.spice.kind === 'transformer' ? `${elem.props.ratio}:1` : def.props[0] ? String(elem.props[def.props[0].key] ?? '') : '';
   const labelProps = def.spice.kind === 'opamp' && !isBesideLabel
     ? { x: 8, textAnchor: 'start' as const } // Clear of the sloping side of the triangle
     : !isBesideLabel

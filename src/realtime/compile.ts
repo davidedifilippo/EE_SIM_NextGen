@@ -2,7 +2,7 @@ import { Circuit, ModelType } from '../model/types';
 import { getDevice } from '../library/devices';
 import { findModel, isVdmos, modelType } from '../library/models';
 import { computeConnectivity, terminalKey } from '../netlist/connectivity';
-import { OPAMP_GAIN } from '../netlist/generate';
+import { OPAMP_GAIN, transformerWindings } from '../netlist/generate';
 import { sourceSpec } from '../netlist/source';
 import { parseSpiceValue } from '../netlist/values';
 import { parseWaveform, Waveform } from './waveform';
@@ -78,7 +78,9 @@ export type CompiledDevice =
   /** a is the drain, b the source and base the gate; the primed nodes come after the series resistances, bodyNode after that of the body diode. */
   | { kind: 'mos'; element: number; a: NodeIndex; b: NodeIndex; base: NodeIndex; dp: NodeIndex; sp: NodeIndex; bodyNode: NodeIndex; params: MosParams }
   /** a is the output, b is always ground. */
-  | { kind: 'opamp'; element: number; a: NodeIndex; b: NodeIndex; plus: NodeIndex; minus: NodeIndex; high: number; low: number; /** Time constant of the open loop pole; 0 for no limit. */ tau: number; branch: number };
+  | { kind: 'opamp'; element: number; a: NodeIndex; b: NodeIndex; plus: NodeIndex; minus: NodeIndex; high: number; low: number; /** Time constant of the open loop pole; 0 for no limit. */ tau: number; branch: number }
+  /** a and b are the primary, c and d the secondary, each winding with its branch current; the primed nodes come after their series resistances. */
+  | { kind: 'transformer'; element: number; a: NodeIndex; b: NodeIndex; c: NodeIndex; d: NodeIndex; ap: NodeIndex; cp: NodeIndex; l1: number; l2: number; m: number; branch: number; branch2: number };
 
 export interface CompiledCircuit {
   /** Node voltages followed by branch currents. */
@@ -302,6 +304,18 @@ export function compileCircuit(circuit: Circuit): CompileResult {
         });
         break;
       }
+      case 'transformer': {
+        const windings = transformerWindings(el.props[s.ratioProp], el.props[s.inductanceProp], el.props[s.couplingProp]);
+        if (!windings) {
+          errors.push(`${el.tag}: rapporto, induttanza o accoppiamento non validi`);
+          break;
+        }
+        const [a, b, c, d] = [node(s.p1), node(s.p2), node(s.s1), node(s.s2)];
+        const { primary: l1, secondary: l2, coupling } = windings;
+        const m = coupling * Math.sqrt(l1 * l2);
+        pending.push({ element, needsBranch: true, build: (branch, nextNode) => ({ kind: 'transformer', element, a, b, c, d, ap: nextNode(), cp: nextNode(), l1, l2, m, branch, branch2: -1 }) });
+        break;
+      }
       case 'opamp': {
         const [high, low] = [parseSpiceValue(String(el.props[s.highProp] ?? '')), parseSpiceValue(String(el.props[s.lowProp] ?? ''))];
         if (high === null || low === null || high <= low) {
@@ -350,12 +364,13 @@ export function compileCircuit(circuit: Circuit): CompileResult {
   let branch = nodesTotal;
   const devices = pending.map((p, i) => {
     const shell = shells[i];
+    if (shell.kind === 'transformer') return { ...shell, branch: branch++, branch2: branch++ };
     return p.needsBranch ? { ...shell, branch: branch++ } : shell;
   }) as CompiledDevice[];
 
   const signature = JSON.stringify([
     branch,
-    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'opamp' ? [d.plus, d.minus] : 0]),
+    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : 0]),
   ]);
   return { ok: true, compiled: { size: branch, devices, netIndex, elementIds, signature } };
 }

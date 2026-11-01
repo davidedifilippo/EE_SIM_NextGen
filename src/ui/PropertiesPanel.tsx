@@ -48,7 +48,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
     <div className="properties">
       <strong>{def ? def.name : singleWire ? 'Filo' : `${selectedIds.size} oggetti selezionati`}</strong>
       {deviceIndex >= 0 && (
-        <LiveReadout deviceIndex={deviceIndex} sign={single ? drawingSign(single) : 1} transistorFirstDot={def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' ? layout!.devices[deviceIndex].firstDot : null} isMos={def?.spice.kind === 'mos'} frameRef={frameRef} />
+        <LiveReadout deviceIndex={deviceIndex} sign={single ? drawingSign(single) : 1} transistorFirstDot={def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' ? layout!.devices[deviceIndex].firstDot : null} isMos={def?.spice.kind === 'mos'} windingsFirstDot={def?.spice.kind === 'transformer' ? layout!.devices[deviceIndex].firstDot : null} frameRef={frameRef} />
       )}
       {single && def?.id === 'vsource' && <SourceInspector props={single.props} onChange={(props, record) => update({ props }, record)} />}
       {single &&

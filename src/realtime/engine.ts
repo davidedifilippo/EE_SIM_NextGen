@@ -1,6 +1,6 @@
 import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams, MosParams } from './compile';
 import { luFactor, luSolve } from './linear';
-import { OPAMP_GAIN } from '../netlist/generate';
+import { OPAMP_GAIN, TRANSFORMER_WINDING_RESISTANCE } from '../netlist/generate';
 
 /** Same default as SPICE: minimum conductance across a junction. */
 const GMIN = 1e-12;
@@ -13,6 +13,7 @@ const MAX_ITERATIONS = 60;
 const OPAMP_MARGIN = 1e-6;
 /** Changes of state within one solution before calling it a failure, and trying a shorter step. */
 const MAX_OPAMP_CHANGES = 24;
+const TRANSFORMER_LEAK_CONDUCTANCE = 1e-9;
 /** A step short enough for any capacitor in a circuit to act as a short. */
 const FIRST_INSTANT = 1e-9;
 /** State of an ideal op amp: linear, or stuck on one of its rails. */
@@ -188,6 +189,9 @@ export class RealtimeEngine {
   /** Per device: capacitor/inductor voltage and current at the last accepted point, diode or base-emitter junction voltage. */
   private readonly vPrev: Float64Array;
   private readonly iPrev: Float64Array;
+  /** The same for the secondary of a transformer. */
+  private readonly vPrev2: Float64Array;
+  private readonly iPrev2: Float64Array;
   private readonly vIter: Float64Array;
   /** Base-collector junction voltage of a bipolar transistor, drain-source voltage of a MOSFET. */
   private readonly vIterBc: Float64Array;
@@ -219,6 +223,8 @@ export class RealtimeEngine {
     this.start = new Float64Array(size);
     this.vPrev = new Float64Array(devices.length);
     this.iPrev = new Float64Array(devices.length);
+    this.vPrev2 = new Float64Array(devices.length);
+    this.iPrev2 = new Float64Array(devices.length);
     this.vIter = new Float64Array(devices.length);
     this.vIterBc = new Float64Array(devices.length);
     this.vIterBody = new Float64Array(devices.length);
@@ -283,6 +289,22 @@ export class RealtimeEngine {
         case 'opamp':
           this.addBranchColumns(d.a, d.b, d.branch);
           break;
+        case 'transformer':
+          this.addG(d.a, d.ap, 1 / TRANSFORMER_WINDING_RESISTANCE);
+          this.addG(d.c, d.cp, 1 / TRANSFORMER_WINDING_RESISTANCE);
+          // The same reference to ground that the netlist gives a winding isolated from it
+          this.addG(d.a, -1, TRANSFORMER_LEAK_CONDUCTANCE);
+          this.addG(d.c, -1, TRANSFORMER_LEAK_CONDUCTANCE);
+          this.addBranchColumns(d.ap, d.b, d.branch);
+          this.addBranchColumns(d.cp, d.d, d.branch2);
+          if (h > 0) {
+            // Each winding sees its own inductance and the mutual one, in the trapezoidal companion
+            base[d.branch * n + d.branch] = (-2 * d.l1) / h;
+            base[d.branch * n + d.branch2] = (-2 * d.m) / h;
+            base[d.branch2 * n + d.branch] = (-2 * d.m) / h;
+            base[d.branch2 * n + d.branch2] = (-2 * d.l2) / h;
+          }
+          break;
         case 'diode':
           if (d.params.rs > 0) this.addG(d.a, d.junction, 1 / d.params.rs);
           break;
@@ -308,7 +330,7 @@ export class RealtimeEngine {
   private branchStart(): number {
     let first = this.n;
     for (const d of this.compiled.devices) {
-      if ((d.kind === 'inductor' || d.kind === 'vsource' || d.kind === 'opamp') && d.branch < first) first = d.branch;
+      if ((d.kind === 'inductor' || d.kind === 'vsource' || d.kind === 'opamp' || d.kind === 'transformer') && d.branch < first) first = d.branch;
     }
     return first;
   }
@@ -330,6 +352,12 @@ export class RealtimeEngine {
           break;
         case 'vsource':
           rhs[d.branch] = d.wave(t) * sourceScale;
+          break;
+        case 'transformer':
+          if (h > 0) {
+            rhs[d.branch] = ((-2 * d.l1) / h) * this.iPrev[i] + ((-2 * d.m) / h) * this.iPrev2[i] - this.vPrev[i];
+            rhs[d.branch2] = ((-2 * d.m) / h) * this.iPrev[i] + ((-2 * d.l2) / h) * this.iPrev2[i] - this.vPrev2[i];
+          }
           break;
       }
     });
@@ -587,6 +615,11 @@ export class RealtimeEngine {
       } else if (d.kind === 'inductor') {
         this.vPrev[i] = h > 0 ? this.voltage(d.a) - this.voltage(d.b) : 0;
         this.iPrev[i] = this.x[d.branch];
+      } else if (d.kind === 'transformer') {
+        this.vPrev[i] = h > 0 ? this.voltage(d.ap) - this.voltage(d.b) : 0;
+        this.vPrev2[i] = h > 0 ? this.voltage(d.cp) - this.voltage(d.d) : 0;
+        this.iPrev[i] = this.x[d.branch];
+        this.iPrev2[i] = this.x[d.branch2];
       } else if (d.kind === 'opamp') {
         this.vPrev[i] = this.voltage(d.a);
         this.iPrev[i] = OPAMP_GAIN * (this.voltage(d.plus) - this.voltage(d.minus));
@@ -629,6 +662,8 @@ export class RealtimeEngine {
     this.x.set(previous.x);
     this.vPrev.set(previous.vPrev);
     this.iPrev.set(previous.iPrev);
+    this.vPrev2.set(previous.vPrev2);
+    this.iPrev2.set(previous.iPrev2);
     this.vIter.set(previous.vIter);
     this.vIterBc.set(previous.vIterBc);
     this.vIterBody.set(previous.vIterBody);
@@ -682,6 +717,7 @@ export class RealtimeEngine {
       case 'inductor':
       case 'vsource':
       case 'opamp':
+      case 'transformer':
         return this.x[d.branch];
       case 'diode': {
         const v = this.voltage(d.junction) - this.voltage(d.b);
@@ -706,6 +742,7 @@ export class RealtimeEngine {
       return [drain, 0, -drain];
     }
     if (d.kind === 'opamp') return [this.x[d.branch], 0, 0];
+    if (d.kind === 'transformer') return [this.x[d.branch], -this.x[d.branch], this.x[d.branch2], -this.x[d.branch2]];
     if (d.kind !== 'bjt') {
       const current = this.deviceCurrent(index);
       return [current, -current];

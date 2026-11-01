@@ -281,6 +281,29 @@ describe('probes', () => {
     expect(values[2][0]).toBeNaN();
   });
 
+  it('reads both windings of a transformer, in the frame and on the probes', () => {
+    const sim = new LiveSimulation();
+    const circuit = circuitFromNets('t', [
+      { def: 'vsource', tag: 'V1', nets: ['in', '0'], props: { spec: 'SIN(0 100 50)' } },
+      { def: 'transformer', tag: 'T1', nets: ['in', '0', 'out', '0'], props: { ratio: '10', inductance: '10', coupling: '0.999' } },
+      { def: 'resistor', tag: 'RL', nets: ['out', '0'], props: { value: '100' } },
+    ]);
+    sim.load(circuit);
+    sim.setProbes(
+      [
+        { id: 'a', kind: 'vbe', elementId: 't1' },
+        { id: 'b', kind: 'ib', elementId: 't1' },
+      ],
+      1,
+    );
+    run(sim, 5);
+    const frame = sim.frame()!;
+    expect(frame.scope!.values[0][499]).toBeCloseTo(frame.deviceVbe[1], 9);
+    expect(Math.abs(frame.deviceVbe[1])).toBeGreaterThan(9);
+    expect(frame.dotCurrent).toHaveLength(4);
+    expect(frame.scope!.values[1][499]).toBeCloseTo(frame.dotCurrent[2], 9);
+  });
+
   it('sends nothing without probes', () => {
     const sim = new LiveSimulation();
     sim.load(halfWaveRectifier());

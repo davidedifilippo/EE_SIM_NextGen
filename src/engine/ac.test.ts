@@ -98,6 +98,13 @@ describe('AC analysis against the formulas', () => {
     expect(s.at(1e5).gain).toBeCloseTo(60, 1);
   });
 
+  it('a transformer: the ratio in band, a cutoff below it from its inductance and the source resistance', async () => {
+    const parts: Part[] = [SIGNAL, R('R1', 'in', 'p', '100'), { def: 'transformer', tag: 'T1', nets: ['p', '0', 'out', '0'], props: { ratio: '10', inductance: '1', coupling: '0.999' } }, R('RL', 'out', '0', '1meg')];
+    const s = await sweep(parts, 'rl', 'a', { type: 'ac', from: '0.1', to: '1meg', pointsPerDecade: 50 });
+    expect(s.at(10000).gain).toBeCloseTo(-20, 0);
+    expect(s.summary.lower! / (100 / (2 * Math.PI * 1))).toBeCloseTo(1, 0);
+  });
+
   it('a transistor amplifies around its DC bias, taken from the offsets and DC sources', async () => {
     const parts: Part[] = [
       V('VCC', 'vcc', '0', 'DC 12'),

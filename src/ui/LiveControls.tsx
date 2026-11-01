@@ -88,8 +88,10 @@ export const LiveReadout: React.FC<{
   /** Set for a transistor: where its dots start, collector or drain first. */
   transistorFirstDot: number | null;
   isMos: boolean;
+  /** Set for a transformer: where the dots of its windings start. */
+  windingsFirstDot: number | null;
   frameRef: React.MutableRefObject<LiveFrame | null>;
-}> = ({ deviceIndex, sign, transistorFirstDot, isMos, frameRef }) => {
+}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, frameRef }) => {
   const [rows, setRows] = React.useState<[string, string][] | null>(null);
 
   React.useEffect(() => {
@@ -99,7 +101,14 @@ export const LiveReadout: React.FC<{
       const volts = (v: number | undefined) => formatEngineering(v ?? 0, 'V');
       const amps = (i: number | undefined) => formatEngineering(i ?? 0, 'A');
       setRows(
-        isMos && transistorFirstDot !== null
+        windingsFirstDot !== null
+          ? [
+              ['V1', volts(frame.deviceVoltage[deviceIndex])],
+              ['I1', amps(frame.dotCurrent[windingsFirstDot])],
+              ['V2', volts(frame.deviceVbe[deviceIndex])],
+              ['I2', amps(frame.dotCurrent[windingsFirstDot + 1])],
+            ]
+          : isMos && transistorFirstDot !== null
           ? [
               ['Vds', volts(frame.deviceVoltage[deviceIndex])],
               ['Vgs', volts(frame.deviceVbe[deviceIndex])],
@@ -121,7 +130,7 @@ export const LiveReadout: React.FC<{
     refresh();
     const timer = setInterval(refresh, 200);
     return () => clearInterval(timer);
-  }, [deviceIndex, sign, transistorFirstDot, isMos, frameRef]);
+  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, frameRef]);
 
   if (!rows) return null;
   return (
