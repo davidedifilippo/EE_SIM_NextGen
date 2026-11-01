@@ -21,3 +21,6 @@ scratch/
 # Environment variables
 .env
 .env.*
+
+# Piano di sviluppo privato (contiene dati personali)
+PIANO.md
