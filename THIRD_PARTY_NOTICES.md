@@ -4,7 +4,7 @@ EE_SIM_NextGen è distribuito con licenza GPL v3 (vedi `LICENSE`). Include o usa
 
 ## PowerCad_NextGen
 
-`src/utils/geometry.ts` e parte di `src/model/types.ts` derivano da PowerCad_NextGen.
+`src/utils/geometry.ts`, `src/editor/SchematicCanvas.tsx`, `src/editor/Renderer.tsx` e parte di `src/model/types.ts` derivano da PowerCad_NextGen.
 
 ```
 MIT License

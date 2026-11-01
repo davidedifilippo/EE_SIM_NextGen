@@ -1,0 +1,399 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  color: #0f172a;
+  background: #f1f5f9;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 8px 12px;
+  background: #ffffff;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+.toolbar h1 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.analysis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.analysis label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.analysis input {
+  width: 64px;
+}
+
+button,
+input,
+select {
+  min-height: 36px;
+  padding: 4px 10px;
+  font: inherit;
+  color: inherit;
+  background: #ffffff;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+}
+
+button {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+button:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+button:disabled {
+  color: #94a3b8;
+  border-color: #cbd5e1;
+  cursor: default;
+}
+
+button.primary {
+  color: #ffffff;
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #1e40af;
+}
+
+button.primary:disabled {
+  color: #ffffff;
+  background: #64748b;
+  border-color: #64748b;
+}
+
+button.danger {
+  color: #b91c1c;
+  border-color: #b91c1c;
+}
+
+button.active {
+  color: #ffffff;
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+button.active:hover:not(:disabled) {
+  background: #1e40af;
+}
+
+button.link-button {
+  min-height: 28px;
+  border: none;
+  color: #1d4ed8;
+  background: none;
+  text-decoration: underline;
+}
+
+.button-row {
+  display: flex;
+  gap: 6px;
+}
+
+.workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.palette {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 132px;
+  padding: 8px;
+  overflow-y: auto;
+  background: #ffffff;
+  border-right: 1px solid #cbd5e1;
+}
+
+.palette button {
+  flex-shrink: 0;
+  text-align: left;
+}
+
+.schematic-canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  background: #f8fafc;
+  user-select: none;
+  -webkit-user-select: none;
+  /* Gestures are handled by the canvas: without this the browser scrolls and zooms the page */
+  touch-action: none;
+}
+
+.side-panel {
+  width: 220px;
+  padding: 12px;
+  overflow-y: auto;
+  background: #ffffff;
+  border-left: 1px solid #cbd5e1;
+}
+
+.hint {
+  margin: 0;
+  color: #475569;
+}
+
+.properties {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.properties label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #475569;
+}
+
+.properties input,
+.properties select {
+  width: 100%;
+  color: #0f172a;
+}
+
+.results {
+  flex-shrink: 0;
+  max-height: 50%;
+  padding: 8px 12px;
+  overflow-y: auto;
+  background: #ffffff;
+  border-top: 1px solid #cbd5e1;
+}
+
+.errors {
+  margin: 0 0 8px;
+  padding: 8px 8px 8px 24px;
+  color: #991b1b;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+}
+
+.stale {
+  margin: 0 0 8px;
+  color: #92400e;
+}
+
+/* Chart: categorical slots from the validated dataviz palette */
+.viz-root {
+  --surface-1: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #6250d6;
+  --series-8: #e34948;
+  color: var(--text-primary);
+  background: var(--surface-1);
+}
+
+.viz-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.viz-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 4px 0;
+}
+
+.viz-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 2px 8px;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid transparent;
+}
+
+.viz-legend-item.off {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
+.viz-swatch {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.viz-note {
+  color: var(--text-secondary);
+}
+
+.viz-plot {
+  position: relative;
+}
+
+.viz-plot svg {
+  display: block;
+}
+
+.viz-grid {
+  stroke: #e7e6e2;
+  stroke-width: 1;
+}
+
+.viz-zero {
+  stroke: #a3a29b;
+  stroke-width: 1;
+}
+
+.viz-tick {
+  font-size: 11px;
+  fill: var(--text-secondary);
+}
+
+.viz-direct {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-primary);
+}
+
+.viz-crosshair {
+  stroke: var(--text-secondary);
+  stroke-width: 1;
+}
+
+.viz-tooltip {
+  position: absolute;
+  top: 12px;
+  padding: 6px 10px;
+  pointer-events: none;
+  background: var(--surface-1);
+  border: 1px solid #cfcec8;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.viz-tooltip-title {
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+}
+
+.viz-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.viz-tooltip-row strong {
+  margin-left: auto;
+  padding-left: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.viz-table-wrap {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.viz-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.viz-table th,
+.viz-table td {
+  padding: 3px 10px;
+  text-align: right;
+  border-bottom: 1px solid #e7e6e2;
+}
+
+.viz-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-1);
+}
+
+@media (max-width: 767px) {
+  .workspace {
+    flex-direction: column;
+  }
+
+  .palette {
+    flex-direction: row;
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-bottom: 1px solid #cbd5e1;
+  }
+
+  .schematic-canvas {
+    min-height: 200px;
+  }
+
+  .side-panel {
+    flex-shrink: 0;
+    width: 100%;
+    max-height: 30%;
+    border-left: none;
+    border-top: 1px solid #cbd5e1;
+  }
+
+  .analysis {
+    margin-left: 0;
+  }
+
+  /* 16px stops iOS from zooming the page when a field gets focus */
+  input,
+  select {
+    font-size: 16px;
+  }
+}

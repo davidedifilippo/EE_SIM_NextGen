@@ -18,21 +18,21 @@ export interface RectifierOptions {
 export function halfWaveRectifier(opts: RectifierOptions = {}): Circuit {
   const elements: Element[] = [
     { id: 'v1', def: 'vsource', x: 0, y: 0, rot: 90, tag: 'V1', props: { spec: 'SIN(0 10 50)' } },
-    { id: 'd1', def: 'diode', x: 60, y: -40, rot: opts.reversed ? 180 : 0, tag: 'D1', props: { model: 'D1N4148' } },
-    { id: 'r1', def: 'resistor', x: 140, y: 0, rot: 90, tag: 'R1', props: { value: '1k' } },
-    { id: 'gnd', def: 'ground', x: 70, y: 40, rot: 0, tag: 'GND', props: {} },
+    { id: 'd1', def: 'diode', x: 120, y: -40, rot: opts.reversed ? 180 : 0, tag: 'D1', props: { model: 'D1N4148' } },
+    { id: 'r1', def: 'resistor', x: 220, y: 0, rot: 90, tag: 'R1', props: { value: '1k' } },
+    { id: 'gnd', def: 'ground', x: 120, y: 40, rot: 0, tag: '', props: {} },
   ];
   if (opts.capacitor) {
-    elements.push({ id: 'c1', def: 'capacitor', x: 190, y: 0, rot: 90, tag: 'C1', props: { value: opts.capacitor } });
+    elements.push({ id: 'c1', def: 'capacitor', x: 290, y: 0, rot: 90, tag: 'C1', props: { value: opts.capacitor } });
   }
 
   return {
     title: 'Raddrizzatore a semionda',
     elements,
     wires: [
-      { id: 'w1', pts: [{ x: 0, y: -40 }, { x: 20, y: -40 }] },
-      { id: 'w2', pts: [{ x: 100, y: -40 }, { x: 190, y: -40 }] },
-      { id: 'w3', pts: [{ x: 0, y: 40 }, { x: 190, y: 40 }] },
+      { id: 'w1', pts: [{ x: 0, y: -40 }, { x: 80, y: -40 }] },
+      { id: 'w2', pts: [{ x: 160, y: -40 }, { x: 290, y: -40 }] },
+      { id: 'w3', pts: [{ x: 0, y: 40 }, { x: 290, y: 40 }] },
     ],
     models: [D1N4148],
   };

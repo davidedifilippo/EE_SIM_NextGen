@@ -53,3 +53,45 @@ export function isPointOnSegment(p: Pt, a: Pt, b: Pt, tol = 3): boolean {
   if (len < 1e-4) return dist(p, a) <= tol;
   return cross / len <= tol;
 }
+
+export function snapPt(p: Pt, step = GRID_SIZE): Pt {
+  return { x: snap(p.x, step), y: snap(p.y, step) };
+}
+
+export interface Box {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+export function normalizeBox(box: Box): { minX: number; minY: number; maxX: number; maxY: number } {
+  return {
+    minX: Math.min(box.x1, box.x2),
+    minY: Math.min(box.y1, box.y2),
+    maxX: Math.max(box.x1, box.x2),
+    maxY: Math.max(box.y1, box.y2),
+  };
+}
+
+export function isPointInBox(p: Pt, box: Box): boolean {
+  const { minX, minY, maxX, maxY } = normalizeBox(box);
+  return p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY;
+}
+
+export function isElementInBox(elem: Pt, box: Box, radius = 22): boolean {
+  const { minX, minY, maxX, maxY } = normalizeBox(box);
+  return !(elem.x + radius < minX || elem.x - radius > maxX || elem.y + radius < minY || elem.y - radius > maxY);
+}
+
+/** Bounding-box overlap: exact for the orthogonal segments the editor draws. */
+export function isWireInBox(pts: Pt[], box: Box): boolean {
+  const { minX, minY, maxX, maxY } = normalizeBox(box);
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [a, b] = [pts[i], pts[i + 1]];
+    const overlaps =
+      Math.max(a.x, b.x) >= minX && Math.min(a.x, b.x) <= maxX && Math.max(a.y, b.y) >= minY && Math.min(a.y, b.y) <= maxY;
+    if (overlaps) return true;
+  }
+  return false;
+}

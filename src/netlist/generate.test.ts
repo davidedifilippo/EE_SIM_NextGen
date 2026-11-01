@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Circuit } from '../model/types';
 import { halfWaveRectifier } from '../samples/halfWaveRectifier';
-import { generateNetlist } from './generate';
+import { describeNodes, generateNetlist } from './generate';
 
 const TRAN = { type: 'tran', step: '1u', stop: '1m' } as const;
 
@@ -110,6 +110,19 @@ describe('generateNetlist', () => {
     const c = halfWaveRectifier();
     c.elements[0].props.spec = 'DC 1\n.control';
     expect(generateNetlist(c, TRAN).errors[0]).toContain('sorgente non valida');
+  });
+
+  it('rejects invalid analysis values', () => {
+    const { errors } = generateNetlist(resistorPair(), { type: 'tran', step: '1u\n.control', stop: 'abc' });
+    expect(errors).toEqual(['Durata: valore non valido "abc"', 'Passo: valore non valido "1u\n.control"']);
+  });
+
+  it('describes nodes by the terminals they join', () => {
+    const c = halfWaveRectifier();
+    const labels = describeNodes(c, generateNetlist(c, TRAN).nodeOf);
+    expect(labels.get('n1')).toBe('V1.pos, D1.anode');
+    expect(labels.get('n2')).toBe('D1.cathode, R1.a');
+    expect(labels.has('0')).toBe(false);
   });
 
   it('prefixes tags that lack the SPICE letter', () => {

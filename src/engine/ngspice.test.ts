@@ -62,6 +62,12 @@ describe('half-wave rectifier on ngspice', () => {
     expect(Math.abs(peak - Math.min(...output) - expectedRipple)).toBeLessThan(0.25);
   }, 120_000);
 
+  it('reports a broken netlist and still runs the next one', async () => {
+    await expect(runTransient('Rotto\nR1 n1 0 1k\nD1 n1 0 MANCANTE\n.tran 1u 1m\n.end\n')).rejects.toThrow(/ngspice/);
+    const { output } = await simulateOutput({});
+    expect(Math.max(...output)).toBeCloseTo(expectedResistivePeak(), 1);
+  }, 120_000);
+
   it('inverts the output when the diode is reversed', async () => {
     const { output } = await simulateOutput({ reversed: true });
     expect(Math.min(...output)).toBeCloseTo(-expectedResistivePeak(), 1);

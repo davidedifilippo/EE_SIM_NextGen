@@ -27,6 +27,20 @@ function cardName(prefix: string, tag: string): string {
   return tag.toUpperCase().startsWith(prefix) ? tag : `${prefix}${tag}`;
 }
 
+/** Human-readable label for each node, e.g. "n2" -> "D1.cathode, R1.a". Ground is left out. */
+export function describeNodes(circuit: Circuit, nodeOf: Map<string, string>): Map<string, string> {
+  const terminals = new Map<string, string[]>();
+  for (const el of circuit.elements) {
+    if (!el.tag) continue;
+    for (const t of getDevice(el.def)?.terminals ?? []) {
+      const node = nodeOf.get(terminalKey(el.id, t.id));
+      if (!node || node === '0') continue;
+      terminals.set(node, [...(terminals.get(node) ?? []), `${el.tag}.${t.id}`]);
+    }
+  }
+  return new Map([...terminals].map(([node, names]) => [node, names.join(', ')]));
+}
+
 export function generateNetlist(circuit: Circuit, analysis: TranAnalysis): NetlistResult {
   const errors: string[] = [];
   const { netOf, unconnected } = computeConnectivity(circuit);
@@ -120,6 +134,9 @@ export function generateNetlist(circuit: Circuit, analysis: TranAnalysis): Netli
     if (!isSingleLine(m.card)) errors.push(`Modello ${m.name}: la card deve stare su una riga`);
   }
   if (!isSingleLine(circuit.title)) errors.push('Il titolo deve stare su una riga');
+  for (const [label, value] of [['Durata', analysis.stop], ['Passo', analysis.step], ['Passo massimo', analysis.maxStep ?? '1']]) {
+    if (!SPICE_VALUE.test(value.trim())) errors.push(`${label}: valore non valido "${value}"`);
+  }
 
   const nodeOf = new Map<string, string>();
   for (const [key, net] of netOf) nodeOf.set(key, nodeName(net));
