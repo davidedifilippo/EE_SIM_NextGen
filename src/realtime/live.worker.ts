@@ -1,10 +1,11 @@
 import { Circuit } from '../model/types';
-import { LiveFrame, LiveSimulation } from './liveSimulation';
+import { LiveFrame, LiveSimulation, ScopeProbe } from './liveSimulation';
 import { SolverError } from './engine';
 
 export type LiveRequest =
   | { type: 'load'; revision: number; circuit: Circuit }
-  | { type: 'config'; running: boolean; simSecondsPerSecond: number };
+  | { type: 'config'; running: boolean; simSecondsPerSecond: number }
+  | { type: 'probes'; probeRevision: number; probes: ScopeProbe[] };
 
 export type LiveResponse =
   | { type: 'frame'; revision: number; frame: LiveFrame; /** Fraction of the requested steps that fit in real time. */ keptUp: number }
@@ -40,6 +41,10 @@ self.onmessage = (e: MessageEvent<LiveRequest>) => {
   if (message.type === 'config') {
     running = message.running;
     simSecondsPerSecond = message.simSecondsPerSecond;
+    return;
+  }
+  if (message.type === 'probes') {
+    simulation.setProbes(message.probes, message.probeRevision);
     return;
   }
   revision = message.revision;

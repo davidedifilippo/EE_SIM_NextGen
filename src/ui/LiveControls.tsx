@@ -83,10 +83,12 @@ export const SourceStats: React.FC<{ circuit: Circuit; selectedIds: Set<string> 
 /** Voltages and currents of the selected component, refreshed a few times per second. */
 export const LiveReadout: React.FC<{
   deviceIndex: number;
+  /** See drawingSign. */
+  sign: 1 | -1;
   /** Set for a transistor: where its collector, base and emitter dots start. */
   transistorFirstDot: number | null;
   frameRef: React.MutableRefObject<LiveFrame | null>;
-}> = ({ deviceIndex, transistorFirstDot, frameRef }) => {
+}> = ({ deviceIndex, sign, transistorFirstDot, frameRef }) => {
   const [rows, setRows] = React.useState<[string, string][] | null>(null);
 
   React.useEffect(() => {
@@ -98,8 +100,8 @@ export const LiveReadout: React.FC<{
       setRows(
         transistorFirstDot === null
           ? [
-              ['Tensione', volts(frame.deviceVoltage[deviceIndex])],
-              ['Corrente', amps(frame.deviceCurrent[deviceIndex])],
+              ['Tensione', volts(sign * frame.deviceVoltage[deviceIndex])],
+              ['Corrente', amps(sign * frame.deviceCurrent[deviceIndex])],
             ]
           : [
               ['Vce', volts(frame.deviceVoltage[deviceIndex])],
@@ -112,7 +114,7 @@ export const LiveReadout: React.FC<{
     refresh();
     const timer = setInterval(refresh, 200);
     return () => clearInterval(timer);
-  }, [deviceIndex, transistorFirstDot, frameRef]);
+  }, [deviceIndex, sign, transistorFirstDot, frameRef]);
 
   if (!rows) return null;
   return (

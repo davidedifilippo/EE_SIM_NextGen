@@ -1,4 +1,4 @@
-import { Circuit, Pt, SpiceDef } from '../model/types';
+import { Circuit, Element, Pt, SpiceDef } from '../model/types';
 import { getDevice } from '../library/devices';
 import { computeConnectivity } from '../netlist/connectivity';
 import { localToWorld, ptKey } from '../utils/geometry';
@@ -39,6 +39,29 @@ export interface LiveFrame {
   /** Base minus emitter voltage of a transistor, 0 for the rest. */
   deviceVbe: Float64Array;
   dotCurrent: Float64Array;
+  /** Samples of the probes since the last frame. */
+  scope: ScopeSamples | null;
+}
+
+/** What the oscilloscope follows: a node through one of its wires, or a quantity of a part. */
+export type ScopeProbe =
+  | { id: string; kind: 'node'; wireId: string }
+  | { id: string; kind: 'voltage' | 'current' | 'vbe' | 'ib'; elementId: string };
+
+export interface ScopeSamples {
+  probeRevision: number;
+  time: Float64Array;
+  /** One array per probe, in the order they were set. */
+  values: Float64Array[];
+}
+
+/**
+ * R, L and C have no polarity, so turning one must not flip what is read on it: voltage and
+ * current count from its left or top end, wherever its terminals ended up. Parts with a polarity
+ * of their own, such as a generator or a diode, keep it and turn with it.
+ */
+export function drawingSign(el: Element): 1 | -1 {
+  return getDevice(el.def)?.spice.kind === 'passive' && el.rot >= 180 ? -1 : 1;
 }
 
 const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
@@ -97,14 +120,71 @@ export class LiveSimulation {
   private injected = new Float64Array(0);
   /** Set after a solver failure: the circuit needs an edit before it can run again. */
   private failed = false;
+  private probes: ScopeProbe[] = [];
+  private probeRevision = 0;
+  private readers: (() => number)[] = [];
+  private sampleTimes: number[] = [];
+  private sampleValues: number[][] = [];
+  private lastCircuit: Circuit | null = null;
+
+  /** Probes are sampled at every solver step: at frame rate, fast signals would show up as corners. */
+  setProbes(probes: ScopeProbe[], revision: number) {
+    this.probes = probes;
+    this.probeRevision = revision;
+    this.sampleTimes = [];
+    this.sampleValues = probes.map(() => []);
+    this.resolveProbes();
+  }
+
+  private resolveProbes() {
+    const { engine, lastCircuit, probes } = this;
+    this.readers = probes.map((probe): (() => number) => {
+      if (!engine || !lastCircuit) return () => NaN;
+      const { compiled } = engine;
+      if (probe.kind === 'node') {
+        const net = computeConnectivity(lastCircuit).wireNet.get(probe.wireId);
+        const node = net === undefined ? undefined : compiled.netIndex.get(net);
+        return node === undefined ? () => NaN : () => engine.nodeVoltage(node);
+      }
+      const index = compiled.elementIds.indexOf(probe.elementId);
+      const device = compiled.devices[index];
+      if (!device) return () => NaN;
+      const element = lastCircuit.elements.find((el) => el.id === probe.elementId);
+      const sign = element ? drawingSign(element) : 1;
+      switch (probe.kind) {
+        case 'voltage':
+          return () => sign * (engine.nodeVoltage(device.a) - engine.nodeVoltage(device.b));
+        case 'current':
+          return () => sign * engine.deviceCurrent(index);
+        case 'vbe':
+          return device.kind === 'bjt' ? () => engine.nodeVoltage(device.base) - engine.nodeVoltage(device.b) : () => NaN;
+        case 'ib':
+          return device.kind === 'bjt' ? () => engine.terminalCurrents(index)[1] : () => NaN;
+      }
+    });
+  }
+
+  private takeSamples(): ScopeSamples | null {
+    if (this.probes.length === 0) return null;
+    const samples = {
+      probeRevision: this.probeRevision,
+      time: Float64Array.from(this.sampleTimes),
+      values: this.sampleValues.map((v) => Float64Array.from(v)),
+    };
+    this.sampleTimes = [];
+    this.sampleValues = this.probes.map(() => []);
+    return samples;
+  }
 
   load(circuit: Circuit): LoadResult {
     const result = compileCircuit(circuit);
     if (!result.ok) {
       this.engine = null;
+      this.resolveProbes();
       return result;
     }
     const { compiled } = result;
+    this.lastCircuit = circuit;
 
     this.layout = buildLiveLayout(circuit, compiled);
     const { graph, devices } = this.layout;
@@ -124,10 +204,12 @@ export class LiveSimulation {
       }
     } catch (err) {
       this.engine = null;
+      this.resolveProbes();
       if (err instanceof SolverError) return { ok: false, errors: [err.message] };
       throw err;
     }
     this.engine = next;
+    this.resolveProbes();
     return { ok: true };
   }
 
@@ -139,6 +221,10 @@ export class LiveSimulation {
     while (done < steps) {
       this.engine.step(h);
       done++;
+      if (this.readers.length > 0) {
+        this.sampleTimes.push(this.engine.time);
+        this.readers.forEach((read, i) => this.sampleValues[i].push(read()));
+      }
       if ((done & 7) === 0 && performance.now() - start > budgetMs) break;
     }
     return done;
@@ -180,6 +266,6 @@ export class LiveSimulation {
     const edgeCurrent = new Float64Array(layout.graph.edges.length);
     solveWireCurrents(layout.graph, injected, edgeCurrent);
     const edgeVoltage = Float64Array.from(layout.edgeNode, (node) => engine.nodeVoltage(node));
-    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent };
+    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, scope: this.takeSamples() };
   }
 }

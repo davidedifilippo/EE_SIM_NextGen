@@ -12,10 +12,12 @@ import { PropertiesPanel } from './ui/PropertiesPanel';
 import { Series, TransientChart } from './ui/TransientChart';
 import { TranResult } from './engine/ngspice';
 import { isEngineReady, preloadEngine, simulate } from './engine/ngspiceClient';
-import { LiveFrame } from './realtime/liveSimulation';
+import { LiveFrame, ScopeProbe } from './realtime/liveSimulation';
 import { DcValues } from './ui/DcValues';
 import { LiveOverlay } from './ui/LiveOverlay';
 import { LiveLegend, LiveLegendHandle, SourceStats, SPEEDS } from './ui/LiveControls';
+import { ScopePanel } from './ui/ScopePanel';
+import { liveTraces, MAX_TRACES, nextSlot, ScopeTrace, traceLabel } from './ui/scopeTraces';
 import { useLiveSimulation } from './ui/useLiveSimulation';
 
 interface Run {
@@ -56,7 +58,14 @@ export const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  const live = useLiveSimulation(resolved, liveRunning, speed);
+  const [allTraces, setTraces] = useState<ScopeTrace[]>([]);
+  const traces = useMemo(() => liveTraces(allTraces, circuit), [allTraces, circuit]);
+  const traceLabels = useMemo(() => new Map(traces.map((t) => [t.id, traceLabel(t, circuit)])), [traces, circuit]);
+  const scopeIds = useMemo(() => new Set(traces.map((t) => t.id)), [traces]);
+  const toggleProbe = (probe: ScopeProbe) =>
+    setTraces(scopeIds.has(probe.id) ? traces.filter((t) => t.id !== probe.id) : [...traces, { ...probe, slot: nextSlot(traces) }]);
+
+  const live = useLiveSimulation(resolved, liveRunning, speed, traces);
   const legendRef = useRef<LiveLegendHandle>(null);
   const { keptUpRef } = live;
   const handleScale = useCallback(
@@ -326,9 +335,23 @@ export const App: React.FC = () => {
             library={library}
             onImportModels={importModels}
             onRemoveModel={removeModel}
+            scopeIds={scopeIds}
+            isScopeFull={traces.length >= MAX_TRACES}
+            onToggleProbe={toggleProbe}
           />
         </aside>
       </div>
+
+      {traces.length > 0 && (
+        <ScopePanel
+          traces={traces}
+          labels={traceLabels}
+          bufferRef={live.scopeRef}
+          speed={speed}
+          onRemove={(id) => setTraces(traces.filter((t) => t.id !== id))}
+          onClose={() => setTraces([])}
+        />
+      )}
 
       {(errors.length > 0 || run) && (
         <section className="results">

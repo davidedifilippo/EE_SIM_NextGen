@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Circuit } from '../model/types';
 import { halfWaveRectifier } from '../samples/halfWaveRectifier';
 import { circuitFromNets } from './testCircuits';
-import { LiveSimulation } from './liveSimulation';
+import { drawingSign, LiveSimulation } from './liveSimulation';
 import { buildWireGraph, solveWireCurrents } from './wireGraph';
 
 const pt = (x: number, y: number) => ({ x, y });
@@ -157,6 +157,135 @@ describe('LiveSimulation', () => {
     ]);
     const result = sim.load(circuit);
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('probes', () => {
+  const run = (sim: LiveSimulation, ms: number) => sim.advance(Math.round(ms * 100), 1e-5, 1e6);
+
+  it('samples a node at every step, not at every frame', () => {
+    const sim = new LiveSimulation();
+    const circuit = halfWaveRectifier();
+    sim.load(circuit);
+    sim.setProbes([{ id: 'n', kind: 'node', wireId: 'w1' }], 7);
+    run(sim, 5);
+    const { scope } = sim.frame()!;
+    expect(scope!.probeRevision).toBe(7);
+    expect(scope!.time).toHaveLength(500);
+    expect(scope!.values[0][499]).toBeCloseTo(10, 1);
+    expect(sim.frame()!.scope!.time).toHaveLength(0);
+  });
+
+  it('follows the voltage and current of a part, as the frame reads them', () => {
+    const sim = new LiveSimulation();
+    const circuit = halfWaveRectifier();
+    sim.load(circuit);
+    sim.setProbes(
+      [
+        { id: 'v', kind: 'voltage', elementId: 'r1' },
+        { id: 'i', kind: 'current', elementId: 'r1' },
+      ],
+      1,
+    );
+    run(sim, 5);
+    const frame = sim.frame()!;
+    const r1 = circuit.elements.filter((e) => e.def !== 'ground').findIndex((e) => e.id === 'r1');
+    expect(frame.scope!.values[0][499]).toBeCloseTo(frame.deviceVoltage[r1], 9);
+    expect(frame.scope!.values[1][499]).toBeCloseTo(frame.deviceCurrent[r1], 9);
+  });
+
+  describe('a part turned around', () => {
+    const series = (rot: 0 | 90 | 180 | 270, def = 'resistor'): Circuit => {
+      const base = halfWaveRectifier();
+      return {
+        ...base,
+        elements: base.elements.map((e) => (e.id === 'r1' ? { ...e, def, rot, props: def === 'resistor' ? { value: '1k' } : { value: '10m' } } : e)),
+      };
+    };
+    const read = (circuit: Circuit, kind: 'voltage' | 'current', elementId: string) => {
+      const sim = new LiveSimulation();
+      sim.load(circuit);
+      sim.setProbes([{ id: 'p', kind, elementId }], 1);
+      run(sim, 5);
+      return sim.frame()!.scope!.values[0][499];
+    };
+
+    it.each(['voltage', 'current'] as const)('reads the same %s on a resistor turned by 180 degrees', (kind) => {
+      expect(read(series(270), kind, 'r1')).toBeCloseTo(read(series(90), kind, 'r1'), 9);
+      expect(Math.abs(read(series(90), kind, 'r1'))).toBeGreaterThan(1e-3);
+    });
+
+    it('counts from the top end of a vertical part, as a generator with its plus on top', () => {
+      expect(read(series(90), 'voltage', 'r1')).toBeGreaterThan(0);
+      expect(read(series(270), 'voltage', 'r1')).toBeGreaterThan(0);
+    });
+
+    it('leaves a generator with its own polarity: turned, it reads the same and drives the circuit the other way', () => {
+      const base = halfWaveRectifier();
+      const flipped = { ...base, elements: base.elements.map((e) => (e.id === 'v1' ? { ...e, rot: 270 as const } : e)) };
+      expect(read(flipped, 'voltage', 'v1')).toBeCloseTo(read(base, 'voltage', 'v1'), 6);
+      expect(Math.abs(read(flipped, 'voltage', 'r1'))).toBeLessThan(1e-3);
+    });
+
+    it.each([
+      [0, 1],
+      [90, 1],
+      [180, -1],
+      [270, -1],
+    ] as const)('at %d degrees has sign %d on a passive part, and never on a diode', (rot, sign) => {
+      expect(drawingSign({ id: 'x', def: 'capacitor', x: 0, y: 0, rot, tag: 'C1', props: {} })).toBe(sign);
+      expect(drawingSign({ id: 'x', def: 'diode', x: 0, y: 0, rot, tag: 'D1', props: {} })).toBe(1);
+    });
+  });
+
+  it('reads the base of a transistor', () => {
+    const sim = new LiveSimulation();
+    const circuit = circuitFromNets('t', [
+      { def: 'vsource', tag: 'VCC', nets: ['vcc', '0'], props: { spec: 'DC 5' } },
+      { def: 'resistor', tag: 'RB', nets: ['vcc', 'b'], props: { value: '430k' } },
+      { def: 'npn', tag: 'Q1', nets: ['vcc', 'b', '0'], props: { model: '2N3904' } },
+    ]);
+    sim.load(circuit);
+    sim.setProbes(
+      [
+        { id: 'a', kind: 'vbe', elementId: 'q1' },
+        { id: 'b', kind: 'ib', elementId: 'q1' },
+      ],
+      1,
+    );
+    run(sim, 1);
+    const { values } = sim.frame()!.scope!;
+    expect(values[0][0]).toBeCloseTo(0.67, 1);
+    expect(values[1][0]).toBeCloseTo(4.33 / 430e3, 7);
+  });
+
+  it('keeps following across a change of value or topology, and survives what is gone', () => {
+    const sim = new LiveSimulation();
+    const circuit = halfWaveRectifier({ capacitor: '100u' });
+    sim.load(circuit);
+    sim.setProbes(
+      [
+        { id: 'a', kind: 'voltage', elementId: 'r1' },
+        { id: 'b', kind: 'voltage', elementId: 'c1' },
+        { id: 'c', kind: 'node', wireId: 'nope' },
+      ],
+      1,
+    );
+    run(sim, 1);
+    sim.frame();
+    sim.load({ ...circuit, elements: circuit.elements.filter((e) => e.id !== 'c1') });
+    run(sim, 1);
+    const { values } = sim.frame()!.scope!;
+    expect(Number.isFinite(values[0][0])).toBe(true);
+    expect(values[1][0]).toBeNaN();
+    expect(values[2][0]).toBeNaN();
+  });
+
+  it('sends nothing without probes', () => {
+    const sim = new LiveSimulation();
+    sim.load(halfWaveRectifier());
+    run(sim, 1);
+    expect(sim.frame()!.scope).toBeNull();
   });
 });
 

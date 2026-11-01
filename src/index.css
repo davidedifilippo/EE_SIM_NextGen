@@ -410,6 +410,101 @@ button.close-results {
   padding: 0;
 }
 
+.scope-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #475569;
+}
+
+.scope-buttons > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.scope-panel {
+  position: relative;
+  flex-shrink: 0;
+  max-height: 45%;
+  padding: 6px 12px;
+  overflow-y: auto;
+  background: #ffffff;
+  border-top: 1px solid #cbd5e1;
+}
+
+.scope-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+}
+
+.scope-header label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.scope-header input {
+  min-height: 0;
+}
+
+.scope-header button.close-scope {
+  min-width: 44px;
+  min-height: 36px;
+  margin-left: auto;
+  padding: 0;
+  font-size: 24px;
+  line-height: 1;
+  color: #dc2626;
+  background: none;
+  border: none;
+}
+
+.scope-traces {
+  margin: 2px 0;
+  padding: 0;
+  font-size: 12px;
+  list-style: none;
+}
+
+.scope-traces li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+
+.scope-measures {
+  font-variant-numeric: tabular-nums;
+  color: #475569;
+}
+
+.scope-traces button {
+  min-width: 32px;
+  min-height: 28px;
+  margin-left: auto;
+  padding: 0;
+  font-size: 16px;
+  color: #475569;
+  background: none;
+  border: none;
+}
+
+.scope-plots {
+  position: relative;
+}
+
+.scope-plots svg {
+  display: block;
+}
+
+.scope-tooltip {
+  top: 4px;
+  white-space: pre-line;
+}
+
 .results {
   flex-shrink: 0;
   max-height: 50%;
