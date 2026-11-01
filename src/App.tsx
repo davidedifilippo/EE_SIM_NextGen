@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Circuit, ComponentDef, Rotation } from './model/types';
+import { Circuit, ComponentDef, Rotation, SpiceModel } from './model/types';
 import { DEVICES } from './library/devices';
+import { circuitForSaving, withLibraryModels } from './library/models';
 import { describeNodes, generateNetlist } from './netlist/generate';
 import { isDcSource } from './netlist/source';
 import { halfWaveRectifier } from './samples/halfWaveRectifier';
 import { SchematicCanvas } from './editor/SchematicCanvas';
+import { libraryAtStart, mergeModels, saveLibrary } from './storage/modelLibrary';
 import { downloadCircuit, INVALID_FILE, loadAutosave, MAX_FILE_BYTES, parseCircuitFile, saveAutosave } from './storage/circuitFile';
 import { PropertiesPanel } from './ui/PropertiesPanel';
 import { Series, TransientChart } from './ui/TransientChart';
@@ -27,6 +29,9 @@ const AUTOSAVE_DELAY_MS = 300;
 
 export const App: React.FC = () => {
   const [circuit, setCircuit] = useState<Circuit>(() => loadAutosave() ?? halfWaveRectifier({ capacitor: '100u' }));
+  const [library, setLibrary] = useState<SpiceModel[]>(() => libraryAtStart(circuit));
+  /** The circuit as engines and files need it, with the library models it uses. */
+  const resolved = useMemo(() => withLibraryModels(circuit, library), [circuit, library]);
   /** Changes when another circuit is opened, so the canvas fits it in view. */
   const [documentId, setDocumentId] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -51,7 +56,7 @@ export const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  const live = useLiveSimulation(circuit, liveRunning, speed);
+  const live = useLiveSimulation(resolved, liveRunning, speed);
   const legendRef = useRef<LiveLegendHandle>(null);
   const { keptUpRef } = live;
   const handleScale = useCallback(
@@ -67,8 +72,8 @@ export const App: React.FC = () => {
     return sources.length > 0 && sources.every((el) => isDcSource(el.props));
   }, [circuit]);
   const labels = useMemo(
-    () => showValues && isDc && live.errors.length === 0 && live.layout && <DcValues circuit={circuit} layout={live.layout} frameRef={live.frameRef} />,
-    [showValues, isDc, live.errors.length, circuit, live.layout, live.frameRef],
+    () => showValues && isDc && live.errors.length === 0 && live.layout && <DcValues circuit={resolved} layout={live.layout} frameRef={live.frameRef} />,
+    [showValues, isDc, live.errors.length, resolved, live.layout, live.frameRef],
   );
 
   const handleChange = useCallback(
@@ -83,12 +88,13 @@ export const App: React.FC = () => {
   );
 
   // Soon after each change, and in any case when the page goes away
-  const latestCircuit = useRef(circuit);
-  latestCircuit.current = circuit;
+  const forSaving = useMemo(() => circuitForSaving(circuit, library), [circuit, library]);
+  const latestCircuit = useRef(forSaving);
+  latestCircuit.current = forSaving;
   useEffect(() => {
-    const timer = setTimeout(() => saveAutosave(circuit), AUTOSAVE_DELAY_MS);
+    const timer = setTimeout(() => saveAutosave(forSaving), AUTOSAVE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [circuit]);
+  }, [forSaving]);
   useEffect(() => {
     const flush = () => saveAutosave(latestCircuit.current);
     window.addEventListener('pagehide', flush);
@@ -121,6 +127,20 @@ export const App: React.FC = () => {
     },
     [circuit],
   );
+
+  const importModels = (models: SpiceModel[]) => {
+    const next = mergeModels(library, models.map(({ name, card }) => ({ name, card })));
+    setLibrary(next);
+    return saveLibrary(next);
+  };
+
+  // The open circuit keeps what it uses: taking a model out of the library must not break it
+  const removeModel = (name: string) => {
+    setCircuit(resolved);
+    const next = library.filter((m) => m.name !== name);
+    setLibrary(next);
+    saveLibrary(next);
+  };
 
   const undo = useCallback(() => {
     if (history.length === 0) return;
@@ -171,7 +191,7 @@ export const App: React.FC = () => {
   }, [circuit, selectedIds, handleChange]);
 
   const analysis = useMemo(() => ({ type: 'tran', step, stop, maxStep: step }) as const, [step, stop]);
-  const netlist = useMemo(() => generateNetlist(circuit, analysis), [circuit, analysis]);
+  const netlist = useMemo(() => generateNetlist(resolved, analysis), [resolved, analysis]);
 
   const runSimulation = async () => {
     if (netlist.errors.length > 0) {
@@ -182,7 +202,7 @@ export const App: React.FC = () => {
     setRunning(true);
     try {
       const result = await simulate(netlist.text);
-      const labels = describeNodes(circuit, netlist.nodeOf);
+      const labels = describeNodes(resolved, netlist.nodeOf);
       const series = [...result.voltages.keys()]
         .filter((node) => labels.has(node))
         .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
@@ -202,9 +222,9 @@ export const App: React.FC = () => {
       <header className="toolbar">
         <h1>EE_SIM_NextGen</h1>
         <div className="button-row">
-          <button onClick={() => openCircuit({ title: 'Circuito', elements: [], wires: [], models: circuit.models })}>Nuovo</button>
+          <button onClick={() => openCircuit({ title: 'Circuito', elements: [], wires: [], models: [] })}>Nuovo</button>
           <button onClick={() => fileInputRef.current?.click()}>Apri</button>
-          <button onClick={() => downloadCircuit(circuit)}>Salva</button>
+          <button onClick={() => downloadCircuit(forSaving)}>Salva</button>
           <input
             ref={fileInputRef}
             type="file"
@@ -303,6 +323,9 @@ export const App: React.FC = () => {
             onDeleteSelected={deleteSelected}
             layout={live.layout}
             frameRef={live.frameRef}
+            library={library}
+            onImportModels={importModels}
+            onRemoveModel={removeModel}
           />
         </aside>
       </div>

@@ -1,14 +1,17 @@
 import React, { useRef, useState } from 'react';
 import { describeImport, ImportedModel, parseModelText } from '../library/modelImport';
+import { SpiceModel } from '../model/types';
 import { MAX_FILE_BYTES } from '../storage/circuitFile';
 
 interface Props {
-  /** Adds the models to the circuit. */
-  onImport: (models: ImportedModel[]) => void;
+  library: SpiceModel[];
+  /** Adds the models to the personal library. False if they could not be kept for the next visit. */
+  onImport: (models: ImportedModel[]) => boolean;
+  onRemove: (name: string) => void;
 }
 
 /** Takes SPICE models pasted as text or read from a library file. */
-export const ModelImporter: React.FC<Props> = ({ onImport }) => {
+export const ModelImporter: React.FC<Props> = ({ library, onImport, onRemove }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [text, setText] = useState('');
   const [report, setReport] = useState<string[]>([]);
@@ -22,9 +25,9 @@ export const ModelImporter: React.FC<Props> = ({ onImport }) => {
       setReport(read.skipped.length > 0 ? read.skipped : ['Nessun .model trovato nel testo']);
       return;
     }
-    onImport(read.models);
+    const isKept = onImport(read.models);
     setText('');
-    setReport(describeImport(read));
+    setReport([...describeImport(read), ...(isKept ? [] : ['La libreria durerà solo fino alla chiusura della pagina: questo browser non permette di conservarla'])]);
   };
 
   const readFile = async (file: File) => {
@@ -39,7 +42,7 @@ export const ModelImporter: React.FC<Props> = ({ onImport }) => {
   if (!isOpen) {
     return (
       <button type="button" onClick={() => setIsOpen(true)}>
-        Importa modello
+        Importa modello{library.length > 0 ? ` · libreria: ${library.length}` : ''}
       </button>
     );
   }
@@ -47,7 +50,7 @@ export const ModelImporter: React.FC<Props> = ({ onImport }) => {
   return (
     <div className="model-importer">
       <label>
-        Modello SPICE
+        Modello SPICE, per la tua libreria
         <textarea
           rows={5}
           value={text}
@@ -92,6 +95,21 @@ export const ModelImporter: React.FC<Props> = ({ onImport }) => {
             <li key={line}>{line}</li>
           ))}
         </ul>
+      )}
+      {library.length > 0 && (
+        <details className="model-library">
+          <summary>La mia libreria ({library.length})</summary>
+          <ul>
+            {library.map((model) => (
+              <li key={model.name}>
+                <span>{model.name}</span>
+                <button type="button" aria-label={`Togli ${model.name} dalla libreria`} title="Togli dalla libreria" onClick={() => onRemove(model.name)}>
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import { Circuit, ModelType, SpiceModel } from '../model/types';
+import { getDevice } from './devices';
 
 /** Commonly published parameters of real parts, except the zener, which is a generic 5.1 V one. */
 export const D1N4148: SpiceModel = {
@@ -26,7 +27,40 @@ export function modelType(card: string): string | null {
   return /^\s*\.model\s+\S+\s+([a-z]+)/i.exec(card)?.[1].toUpperCase() ?? null;
 }
 
-export function modelsOfType(circuit: Circuit, type: ModelType): SpiceModel[] {
+/** Circuit first, then the personal library, then the built-in models, each name once. */
+export function modelsOfType(circuit: Circuit, type: ModelType, library: SpiceModel[] = []): SpiceModel[] {
+  const seen = new Set<string>();
+  return [...circuit.models, ...library, ...LIBRARY].filter((m) => {
+    if (seen.has(m.name) || modelType(m.card) !== type) return false;
+    seen.add(m.name);
+    return true;
+  });
+}
+
+export const isBuiltInModel = (model: SpiceModel) => LIBRARY.some((m) => m.name === model.name && m.card === model.card);
+
+/** The model names the parts of the circuit refer to, each once. */
+function usedModelNames(circuit: Circuit): string[] {
+  const names = circuit.elements.flatMap((el) => {
+    const spice = getDevice(el.def)?.spice;
+    return spice && (spice.kind === 'diode' || spice.kind === 'bjt') ? [String(el.props[spice.modelProp] ?? '')] : [];
+  });
+  return [...new Set(names)];
+}
+
+/** The circuit as the engines must see it: they run apart from the page and cannot read the library. */
+export function withLibraryModels(circuit: Circuit, library: SpiceModel[]): Circuit {
   const own = new Set(circuit.models.map((m) => m.name));
-  return [...circuit.models, ...LIBRARY.filter((m) => !own.has(m.name))].filter((m) => modelType(m.card) === type);
+  const needed = usedModelNames(circuit).flatMap((name) => (own.has(name) ? [] : library.filter((m) => m.name === name)));
+  return needed.length > 0 ? { ...circuit, models: [...circuit.models, ...needed] } : circuit;
+}
+
+/** What goes into a file: the models in use and no others, built-in ones too, so that it works anywhere and gives the same results. */
+export function circuitForSaving(circuit: Circuit, library: SpiceModel[]): Circuit {
+  const resolved = withLibraryModels(circuit, library);
+  const models = usedModelNames(circuit).flatMap((name) => {
+    const model = findModel(resolved, name);
+    return model ? [model] : [];
+  });
+  return { ...circuit, models };
 }

@@ -362,6 +362,33 @@ button.close-results {
   background: #fef2f2;
 }
 
+.model-library ul {
+  max-height: 180px;
+  margin: 4px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.model-library li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.model-library button {
+  flex-shrink: 0;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  font-size: 18px;
+  color: #dc2626;
+  background: none;
+  border: none;
+}
+
 .shape-picker {
   display: flex;
   flex-direction: column;

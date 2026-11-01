@@ -1,5 +1,5 @@
 import React from 'react';
-import { Circuit, Element } from '../model/types';
+import { Circuit, Element, SpiceModel } from '../model/types';
 import { getDevice } from '../library/devices';
 import { ImportedModel } from '../library/modelImport';
 import { modelsOfType } from '../library/models';
@@ -17,9 +17,12 @@ interface Props {
   onDeleteSelected: () => void;
   layout: LiveLayout | null;
   frameRef: React.MutableRefObject<LiveFrame | null>;
+  library: SpiceModel[];
+  onImportModels: (models: ImportedModel[]) => boolean;
+  onRemoveModel: (name: string) => void;
 }
 
-export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onRotateSelected, onDeleteSelected, layout, frameRef }) => {
+export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onRotateSelected, onDeleteSelected, layout, frameRef, library, onImportModels, onRemoveModel }) => {
   if (selectedIds.size === 0) {
     return <p className="hint">Seleziona un componente per modificarne i valori. Per collegare, parti da un terminale.</p>;
   }
@@ -47,15 +50,21 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
           const value = String(single.props[p.key] ?? '');
           const setValue = (next: string, record = true) => update({ props: { ...single.props, [p.key]: next } }, record);
           const addModels = (models: ImportedModel[]) => {
-            const names = new Set(models.map((m) => m.name));
+            const isKept = onImportModels(models);
             // The part takes a model imported for it; out of a whole library, the choice is the user's
             const fitting = models.filter((m) => m.type === p.modelType);
             const usable = fitting.length === 1 ? fitting[0] : undefined;
-            onChange({
-              ...circuit,
-              models: [...circuit.models.filter((m) => !names.has(m.name)), ...models.map(({ name, card }) => ({ name, card }))],
-              elements: circuit.elements.map((el) => (el.id === single.id && usable ? { ...el, props: { ...el.props, [p.key]: usable.name } } : el)),
-            });
+            // A copy the circuit already has must follow, or the new version would never be used
+            const imported = new Map(models.map((m) => [m.name, m.card]));
+            const hasOwnCopy = circuit.models.some((m) => imported.has(m.name));
+            if (usable || hasOwnCopy) {
+              onChange({
+                ...circuit,
+                models: circuit.models.map((m) => ({ name: m.name, card: imported.get(m.name) ?? m.card })),
+                elements: circuit.elements.map((el) => (el.id === single.id && usable ? { ...el, props: { ...el.props, [p.key]: usable.name } } : el)),
+              });
+            }
+            return isKept;
           };
           return (
             <React.Fragment key={p.key}>
@@ -63,7 +72,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
                 {p.label}
                 {p.type === 'model' ? (
                   <select value={value} onChange={(e) => setValue(e.target.value)}>
-                    {modelsOfType(circuit, p.modelType ?? 'D').map((m) => (
+                    {modelsOfType(circuit, p.modelType ?? 'D', library).map((m) => (
                       <option key={m.name} value={m.name}>
                         {m.name}
                       </option>
@@ -74,7 +83,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
                 )}
                 {def.spice.kind === 'passive' && <ValueSlider value={value} label={p.label} onChange={setValue} />}
               </label>
-              {p.type === 'model' && <ModelImporter onImport={addModels} />}
+              {p.type === 'model' && <ModelImporter library={library} onImport={addModels} onRemove={onRemoveModel} />}
             </React.Fragment>
           );
         })}
