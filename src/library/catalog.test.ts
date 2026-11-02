@@ -58,7 +58,7 @@ describe('the sections of the library', () => {
   it('find a part by name, section or tag', () => {
     expect(searchParts(parts, 'res').map((def) => def.name)).toEqual(['Resistore']);
     expect(searchParts(parts, '781').map((def) => def.name)).toEqual(['7812', '7815']);
-    expect(searchParts(parts, 'mm').map((def) => def.name)).toEqual(['Multimetro']);
+    expect(searchParts(parts, 'mm').map((def) => def.name)).toEqual(['Multimetro', 'Multimetro compatto']);
     expect(searchParts(parts, 'regolatori')).toHaveLength(12);
     expect(searchParts(parts, 'zzz')).toEqual([]);
     expect(searchParts(parts, '  ')).toHaveLength(parts.length);

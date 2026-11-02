@@ -4,7 +4,7 @@ import { Circuit, Element, SpiceModel, Wire } from '../model/types';
 import { D1N4148 } from '../samples/halfWaveRectifier';
 
 export interface Part {
-  def: 'isource' | 'dcsupply' | 'battery' | 'reg7805' | 'reg7905' | 'reglm317' | 'multimeter' | 'resistor' | 'capacitor' | 'inductor' | 'vsource' | 'diode' | 'zener' | 'npn' | 'pnp' | 'nmos' | 'pmos' | 'opamp' | 'transformer';
+  def: 'multimetercompact' | 'isource' | 'dcsupply' | 'battery' | 'reg7805' | 'reg7905' | 'reglm317' | 'multimeter' | 'resistor' | 'capacitor' | 'inductor' | 'vsource' | 'diode' | 'zener' | 'npn' | 'pnp' | 'nmos' | 'pmos' | 'opamp' | 'transformer';
   tag: string;
   /** In the order of the terminals of the device. */
   nets: string[];
@@ -31,7 +31,7 @@ export function circuitFromNets(title: string, parts: Part[]): Circuit {
     getDevice(p.def)!.terminals.forEach((t, i) => {
       // Leads leave on their own level, so that they only ever cross each other
       const side = t.y !== 0 && t.x > 0 ? 20 : 0;
-      const leadY = y + (t.y < 0 ? -60 - side : t.y > 0 ? 80 + side : t.x < 0 ? 20 : -20);
+      const leadY = y + (t.y < 0 ? -60 - side : t.y > 0 ? Math.max(80, t.y + 20) + side : t.x < 0 ? 20 : -20);
       wires.push({
         id: `${p.tag}_${t.id}`,
         pts: [

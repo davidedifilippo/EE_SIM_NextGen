@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { DEVICES, elementSymbol } from '../library/devices';
-import { PrimitiveItem } from '../editor/Renderer';
+import { getBounds, PrimitiveItem } from '../editor/Renderer';
 import { ComponentDef } from '../model/types';
 
 const ALL = 'Tutti';
@@ -99,8 +99,9 @@ const SectionsBar: React.FC<{ target: React.RefObject<HTMLElement> }> = ({ targe
 const PartIcon: React.FC<{ def: ComponentDef }> = ({ def }) => {
   const xs = def.terminals.map((t) => t.x);
   const ys = def.terminals.map((t) => t.y);
-  const [minX, maxX] = [Math.min(-24, ...xs), Math.max(24, ...xs)];
-  const [minY, maxY] = [Math.min(-24, ...ys), Math.max(24, ...ys)];
+  const body = getBounds(def);
+  const [minX, maxX] = [Math.min(-24, body.x, ...xs), Math.max(24, body.x + body.w, ...xs)];
+  const [minY, maxY] = [Math.min(-24, body.y, ...ys), Math.max(24, body.y + body.h, ...ys)];
   const symbol = elementSymbol(def, { id: '', def: def.id, x: 0, y: 0, rot: 0, tag: '', props: Object.fromEntries(def.props.map((p) => [p.key, p.default])) });
   return (
     <svg viewBox={`${minX - 4} ${minY - 4} ${maxX - minX + 8} ${maxY - minY + 8}`} aria-hidden="true">

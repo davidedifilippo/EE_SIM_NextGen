@@ -1,4 +1,4 @@
-import { getDevice } from '../library/devices';
+import { canRotate, getDevice } from '../library/devices';
 import { cleanStoredCard } from '../library/modelImport';
 import { Circuit, Element, Pt, Rotation, SpiceModel, Wire } from '../model/types';
 
@@ -41,7 +41,7 @@ function parseElement(v: unknown): Element {
   for (const [key, value] of Object.entries(record(e.props))) {
     props[key] = typeof value === 'number' ? number(value) : text(value);
   }
-  return { id: text(e.id), def, x: number(e.x), y: number(e.y), rot: rot as Rotation, ...(e.flip === true ? { flip: true } : {}), tag: text(e.tag), props };
+  return { id: text(e.id), def, x: number(e.x), y: number(e.y), rot: (canRotate(getDevice(def)) ? rot : 0) as Rotation, ...(e.flip === true ? { flip: true } : {}), tag: text(e.tag), props };
 }
 
 function parseWire(v: unknown): Wire {

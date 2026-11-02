@@ -3,13 +3,16 @@ import { runTransient } from '../engine/ngspice';
 import { terminalKey } from '../netlist/connectivity';
 import { generateNetlist } from '../netlist/generate';
 import { LiveSimulation } from './liveSimulation';
-import { MeterWindow, meterResistance, meterValue, readingWindow, slowestPeriod } from './meter';
+import { canRotate, createElement, elementSymbol, getDevice } from '../library/devices';
+import { parseCircuitFile, serializeCircuit } from '../storage/circuitFile';
+import { MeterWindow, meterResistance, meterText, meterValue, readingWindow, slowestPeriod } from './meter';
 import { circuitFromNets, Part } from './testCircuits';
 
 const R = (tag: string, a: string, b: string, value: string): Part => ({ def: 'resistor', tag, nets: [a, b], props: { value } });
 const meter = (a: string, b: string, mode: string): Part => ({ def: 'multimeter', tag: 'MM1', nets: [a, b], props: { mode } });
 const source = (props: Record<string, string>): Part => ({ def: 'vsource', tag: 'V1', nets: ['in', '0'], props: { shape: 'dc', amplitude: '10', offset: '0', frequency: '50', phase: '0', duty: '50', spec: '', ...props } });
 const SINE = { shape: 'sin', amplitude: '10' };
+const V_SOURCE = source({});
 
 /** The display after some seconds of simulated time, at a speed of the animation. */
 function read(parts: Part[], mode: string, seconds = 0.2, h = 20e-3 / 2400) {
@@ -80,8 +83,8 @@ describe('meterValue', () => {
   });
 
   it('has no value for a mode that does not exist', () => {
-    expect(meterValue('ohm', { mean: 1, ac: 1 })).toBeNaN();
-    expect(meterResistance('ohm')).toBeNull();
+    expect(meterValue('xyz', { mean: 1, ac: 1 })).toBeNaN();
+    expect(meterResistance('xyz')).toBeNull();
   });
 });
 
@@ -121,6 +124,91 @@ describe('reading a circuit, against the formulas', () => {
   });
 });
 
+describe('as an ohmmeter', () => {
+  const ohms = (parts: Part[]) => {
+    const circuit = circuitFromNets('t', parts);
+    const simulation = new LiveSimulation();
+    expect(simulation.load(circuit)).toEqual({ ok: true });
+    simulation.advance(2400, 1e-5, 1e9);
+    const frame = simulation.frame()!;
+    const index = circuit.elements.filter((el) => el.def !== 'ground').findIndex((el) => el.def === 'multimeter');
+    return { mean: frame.meterMean[index], ac: frame.meterAc[index] };
+  };
+  const format = (value: number, unit: string) => `${value.toPrecision(3)} ${unit}`;
+
+  it.each([
+    ['one resistor', [R('R1', 'x', '0', '1k')], 1000],
+    ['two in series', [R('R1', 'x', 'y', '4.7k'), R('R2', 'y', '0', '1k')], 5700],
+    ['two in parallel', [R('R1', 'x', '0', '1k'), R('R2', 'x', '0', '1k')], 500],
+  ] as [string, Part[], number][])('reads %s', (_, parts, expected) => {
+    const reading = ohms([meter('x', '0', 'ohm'), ...parts]);
+    expect(meterValue('ohm', reading)).toBeCloseTo(expected, 0);
+  });
+
+  it('says OL with nothing connected', () => {
+    expect(meterText('ohm', ohms([meter('x', '0', 'ohm')]), format)).toBe('OL');
+  });
+
+  it('writes the value with its unit otherwise', () => {
+    expect(meterText('ohm', ohms([meter('x', '0', 'ohm'), R('R1', 'x', '0', '1k')]), format)).toBe('1.00e+3 Ω');
+  });
+
+  it('gives the same voltage in ngspice, from the red socket', async () => {
+    const circuit = circuitFromNets('t', [meter('x', '0', 'ohm'), R('R1', 'x', '0', '1k')]);
+    const netlist = generateNetlist(circuit, { type: 'tran', step: '1u', stop: '10u' });
+    expect(netlist.errors).toEqual([]);
+    const result = await runTransient(netlist.text);
+    expect(result.voltages.get(netlist.nodeOf.get(terminalKey('r1', 'a'))!)![result.time.length - 1]).toBeCloseTo(1, 3);
+  });
+});
+
+describe('the compact one', () => {
+  const pair = (def: 'multimeter' | 'multimetercompact', mode: string, nets: [string, string]): Part => ({ def, tag: 'MM1', nets, props: { mode } });
+  const readWith = (def: 'multimeter' | 'multimetercompact', mode: string, nets: [string, string], source: Record<string, string>) => {
+    const circuit = circuitFromNets('t', [source.none ? R('R9', 'in', '0', '1k') : { ...V_SOURCE, props: { ...V_SOURCE.props, ...source } }, R('R1', 'in', 'x', '1k'), R('R2', 'x', '0', '1k'), pair(def, mode, nets)]);
+    const simulation = new LiveSimulation();
+    expect(simulation.load(circuit)).toEqual({ ok: true });
+    const h = 20e-3 / 2400;
+    simulation.advance(Math.round(0.2 / h), h, 1e9);
+    const frame = simulation.frame()!;
+    const index = circuit.elements.filter((el) => el.def !== 'ground').findIndex((el) => el.tag === 'MM1');
+    return meterValue(mode, { mean: frame.meterMean[index], ac: frame.meterAc[index] });
+  };
+
+  it.each([
+    ['vdc', ['x', '0'], {}],
+    ['vac', ['x', '0'], { shape: 'sin' }],
+    ['ohm', ['x', '0'], { none: '1' }],
+  ] as [string, [string, string], Record<string, string>][])('reads %s like the full instrument', (mode, nets, source) => {
+    expect(readWith('multimetercompact', mode, nets, source)).toBeCloseTo(readWith('multimeter', mode, nets, source), 3);
+  });
+
+  it('can rotate, and has its pins on the sides', () => {
+    const def = getDevice('multimetercompact')!;
+    expect(canRotate(def)).toBe(true);
+    expect(canRotate(getDevice('multimeter'))).toBe(false);
+    expect(def.terminals.map((t) => t.y)).toEqual([0, 0]);
+    expect(elementSymbol(def, { id: 'm', def: def.id, x: 0, y: 0, rot: 0, tag: 'MM1', props: { mode: 'ohm' } })).toBe(def.symbol);
+  });
+});
+
+describe('the instrument', () => {
+  const symbol = (mode: string) => JSON.stringify(elementSymbol(getDevice('multimeter')!, { id: 'm', def: 'multimeter', x: 0, y: 0, rot: 0, tag: 'MM1', props: { mode } }));
+
+  it('moves the pointer of the dial with the mode', () => {
+    expect(symbol('vdc')).not.toBe(symbol('ohm'));
+  });
+
+  it('does not rotate, when placed or read from a file', () => {
+    const empty = { title: 't', elements: [], wires: [], models: [] };
+    const placed = createElement(getDevice('multimeter')!, { x: 0, y: 0 }, 90, empty, 'm');
+    expect(placed.rot).toBe(0);
+    expect(createElement(getDevice('resistor')!, { x: 0, y: 0 }, 90, empty, 'r').rot).toBe(90);
+    const saved = serializeCircuit({ ...empty, elements: [{ ...placed, rot: 90 }] });
+    expect(parseCircuitFile(saved).elements[0].rot).toBe(0);
+  });
+});
+
 describe('it does not disturb what it measures', () => {
   it('as a voltmeter, on a divider of a megaohm', () => {
     const parts = [source({}), R('R1', 'in', 'x', '1meg'), R('R2', 'x', '0', '1meg'), meter('x', '0', 'vdc')];
@@ -146,7 +234,7 @@ describe('in the precise analysis', () => {
   });
 
   it('refuses a mode that does not exist', () => {
-    const circuit = circuitFromNets('t', [source({}), meter('in', '0', 'ohm'), R('R1', 'in', '0', '1k')]);
-    expect(generateNetlist(circuit, { type: 'tran', step: '1u', stop: '10u' }).errors).toEqual(['MM1: misura non valida "ohm"']);
+    const circuit = circuitFromNets('t', [source({}), meter('in', '0', 'xyz'), R('R1', 'in', '0', '1k')]);
+    expect(generateNetlist(circuit, { type: 'tran', step: '1u', stop: '10u' }).errors).toEqual(['MM1: misura non valida "xyz"']);
   });
 });

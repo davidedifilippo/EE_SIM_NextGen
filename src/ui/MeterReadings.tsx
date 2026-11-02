@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { Circuit } from '../model/types';
 import { getDevice } from '../library/devices';
 import { LiveFrame, LiveLayout } from '../realtime/liveSimulation';
-import { METER_MODES, meterValue } from '../realtime/meter';
+import { METER_MODES, meterText } from '../realtime/meter';
 import { formatEngineering } from './chartMath';
 
 interface Props {
@@ -34,7 +34,7 @@ export const MeterReadings: React.FC<Props> = ({ circuit, layout, frameRef }) =>
       if (!frame || frame.meterMean.length !== layout.devices.length) return;
       meters.forEach(({ index, mode }, i) => {
         const mean = frame.meterMean[index];
-        texts[i].textContent = Number.isNaN(mean) ? '—' : formatEngineering(meterValue(mode.value, { mean, ac: frame.meterAc[index] }), mode.unit);
+        texts[i].textContent = Number.isNaN(mean) ? '—' : meterText(mode.value, { mean, ac: frame.meterAc[index] }, formatEngineering);
       });
     };
     refresh();
@@ -44,16 +44,22 @@ export const MeterReadings: React.FC<Props> = ({ circuit, layout, frameRef }) =>
 
   return (
     <g ref={rootRef} pointerEvents="none" textAnchor="middle" fill="#0f172a" style={{ fontVariantNumeric: 'tabular-nums' }} data-testid="meter-readings">
-      {meters.map(({ el, mode }) => (
-        <React.Fragment key={el.id}>
-          <text data-meter="value" x={el.x} y={el.y + 1} fontSize={11} fontWeight={700}>
+      {meters.map(({ el, mode }) =>
+        el.def === 'multimeter' ? (
+          <text key={el.id} data-meter="value" x={el.x} y={el.y - 49} fontSize={15} fontWeight={700} fontFamily="ui-monospace, Menlo, Consolas, monospace">
             —
           </text>
-          <text x={el.x} y={el.y + 15} fontSize={10} fill="#475569">
-            {mode.symbol}
-          </text>
-        </React.Fragment>
-      ))}
+        ) : (
+          <React.Fragment key={el.id}>
+            <text data-meter="value" x={el.x} y={el.y + 1} fontSize={11} fontWeight={700}>
+              —
+            </text>
+            <text x={el.x} y={el.y + 15} fontSize={10} fill="#475569">
+              {mode.symbol}
+            </text>
+          </React.Fragment>
+        ),
+      )}
     </g>
   );
 };

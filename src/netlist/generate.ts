@@ -5,7 +5,7 @@ import { normalizeSubcircuitCard, OpAmpRole, readOpAmpRoles, readRegulatorRoles,
 import { computeConnectivity, terminalKey } from './connectivity';
 import { sourceAcSpec, sourceDcSpec, sourceSpec } from './source';
 import { parseSpiceValue } from './values';
-import { meterResistance } from '../realtime/meter';
+import { METER_TEST_CURRENT, meterResistance } from '../realtime/meter';
 import { REGULATOR_GAIN, REGULATOR_LEAK, REGULATOR_STIFFNESS, regulatorParams } from '../realtime/regulator';
 
 export interface TranAnalysis {
@@ -247,6 +247,8 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         }
         const name = uniqueName('R', el.tag);
         if (name) lines.push(`${name} ${node(s.a)} ${node(s.b)} ${resistance}`);
+        // Like the source of the real-time engine, whose leak is that resistance
+        if (name && el.props[s.modeProp] === 'ohm') lines.push(`I${name} ${node(s.a)} ${node(s.b)} DC ${METER_TEST_CURRENT}`);
         break;
       }
       case 'isource': {

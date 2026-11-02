@@ -84,6 +84,32 @@ export const SOURCE_GLYPHS: Record<SourceShape, string> = {
   custom: 'M -6 3 L -3 -5 L -1 1 L 2 -3 L 6 4',
 };
 
+/** The instrument, with the pointer of its dial on a mode. */
+function meterSymbol(mode: unknown): Prim[] {
+  const { x, y } = (METER_MODES.find((m) => m.value === mode) ?? METER_MODES[0]).dial;
+  const length = Math.hypot(x, y);
+  const [ux, uy] = [x / length, y / length];
+  const at = (along: number, across: number) => `${ux * along - uy * across} ${uy * along + ux * across}`;
+  const ticks = METER_MODES.map(({ dial }): Prim => {
+    const size = Math.hypot(dial.x, dial.y);
+    return { t: 'line', x1: (dial.x / size) * 18, y1: (dial.y / size) * 18, x2: (dial.x / size) * 22, y2: (dial.y / size) * 22, w: 1.2 };
+  });
+  const socket = (cx: number, ring: string, center: string): Prim[] => [
+    { t: 'line', x1: cx, y1: 60, x2: cx, y2: 80 },
+    { t: 'circle', cx, cy: 50, r: 9, fill: ring },
+    { t: 'circle', cx, cy: 50, r: 4, fill: center },
+  ];
+  return [
+    { t: 'path', d: 'M -42 -80 H 42 A 8 8 0 0 1 50 -72 V 58 A 8 8 0 0 1 42 66 H -42 A 8 8 0 0 1 -50 58 V -72 A 8 8 0 0 1 -42 -80 Z', fill: '#ffffff' },
+    { t: 'rect', x: -41, y: -71, w: 82, h: 32, fill: '#e2e8e0' },
+    ...ticks,
+    { t: 'circle', cx: 0, cy: 0, r: 16, fill: '#ffffff' },
+    { t: 'path', d: `M ${at(14, 0)} L ${at(7, 4)} L ${at(7, -4)} Z`, fill: '#0f172a' },
+    ...socket(-20, '#dc2626', '#7f1d1d'),
+    ...socket(20, '#475569', '#1e293b'),
+  ];
+}
+
 /** A source that only gives a fixed voltage. To the engines it is a generator like the others. */
 function dcSource(id: string, name: string, voltage: string, symbol: Prim[], searchTerms: string): ComponentDef {
   return {
@@ -318,6 +344,21 @@ export const DEVICES: ComponentDef[] = [
     category: 'Strumenti',
     name: 'Multimetro',
     tagPrefix: 'MM',
+    // On the sockets at the bottom: the red one, on the left, is the positive
+    terminals: [
+      { id: 'a', x: -20, y: 80 },
+      { id: 'b', x: 20, y: 80 },
+    ],
+    symbol: meterSymbol('vdc'),
+    props: [{ key: 'mode', label: 'Misura', type: 'choice', default: 'vdc', options: METER_MODES.map(({ value, label }) => ({ value, label })) }],
+    spice: { kind: 'meter', a: 'a', b: 'b', modeProp: 'mode' },
+  },
+  {
+    id: 'multimetercompact',
+    category: 'Strumenti',
+    name: 'Multimetro compatto',
+    tagPrefix: 'MM',
+    searchTerms: 'multimetro piccolo',
     // The display is drawn over it, upright whatever the rotation: a square leaves room for it
     terminals: twoPin('a', 'b'),
     symbol: [
@@ -411,12 +452,16 @@ export function getDevice(id: string): ComponentDef | undefined {
 }
 
 export function elementSymbol(def: ComponentDef, element: Element): Prim[] {
+  if (def.id === 'multimeter' && def.spice.kind === 'meter') return meterSymbol(element.props[def.spice.modeProp]);
   if (def.id !== 'vsource') return def.symbol;
   return [...SOURCE_BODY, { t: 'path', d: SOURCE_GLYPHS[sourceShape(element.props)] }];
 }
 
 /** Parts that are not the same when mirrored: on the others a mirror would change nothing. */
 export const canMirror = (def: ComponentDef | undefined) => def?.spice.kind === 'opamp' || def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' || def?.spice.kind === 'transformer';
+
+/** The full instrument on its side could not be read. */
+export const canRotate = (def: ComponentDef | undefined) => def?.id !== 'multimeter';
 
 export const isVoltageSource = (el: Element) => getDevice(el.def)?.spice.kind === 'vsource';
 
@@ -434,7 +479,7 @@ export function createElement(def: ComponentDef, pos: Pt, rot: Rotation, circuit
     def: def.id,
     x: pos.x,
     y: pos.y,
-    rot,
+    rot: canRotate(def) ? rot : 0,
     tag: def.tagPrefix ? nextTag(def.tagPrefix, circuit.elements) : '',
     props: Object.fromEntries(def.props.map((p) => [p.key, p.default])),
   };

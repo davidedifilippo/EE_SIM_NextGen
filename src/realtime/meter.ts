@@ -7,6 +7,11 @@ import { METER_MODES } from './meterModes';
 
 export { METER_MODES } from './meterModes';
 
+/** What it pushes out of the positive lead to measure a resistance, as a real one does. Negative: the source runs from + to −. */
+export const METER_TEST_CURRENT = -1e-3;
+/** Above this there is nothing connected, and the display says so. */
+const OPEN_RESISTANCE = 1e8;
+
 const VOLTMETER_RESISTANCE = 1e9;
 const AMMETER_RESISTANCE = 1e-3;
 
@@ -15,7 +20,7 @@ const modeOf = (mode: unknown) => METER_MODES.find((m) => m.value === mode);
 /** What the instrument is in the circuit, in both engines; null for a mode it does not have. */
 export function meterResistance(mode: unknown): number | null {
   const found = modeOf(mode);
-  return found ? (found.unit === 'V' ? VOLTMETER_RESISTANCE : AMMETER_RESISTANCE) : null;
+  return found ? (found.unit === 'A' ? AMMETER_RESISTANCE : VOLTMETER_RESISTANCE) : null;
 }
 
 /** Period of the slowest generator: a mean or an RMS is only right over whole periods. Null if none is periodic. */
@@ -78,12 +83,21 @@ export class MeterWindow {
 }
 
 /** Below these a reading is the noise of the calculation, not a measure. */
-const FLOOR = { V: 1e-6, A: 1e-9 };
+const FLOOR = { V: 1e-6, A: 1e-9, 'Ω': 1e-3 };
 
 /** The value on the display, in the unit of the mode. Zero when it is what is left of a whole period. */
 export function meterValue(mode: unknown, { mean, ac }: MeterReading): number {
   const found = modeOf(mode);
   if (!found) return NaN;
+  if (found.value === 'ohm') return mean / -METER_TEST_CURRENT;
   const value = found.value === 'vdc' || found.value === 'adc' ? (Math.abs(mean) < 1e-3 * ac ? 0 : mean) : ac;
   return Math.abs(value) < FLOOR[found.unit] ? 0 : value;
+}
+
+/** The text on the display, with its unit. */
+export function meterText(mode: unknown, reading: MeterReading, format: (value: number, unit: string) => string): string {
+  const found = modeOf(mode);
+  if (!found) return '—';
+  const value = meterValue(mode, reading);
+  return found.value === 'ohm' && Math.abs(value) >= OPEN_RESISTANCE ? 'OL' : format(value, found.unit);
 }

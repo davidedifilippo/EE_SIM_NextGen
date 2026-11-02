@@ -222,7 +222,7 @@ export class LiveSimulation {
       const mode = METER_MODES.find((m) => m.value === el?.props.mode);
       if (!el || !mode || getDevice(el.def)?.spice.kind !== 'meter') return;
       const device = engine.compiled.devices[index];
-      const read = mode.unit === 'V' ? () => engine.nodeVoltage(device.a) - engine.nodeVoltage(device.b) : () => engine.deviceCurrent(index);
+      const read = mode.unit === 'A' ? () => engine.deviceCurrent(index) : () => engine.nodeVoltage(device.a) - engine.nodeVoltage(device.b);
       const kept = previous.get(id);
       const window = kept && kept.mode === mode.value ? kept.window : new MeterWindow();
       window.restart();

@@ -3,7 +3,7 @@ import { getDevice } from '../library/devices';
 import { findModel, isVdmos, modelType } from '../library/models';
 import { computeConnectivity, terminalKey } from '../netlist/connectivity';
 import { OPAMP_GAIN, transformerWindings } from '../netlist/generate';
-import { meterResistance } from './meter';
+import { METER_TEST_CURRENT, meterResistance } from './meter';
 import { RegulatorParams, regulatorParams } from './regulator';
 import { sourceSpec } from '../netlist/source';
 import { parseSpiceValue } from '../netlist/values';
@@ -284,7 +284,8 @@ export function compileCircuit(circuit: Circuit): CompileResult {
           break;
         }
         const [a, b] = [node(s.a), node(s.b)];
-        pending.push({ element, needsBranch: false, build: () => ({ kind: 'resistor', element, a, b, g: 1 / resistance }) });
+        if (el.props[s.modeProp] === 'ohm') pending.push({ element, needsBranch: false, build: () => ({ kind: 'isource', element, a, b, current: METER_TEST_CURRENT }) });
+        else pending.push({ element, needsBranch: false, build: () => ({ kind: 'resistor', element, a, b, g: 1 / resistance }) });
         break;
       }
       case 'isource': {

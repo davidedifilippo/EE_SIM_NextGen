@@ -1,8 +1,9 @@
 // Adapted from PowerCad_NextGen (see THIRD_PARTY_NOTICES.md).
 import React from 'react';
 import { Circuit, ComponentDef, Element, Prim, Pt, Rotation, Wire } from '../model/types';
-import { elementSymbol, getDevice } from '../library/devices';
+import { canRotate, elementSymbol, getDevice } from '../library/devices';
 import { sourceLabel } from '../netlist/source';
+import { METER_MODES } from '../realtime/meterModes';
 import { parseSpiceValue } from '../netlist/values';
 import { formatEngineering } from '../ui/chartMath';
 import { Box, dist, isPointOnSegment, localToWorld } from '../utils/geometry';
@@ -16,6 +17,8 @@ interface Props {
   /** The area around a selection of several things. */
   groupBounds: Box | null;
   onElementDown: (elem: Element, e: Press) => void;
+  /** A mark around the dial of a multimeter was pressed. */
+  onMeterMode: (elem: Element, mode: string) => void;
   onWireDown: (wire: Wire, e: Press) => void;
   onWireHandleDown: (wire: Wire, pointIndex: number, e: Press) => void;
   onTerminalDown: (worldPos: Pt, e: Press) => void;
@@ -37,6 +40,7 @@ export const Renderer: React.FC<Props> = ({
   selectionBox,
   groupBounds,
   onElementDown,
+  onMeterMode,
   onWireDown,
   onWireHandleDown,
   onTerminalDown,
@@ -108,12 +112,13 @@ export const Renderer: React.FC<Props> = ({
           elem={elem}
           isSelected={selectedIds.has(elem.id)}
           onDown={(e) => onElementDown(elem, e)}
+          onMeterMode={(mode) => onMeterMode(elem, mode)}
           onTerminalDown={onTerminalDown}
           onTerminalUp={onTerminalUp}
         />
       ))}
       {ghost && (
-        <g transform={`translate(${ghost.x}, ${ghost.y}) rotate(${ghost.rot})`} opacity={0.6} pointerEvents="none">
+        <g transform={`translate(${ghost.x}, ${ghost.y}) rotate(${canRotate(ghost.def) ? ghost.rot : 0})`} opacity={0.6} pointerEvents="none">
           {ghost.def.symbol.map((prim, idx) => (
             <PrimitiveItem key={idx} prim={prim} />
           ))}
@@ -171,7 +176,7 @@ export const Renderer: React.FC<Props> = ({
   </g>
 );
 
-function getBounds(def: ComponentDef) {
+export function getBounds(def: ComponentDef) {
   const xs = def.terminals.map((t) => t.x);
   const ys = def.terminals.map((t) => t.y);
   const minX = Math.min(-20, ...xs);
@@ -179,6 +184,7 @@ function getBounds(def: ComponentDef) {
   const minY = Math.min(-20, ...ys);
   const maxY = Math.max(20, ...ys);
   if (def.spice.kind === 'opamp') return { x: minX, y: -30, w: maxX - minX, h: 60 };
+  if (def.id === 'multimeter') return { x: -50, y: -80, w: 100, h: 146 };
   return def.spice.kind === 'ground'
     ? { x: -14, y: -2, w: 28, h: 26 }
     : { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
@@ -193,9 +199,10 @@ const ElementItem: React.FC<{
   elem: Element;
   isSelected: boolean;
   onDown: (e: Press) => void;
+  onMeterMode: (mode: string) => void;
   onTerminalDown: (worldPos: Pt, e: Press) => void;
   onTerminalUp: (worldPos: Pt, e: Press) => void;
-}> = ({ elem, isSelected, onDown, onTerminalDown, onTerminalUp }) => {
+}> = ({ elem, isSelected, onDown, onMeterMode, onTerminalDown, onTerminalUp }) => {
   const def = getDevice(elem.def);
   if (!def) return null;
   const bounds = getBounds(def);
@@ -244,6 +251,20 @@ const ElementItem: React.FC<{
         <PrimitiveItem key={idx} prim={prim} />
       ))}
 
+      {/* The marks around the dial: a press chooses, and does not start moving the instrument */}
+      {def.id === 'multimeter' &&
+        METER_MODES.map(({ value, label, symbol, dial }) => (
+          <g key={value} role="button" aria-label={label} style={{ cursor: 'pointer' }} onPointerDown={(e) => {
+            e.stopPropagation();
+            if (e.button === 0) onMeterMode(value);
+          }}>
+            <rect x={dial.x - 15} y={dial.y - 10} width={30} height={20} fill="transparent" pointerEvents="all" />
+            <text x={dial.x} y={dial.y + 4} textAnchor="middle" fontSize={11} fontWeight={elem.props.mode === value ? 700 : 400} fill={elem.props.mode === value ? '#0f172a' : '#475569'} pointerEvents="none">
+              {symbol}
+            </text>
+          </g>
+        ))}
+
       {/* Its name and pins on the box, upright whatever the rotation */}
       {isRegulator && (
         <g transform={`rotate(${-elem.rot})`} pointerEvents="none" textAnchor="middle" fill="#0f172a">
@@ -278,7 +299,7 @@ const ElementItem: React.FC<{
       {/* Labels are counter-rotated so they stay upright and keep their world position */}
       {def.tagPrefix && (
         <g transform={`${elem.flip ? 'scale(1, -1) ' : ''}rotate(${-elem.rot})`} pointerEvents="none" fontSize={11}>
-          <text y={isBesideLabel ? -4 : def.spice.kind === 'meter' ? -33 : isBlock ? -blockReach - 4 : isRegulator ? -25 : -24} fontWeight={700} fill="#0f172a" {...labelProps}>
+          <text y={isBesideLabel ? -4 : def.id === 'multimeter' ? -85 : def.spice.kind === 'meter' ? -33 : isBlock ? -blockReach - 4 : isRegulator ? -25 : -24} fontWeight={700} fill="#0f172a" {...labelProps}>
             {elem.tag}
           </text>
           <text y={isBesideLabel ? 10 : isBlock ? blockReach + 13 : 34} fill="#475569" {...labelProps}>

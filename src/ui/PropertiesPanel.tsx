@@ -1,6 +1,6 @@
 import React from 'react';
 import { Circuit, Element, SpiceModel } from '../model/types';
-import { blockId, canMirror, getDevice } from '../library/devices';
+import { blockId, canMirror, canRotate, getDevice } from '../library/devices';
 import { ImportedModel } from '../library/modelImport';
 import { fitsModelType, modelsOfType } from '../library/models';
 import { OPAMP_ROLES, OpAmpRole, readOpAmpRoles, readRegulatorRoles, REGULATOR_ROLES, RegulatorRole, subcircuitPins } from '../library/subcircuit';
@@ -71,6 +71,8 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
   const singleWire = selectedIds.size === 1 && !single ? circuit.wires.find((w) => selectedIds.has(w.id)) : undefined;
   const probeChoices = single ? elementProbes(single) : singleWire ? [wireProbe(nodeWire(singleWire.id, circuit))] : [];
   const deviceIndex = single && layout ? layout.devices.findIndex((d) => d.elementId === single.id) : -1;
+
+  const positive = def?.id === 'multimeter' ? 'la boccola rossa' : 'il lato +';
 
   const update = (patch: Partial<Element>, record = true) => {
     if (!single) return;
@@ -169,7 +171,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
       )}
       {single && def?.spice.kind === 'meter' && (
         <p className="hint">
-          {String(single.props.mode).startsWith('v') ? 'Collega i due puntali in parallelo ai punti da misurare.' : 'Apri il ramo e collega il multimetro in serie.'} Legge il puntale + rispetto al −. Con RMS esclude la componente continua. Vale per l'animazione.
+          {single.props.mode === 'ohm' ? `Collega i fili ai capi del componente, a circuito spento: inietta 1 mA da ${positive} e una tensione nel circuito falsa la lettura. OL vuol dire che non c'è collegamento.` : String(single.props.mode).startsWith('v') ? `Collega i due fili in parallelo ai punti da misurare. Legge ${positive} rispetto all'altro capo. Con RMS esclude la componente continua.` : `Apri il ramo e collega il multimetro in serie, con la corrente che entra da ${positive}. Con RMS esclude la componente continua.`}{def.id === 'multimeter' ? ' Si cambia misura anche toccando le scritte attorno alla manopola.' : ''} Vale per l'animazione.
         </p>
       )}
       {single && def?.tagPrefix && (
@@ -194,7 +196,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
         </div>
       )}
       <div className="button-row">
-        {selected.length > 0 && <button onClick={onRotateSelected}>Ruota</button>}
+        {selected.some((el) => canRotate(getDevice(el.def))) && <button onClick={onRotateSelected}>Ruota</button>}
         {selected.some((el) => canMirror(getDevice(el.def))) && (
           <button title="Scambia sopra e sotto: per un op. amp, gli ingressi + e −" onClick={onMirrorSelected}>
             Specchia

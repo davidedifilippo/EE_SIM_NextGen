@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Circuit, ComponentDef, Rotation, SpiceModel } from './model/types';
-import { canMirror, getDevice, isVoltageSource } from './library/devices';
+import { canMirror, canRotate, getDevice, isVoltageSource } from './library/devices';
 import { circuitForSaving, withLibraryModels } from './library/models';
 import { Analysis, describeNodes, generateNetlist, sweepCount } from './netlist/generate';
 import { parseSpiceValue } from './netlist/values';
@@ -118,7 +118,7 @@ export const App: React.FC = () => {
     const hasCurrentSource = circuit.elements.some((el) => getDevice(el.def)?.spice.kind === 'isource');
     return (sources.length > 0 || hasCurrentSource) && sources.every((el) => isDcSource(el.props));
   }, [circuit]);
-  const hasMeter = useMemo(() => resolved.elements.some((el) => el.def === 'multimeter'), [resolved]);
+  const hasMeter = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'meter'), [resolved]);
   const hasRegulator = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'regulator'), [resolved]);
   const labels = useMemo(
     () =>
@@ -258,7 +258,7 @@ export const App: React.FC = () => {
     handleChange({
       ...circuit,
       elements: circuit.elements.map((el) =>
-        selectedIds.has(el.id) ? { ...el, rot: ((el.rot + 90) % 360) as Rotation } : el,
+        selectedIds.has(el.id) && canRotate(getDevice(el.def)) ? { ...el, rot: ((el.rot + 90) % 360) as Rotation } : el,
       ),
     });
   }, [circuit, selectedIds, handleChange]);
