@@ -20,6 +20,7 @@ import { DcFamily, DcSeries, DcSweepChart } from './ui/DcSweepChart';
 import { DcValues } from './ui/DcValues';
 import { LiveOverlay } from './ui/LiveOverlay';
 import { formatEngineering } from './ui/chartMath';
+import { Logo } from './ui/Logo';
 import { MeterReadings } from './ui/MeterReadings';
 import { RegulatorStatus } from './ui/RegulatorStatus';
 import { regulatorSummaries, RegulatorSummary } from './ui/regulatorPower';
@@ -330,7 +331,9 @@ export const App: React.FC = () => {
   return (
     <div className="app">
       <header className="toolbar">
-        <h1>EE_SIM_NextGen</h1>
+        <h1>
+            <Logo />
+          </h1>
         <div className="button-row">
           <button onClick={() => openCircuit({ title: 'Circuito', elements: [], wires: [], models: [] })}>Nuovo</button>
           <button onClick={() => fileInputRef.current?.click()}>Apri</button>

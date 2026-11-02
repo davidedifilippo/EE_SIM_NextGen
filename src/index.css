@@ -32,8 +32,15 @@ body,
 }
 
 .toolbar h1 {
+  display: flex;
   margin: 0;
   font-size: 16px;
+}
+
+.logo {
+  display: block;
+  width: auto;
+  height: 44px;
 }
 
 .analysis {
