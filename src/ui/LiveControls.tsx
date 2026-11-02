@@ -90,8 +90,10 @@ export const LiveReadout: React.FC<{
   isMos: boolean;
   /** Set for a transformer: where the dots of its windings start. */
   windingsFirstDot: number | null;
+  /** Set for a regulator: where the dots of its pins start. */
+  regulatorFirstDot: number | null;
   frameRef: React.MutableRefObject<LiveFrame | null>;
-}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, frameRef }) => {
+}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, frameRef }) => {
   const [rows, setRows] = React.useState<[string, string][] | null>(null);
 
   React.useEffect(() => {
@@ -100,8 +102,17 @@ export const LiveReadout: React.FC<{
       if (!frame) return;
       const volts = (v: number | undefined) => formatEngineering(v ?? 0, 'V');
       const amps = (i: number | undefined) => formatEngineering(i ?? 0, 'A');
+      const regulator = frame.regulators[deviceIndex];
       setRows(
-        windingsFirstDot !== null
+        regulator && regulatorFirstDot !== null
+          ? [
+              ['Vin', volts(frame.deviceVoltage[deviceIndex] + frame.deviceVbe[deviceIndex])],
+              ['Vout', volts(frame.deviceVbe[deviceIndex])],
+              ['Iout', amps(Math.abs(frame.dotCurrent[regulatorFirstDot + 1]))],
+              ['Potenza', formatEngineering(regulator.power, 'W')],
+              ['Giunzione', `${Math.round(regulator.temperature)} °C`],
+            ]
+          : windingsFirstDot !== null
           ? [
               ['V1', volts(frame.deviceVoltage[deviceIndex])],
               ['I1', amps(frame.dotCurrent[windingsFirstDot])],
@@ -130,7 +141,7 @@ export const LiveReadout: React.FC<{
     refresh();
     const timer = setInterval(refresh, 200);
     return () => clearInterval(timer);
-  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, frameRef]);
+  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, frameRef]);
 
   if (!rows) return null;
   return (

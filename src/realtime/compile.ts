@@ -4,6 +4,7 @@ import { findModel, isVdmos, modelType } from '../library/models';
 import { computeConnectivity, terminalKey } from '../netlist/connectivity';
 import { OPAMP_GAIN, transformerWindings } from '../netlist/generate';
 import { meterResistance } from './meter';
+import { RegulatorParams, regulatorParams } from './regulator';
 import { sourceSpec } from '../netlist/source';
 import { parseSpiceValue } from '../netlist/values';
 import { parseWaveform, Waveform } from './waveform';
@@ -72,6 +73,7 @@ export type CompiledDevice =
   | { kind: 'capacitor'; element: number; a: NodeIndex; b: NodeIndex; c: number }
   | { kind: 'inductor'; element: number; a: NodeIndex; b: NodeIndex; l: number; branch: number }
   | { kind: 'vsource'; element: number; a: NodeIndex; b: NodeIndex; wave: Waveform; branch: number }
+  | { kind: 'isource'; element: number; a: NodeIndex; b: NodeIndex; current: number }
   /** a is the external anode, junction the node after the series resistance (a itself if rs is 0). */
   | { kind: 'diode'; element: number; a: NodeIndex; junction: NodeIndex; b: NodeIndex; params: DiodeParams }
   /** a is the collector and b the emitter; the primed nodes come after the series resistances. */
@@ -80,6 +82,8 @@ export type CompiledDevice =
   | { kind: 'mos'; element: number; a: NodeIndex; b: NodeIndex; base: NodeIndex; dp: NodeIndex; sp: NodeIndex; bodyNode: NodeIndex; params: MosParams }
   /** a is the output, b is always ground. */
   | { kind: 'opamp'; element: number; a: NodeIndex; b: NodeIndex; plus: NodeIndex; minus: NodeIndex; high: number; low: number; /** Time constant of the open loop pole; 0 for no limit. */ tau: number; branch: number }
+  /** a is the input, b the output and base the reference. */
+  | { kind: 'regulator'; element: number; a: NodeIndex; b: NodeIndex; base: NodeIndex; params: RegulatorParams }
   /** a and b are the primary, c and d the secondary, each winding with its branch current; the primed nodes come after their series resistances. */
   | { kind: 'transformer'; element: number; a: NodeIndex; b: NodeIndex; c: NodeIndex; d: NodeIndex; ap: NodeIndex; cp: NodeIndex; l1: number; l2: number; m: number; branch: number; branch2: number };
 
@@ -260,6 +264,16 @@ export function compileCircuit(circuit: Circuit): CompileResult {
         else pending.push({ element, needsBranch: true, build: (branch) => ({ kind: 'inductor', element, a, b, l: value, branch }) });
         break;
       }
+      case 'regulator': {
+        const params = regulatorParams(el, s);
+        if (!params) {
+          errors.push(`${el.tag}: valori del regolatore non validi`);
+          break;
+        }
+        const [a, b, base] = [node(s.input), node(s.output), node(s.ref)];
+        pending.push({ element, needsBranch: false, build: () => ({ kind: 'regulator', element, a, b, base, params }) });
+        break;
+      }
       case 'block':
         errors.push(`${el.tag}: un sottocircuito non si può animare. Usa l'Analisi precisa`);
         break;
@@ -271,6 +285,16 @@ export function compileCircuit(circuit: Circuit): CompileResult {
         }
         const [a, b] = [node(s.a), node(s.b)];
         pending.push({ element, needsBranch: false, build: () => ({ kind: 'resistor', element, a, b, g: 1 / resistance }) });
+        break;
+      }
+      case 'isource': {
+        const current = parseSpiceValue(String(el.props[s.valueProp] ?? ''));
+        if (current === null) {
+          errors.push(`${el.tag}: valore non valido "${el.props[s.valueProp] ?? ''}"`);
+          break;
+        }
+        const [a, b] = [node(s.a), node(s.b)];
+        pending.push({ element, needsBranch: false, build: () => ({ kind: 'isource', element, a, b, current }) });
         break;
       }
       case 'vsource': {
@@ -384,7 +408,7 @@ export function compileCircuit(circuit: Circuit): CompileResult {
 
   const signature = JSON.stringify([
     branch,
-    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : 0]),
+    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : 0]),
   ]);
   return { ok: true, compiled: { size: branch, devices, netIndex, elementIds, signature } };
 }

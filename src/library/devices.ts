@@ -13,6 +13,7 @@ function blockDevice(count: number): ComponentDef {
   return {
     id: blockId(count),
     name: 'Sottocircuito',
+    category: 'Altri',
     tagPrefix: 'X',
     terminals,
     symbol: [
@@ -22,6 +23,34 @@ function blockDevice(count: number): ComponentDef {
     props: [{ key: 'model', label: 'Modello', type: 'model', default: '', modelType: 'SUBCKT' }],
     spice: { kind: 'block', pins: terminals.map((t) => t.id), modelProp: 'model' },
     isHidden: count !== DEFAULT_BLOCK_PINS,
+  };
+}
+
+/** Typical values from the datasheets of the fixed series, for a TO-220 without a heatsink; they differ by maker. */
+const FIXED_REGULATOR = { iq: 5e-3, imax: '2.2', dropout: '2', rth: '65' };
+const ADJUSTABLE_REGULATOR = { iq: 50e-6, imax: '2.2', dropout: '2', rth: '50' };
+
+function regulatorDevice(name: string, vNominal: number, polarity: 1 | -1, isAdjustable = false): ComponentDef {
+  const { iq, imax, dropout, rth } = isAdjustable ? ADJUSTABLE_REGULATOR : FIXED_REGULATOR;
+  return {
+    id: `reg${name.toLowerCase()}`,
+    name,
+    category: 'Regolatori',
+    tagPrefix: 'U',
+    terminals: [
+      { id: 'in', x: -40, y: 0 },
+      { id: 'out', x: 40, y: 0 },
+      { id: 'ref', x: 0, y: 40 },
+    ],
+    symbol: [...leads(32), { t: 'line', x1: 0, y1: 20, x2: 0, y2: 40 }, { t: 'rect', x: -32, y: -20, w: 64, h: 40, fill: '#f8fafc' }],
+    props: [
+      { key: 'model', label: 'Modello', type: 'model', default: '', modelType: 'REGULATOR' },
+      { key: 'imax', label: 'Corrente massima (A)', type: 'text', default: imax },
+      { key: 'dropout', label: 'Caduta minima (V)', type: 'text', default: dropout },
+      { key: 'rth', label: 'Resistenza termica (°C/W)', type: 'text', default: rth },
+      { key: 'ta', label: 'Temperatura ambiente (°C)', type: 'text', default: '25' },
+    ],
+    spice: { kind: 'regulator', input: 'in', output: 'out', ref: 'ref', vNominal, polarity, iq },
   };
 }
 
@@ -54,6 +83,24 @@ export const SOURCE_GLYPHS: Record<SourceShape, string> = {
   dc: 'M -6 -2 L 6 -2 M -6 2 L 6 2',
   custom: 'M -6 3 L -3 -5 L -1 1 L 2 -3 L 6 4',
 };
+
+/** A source that only gives a fixed voltage. To the engines it is a generator like the others. */
+function dcSource(id: string, name: string, voltage: string, symbol: Prim[], searchTerms: string): ComponentDef {
+  return {
+    id,
+    category: 'Sorgenti',
+    name,
+    tagPrefix: 'V',
+    searchTerms,
+    terminals: twoPin('pos', 'neg'),
+    symbol,
+    props: [
+      { key: 'shape', label: 'Tipo di segnale', type: 'text', default: 'dc' },
+      { key: 'amplitude', label: 'Tensione', type: 'text', default: voltage },
+    ],
+    spice: { kind: 'vsource', pos: 'pos', neg: 'neg' },
+  };
+}
 
 const BJT_TERMINALS = [
   { id: 'collector', x: 20, y: -40 },
@@ -92,6 +139,7 @@ const MOS_BODY: Prim[] = [
 export const DEVICES: ComponentDef[] = [
   {
     id: 'resistor',
+    category: 'Passivi',
     name: 'Resistore',
     tagPrefix: 'R',
     terminals: twoPin('a', 'b'),
@@ -101,6 +149,7 @@ export const DEVICES: ComponentDef[] = [
   },
   {
     id: 'capacitor',
+    category: 'Passivi',
     name: 'Condensatore',
     tagPrefix: 'C',
     terminals: twoPin('a', 'b'),
@@ -114,6 +163,7 @@ export const DEVICES: ComponentDef[] = [
   },
   {
     id: 'inductor',
+    category: 'Passivi',
     name: 'Induttore',
     tagPrefix: 'L',
     terminals: twoPin('a', 'b'),
@@ -121,8 +171,27 @@ export const DEVICES: ComponentDef[] = [
     props: [{ key: 'value', label: 'Induttanza', type: 'text', default: '10m' }],
     spice: { kind: 'passive', prefix: 'L', a: 'a', b: 'b', valueProp: 'value' },
   },
+  dcSource('dcsupply', 'Alimentazione continua', '12', SOURCE_BODY, 'dc alimentatore'),
+  dcSource(
+    'battery',
+    'Batteria',
+    '9',
+    [
+      ...leads(9),
+      // Two cells: the long plate is the positive one
+      { t: 'line', x1: -9, y1: -14, x2: -9, y2: 14 },
+      { t: 'line', x1: -3, y1: -7, x2: -3, y2: 7, w: 3 },
+      { t: 'line', x1: 3, y1: -14, x2: 3, y2: 14 },
+      { t: 'line', x1: 9, y1: -7, x2: 9, y2: 7, w: 3 },
+      { t: 'line', x1: -20, y1: -9, x2: -14, y2: -9, w: 1.2 },
+      { t: 'line', x1: -17, y1: -12, x2: -17, y2: -6, w: 1.2 },
+      { t: 'line', x1: 14, y1: -9, x2: 20, y2: -9, w: 1.2 },
+    ],
+    'dc pila',
+  ),
   {
     id: 'vsource',
+    category: 'Sorgenti',
     name: 'Generatore',
     tagPrefix: 'V',
     terminals: twoPin('pos', 'neg'),
@@ -140,6 +209,7 @@ export const DEVICES: ComponentDef[] = [
   },
   {
     id: 'diode',
+    category: 'Semiconduttori',
     name: 'Diodo',
     tagPrefix: 'D',
     terminals: twoPin('anode', 'cathode'),
@@ -153,6 +223,7 @@ export const DEVICES: ComponentDef[] = [
   },
   {
     id: 'zener',
+    category: 'Semiconduttori',
     name: 'Zener',
     tagPrefix: 'D',
     terminals: twoPin('anode', 'cathode'),
@@ -166,6 +237,7 @@ export const DEVICES: ComponentDef[] = [
   },
   {
     id: 'npn',
+    category: 'Semiconduttori',
     name: 'NPN',
     tagPrefix: 'Q',
     terminals: BJT_TERMINALS,
@@ -175,6 +247,7 @@ export const DEVICES: ComponentDef[] = [
   },
   {
     id: 'pnp',
+    category: 'Semiconduttori',
     name: 'PNP',
     tagPrefix: 'Q',
     // Emitter on top, where a PNP is drawn: towards the positive supply
@@ -189,6 +262,7 @@ export const DEVICES: ComponentDef[] = [
   },
   {
     id: 'nmos',
+    category: 'Semiconduttori',
     name: 'MOS N',
     tagPrefix: 'M',
     terminals: MOS_TERMINALS,
@@ -199,6 +273,7 @@ export const DEVICES: ComponentDef[] = [
   },
   {
     id: 'pmos',
+    category: 'Semiconduttori',
     name: 'MOS P',
     tagPrefix: 'M',
     // Source on top, where a P channel is drawn: towards the positive supply
@@ -213,6 +288,7 @@ export const DEVICES: ComponentDef[] = [
   },
   {
     id: 'opamp',
+    category: 'Operazionali',
     name: 'Op. amp',
     tagPrefix: 'U',
     terminals: [
@@ -239,6 +315,7 @@ export const DEVICES: ComponentDef[] = [
   },
   {
     id: 'multimeter',
+    category: 'Strumenti',
     name: 'Multimetro',
     tagPrefix: 'MM',
     // The display is drawn over it, upright whatever the rotation: a square leaves room for it
@@ -254,7 +331,24 @@ export const DEVICES: ComponentDef[] = [
     spice: { kind: 'meter', a: 'a', b: 'b', modeProp: 'mode' },
   },
   {
+    id: 'isource',
+    category: 'Sorgenti',
+    name: 'Generatore di corrente',
+    tagPrefix: 'I',
+    searchTerms: 'corrente isource',
+    terminals: twoPin('a', 'b'),
+    symbol: [
+      ...leads(18),
+      { t: 'circle', cx: 0, cy: 0, r: 18, fill: '#ffffff' },
+      { t: 'line', x1: -11, y1: 0, x2: 10, y2: 0 },
+      { t: 'path', d: 'M 4 -5 L 11 0 L 4 5' },
+    ],
+    props: [{ key: 'value', label: 'Corrente (A)', type: 'text', default: '10m' }],
+    spice: { kind: 'isource', a: 'a', b: 'b', valueProp: 'value' },
+  },
+  {
     id: 'transformer',
+    category: 'Passivi',
     name: 'Trasformatore',
     tagPrefix: 'T',
     // The upper terminals are in phase, as the dots say
@@ -285,6 +379,8 @@ export const DEVICES: ComponentDef[] = [
   },
   {
     id: 'ground',
+    category: 'Sorgenti',
+    searchTerms: 'gnd ground terra',
     name: 'Massa',
     terminals: [{ id: 'g', x: 0, y: 0 }],
     symbol: [
@@ -298,6 +394,14 @@ export const DEVICES: ComponentDef[] = [
   },
 ];
 
+const REGULATORS = [
+  ...[5, 6, 8, 9, 12, 15, 24].map((v) => regulatorDevice(`78${String(v).padStart(2, '0')}`, v, 1)),
+  ...[5, 12, 15].map((v) => regulatorDevice(`79${String(v).padStart(2, '0')}`, v, -1)),
+  regulatorDevice('LM317', 1.25, 1, true),
+  regulatorDevice('LM337', 1.25, -1, true),
+];
+
+DEVICES.push(...REGULATORS);
 for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));
@@ -313,6 +417,8 @@ export function elementSymbol(def: ComponentDef, element: Element): Prim[] {
 
 /** Parts that are not the same when mirrored: on the others a mirror would change nothing. */
 export const canMirror = (def: ComponentDef | undefined) => def?.spice.kind === 'opamp' || def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' || def?.spice.kind === 'transformer';
+
+export const isVoltageSource = (el: Element) => getDevice(el.def)?.spice.kind === 'vsource';
 
 /** First free tag for the prefix: deleting R1 from R1, R2 gives R1 again, never a duplicate R2. */
 export function nextTag(prefix: string, elements: Element[]): string {

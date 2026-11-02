@@ -51,12 +51,20 @@ export const subcircuitPins = (card: string) => splitSubcircuitHead(card.split('
 
 export const isVdmos = (card: string) => /^\s*\.model\s+\S+\s+vdmos\b/i.test(card);
 
+export const REGULATOR_PINS = 3;
+
+export function fitsModelType(card: string, type: ModelType): boolean {
+  if (type === 'SUBCKT') return isSubcircuitCard(card);
+  if (type === 'REGULATOR') return isSubcircuitCard(card) && subcircuitPins(card).length === REGULATOR_PINS;
+  return modelType(card) === type;
+}
+
 /** Circuit first, then the personal library, then the built-in models, each name once. */
 export function modelsOfType(circuit: Circuit, type: ModelType, library: SpiceModel[] = []): SpiceModel[] {
   const seen = new Set<string>();
   return [...circuit.models, ...library, ...LIBRARY].filter((m) => {
     // A block takes any subcircuit, those with five pins too: not all of them are op amps
-    const fits = type === 'SUBCKT' ? isSubcircuitCard(m.card) : modelType(m.card) === type;
+    const fits = fitsModelType(m.card, type);
     if (seen.has(m.name) || !fits) return false;
     seen.add(m.name);
     return true;
@@ -69,6 +77,7 @@ export const isBuiltInModel = (model: SpiceModel) => LIBRARY.some((m) => m.name 
 function usedModelNames(circuit: Circuit): string[] {
   const names = circuit.elements.flatMap((el) => {
     const spice = getDevice(el.def)?.spice;
+    if (spice?.kind === 'regulator') return [String(el.props.model ?? '')];
     return spice && (spice.kind === 'diode' || spice.kind === 'bjt' || spice.kind === 'mos' || spice.kind === 'opamp' || spice.kind === 'block') ? [String(el.props[spice.modelProp] ?? '')] : [];
   });
   return [...new Set(names)].filter(Boolean);

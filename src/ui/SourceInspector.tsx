@@ -10,17 +10,18 @@ import { RangeSlider, ValueSlider } from './ValueSlider';
 const SHAPES: { shape: SourceShape; label: string }[] = [
   { shape: 'sin', label: 'Sinusoide' },
   { shape: 'square', label: 'Onda quadra' },
-  { shape: 'dc', label: 'Continua' },
   { shape: 'custom', label: 'Avanzato' },
 ];
 
 interface Props {
   props: Element['props'];
+  /** A DC supply or a battery: only its voltage to set. */
+  isDcOnly?: boolean;
   onChange: (props: Element['props'], record?: boolean) => void;
 }
 
 /** Signal generator settings, in terms of the signal and not of its SPICE syntax. */
-export const SourceInspector: React.FC<Props> = ({ props, onChange }) => {
+export const SourceInspector: React.FC<Props> = ({ props, isDcOnly = false, onChange }) => {
   const shape = sourceShape(props);
   const set = (key: string, value: string, record = true) => onChange({ ...props, [key]: value }, record);
 
@@ -44,13 +45,15 @@ export const SourceInspector: React.FC<Props> = ({ props, onChange }) => {
 
   const spec = sourceSpec(props);
   const stats = spec ? waveformStats(spec) : null;
+  // Continuous voltage has its own parts now: a generator from an older circuit can still leave it
+  const shapes = shape === 'dc' ? [{ shape, label: 'Continua' }, ...SHAPES] : SHAPES;
 
   return (
     <>
-      <div className="shape-picker">
+      {!isDcOnly && <div className="shape-picker">
         <span id="shape-picker-label">Tipo di segnale</span>
         <div role="group" aria-labelledby="shape-picker-label">
-          {SHAPES.map((s) => (
+          {shapes.map((s) => (
             <button key={s.shape} className={shape === s.shape ? 'active' : ''} aria-pressed={shape === s.shape} aria-label={s.label} title={s.label} onClick={() => choose(s.shape)}>
               <svg viewBox="-9 -9 18 18" width={22} height={22} aria-hidden="true">
                 <path d={SOURCE_GLYPHS[s.shape]} fill="none" stroke="currentColor" strokeWidth={1.5} />
@@ -58,7 +61,7 @@ export const SourceInspector: React.FC<Props> = ({ props, onChange }) => {
             </button>
           ))}
         </div>
-      </div>
+      </div>}
 
       {shape === 'dc' && field('amplitude', 'Tensione (V)', { slider: true })}
 

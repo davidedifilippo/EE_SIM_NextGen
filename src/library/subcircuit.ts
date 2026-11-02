@@ -47,6 +47,26 @@ export function readOpAmpRoles(chosen: unknown, pins: string[]): OpAmpRole[] | n
   return roles.length === pins.length && OPAMP_ROLES.every((role) => roles.includes(role)) ? roles : null;
 }
 
+export type RegulatorRole = 'in' | 'ref' | 'out';
+/** The order of the pins of the package. */
+export const REGULATOR_ROLES: RegulatorRole[] = ['in', 'ref', 'out'];
+const REGULATOR_NAMES: Record<RegulatorRole, RegExp> = {
+  in: /^(IN|VIN|VI|INPUT)$/,
+  ref: /^(GND|COM|COMMON|REF|ADJ|ADJUST)$/,
+  out: /^(OUT|VOUT|VO|OUTPUT)$/,
+};
+
+export function readRegulatorRoles(chosen: unknown, pins: string[]): RegulatorRole[] | null {
+  const text = String(chosen ?? '').trim();
+  if (text) {
+    const roles = text.split(/\s+/) as RegulatorRole[];
+    return roles.length === pins.length && REGULATOR_ROLES.every((role) => roles.includes(role)) ? roles : null;
+  }
+  if (pins.length !== REGULATOR_ROLES.length) return null;
+  const named = pins.map((pin) => REGULATOR_ROLES.find((role) => REGULATOR_NAMES[role].test(pin.toUpperCase())));
+  return named.every(Boolean) && new Set(named).size === REGULATOR_ROLES.length ? (named as RegulatorRole[]) : REGULATOR_ROLES;
+}
+
 /** What a file offers to the subcircuits in it, besides their own contents. */
 export interface FileParts {
   subcircuits: Map<string, { head: string; body: string[] }>;

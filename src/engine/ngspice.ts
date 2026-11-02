@@ -4,6 +4,8 @@ export interface TranResult {
   time: number[];
   /** Node voltages keyed by SPICE node name, lowercase ("n1"). */
   voltages: Map<string, number[]>;
+  /** Through the generators, keyed by name in the netlist, lowercase. */
+  currents: Map<string, number[]>;
 }
 
 let simulation: Promise<Simulation> | null = null;
@@ -121,9 +123,10 @@ export async function runTransient(netlist: string): Promise<TranResult> {
   if (!time) throw new Error('ngspice: nessun asse dei tempi nel risultato');
 
   const voltages = new Map<string, number[]>();
+  const currents = new Map<string, number[]>();
   for (const d of result.data) {
-    if (d.type !== 'voltage') continue;
-    voltages.set(d.name.toLowerCase().replace(/^v\((.*)\)$/, '$1'), d.values);
+    if (d.type === 'voltage') voltages.set(d.name.toLowerCase().replace(/^v\((.*)\)$/, '$1'), d.values);
+    else if (d.type === 'current') currents.set(d.name.toLowerCase().replace(/^i\((.*)\)$/, '$1'), d.values);
   }
-  return { time, voltages };
+  return { time, voltages, currents };
 }

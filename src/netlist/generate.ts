@@ -1,11 +1,12 @@
 import { Circuit, ModelType, SpiceModel } from '../model/types';
 import { getDevice } from '../library/devices';
-import { findModel, isSubcircuitCard, isVdmos, modelType } from '../library/models';
-import { normalizeSubcircuitCard, OpAmpRole, readOpAmpRoles, subcircuitPins } from '../library/subcircuit';
+import { findModel, fitsModelType, isSubcircuitCard, isVdmos } from '../library/models';
+import { normalizeSubcircuitCard, OpAmpRole, readOpAmpRoles, readRegulatorRoles, RegulatorRole, subcircuitPins } from '../library/subcircuit';
 import { computeConnectivity, terminalKey } from './connectivity';
 import { sourceAcSpec, sourceDcSpec, sourceSpec } from './source';
 import { parseSpiceValue } from './values';
 import { meterResistance } from '../realtime/meter';
+import { REGULATOR_GAIN, REGULATOR_LEAK, REGULATOR_STIFFNESS, regulatorParams } from '../realtime/regulator';
 
 export interface TranAnalysis {
   type: 'tran';
@@ -61,7 +62,7 @@ const SPICE_NAME = /^[A-Za-z0-9_]+$/;
 /** A card must stay on one line: anything else could inject extra SPICE commands. */
 const isSingleLine = (s: string) => !/[\r\n]/.test(s);
 
-function cardName(prefix: string, tag: string): string {
+export function cardName(prefix: string, tag: string): string {
   return tag.toUpperCase().startsWith(prefix) ? tag : `${prefix}${tag}`;
 }
 
@@ -94,6 +95,8 @@ export function transformerWindings(ratio: unknown, inductance: unknown, couplin
 
 /** Open loop gain of the ideal op amp, shared with the real-time engine. */
 export const OPAMP_GAIN = 1e6;
+/** A current source with an open end has no voltage to settle on: this gives it one, in both engines. */
+export const CURRENT_SOURCE_LEAK = 1e9;
 /** How fast the pole of an op amp with a limited bandwidth comes to rest on a rail, in seconds: short enough not to show. */
 const OPAMP_RAIL_TIME = 100e-9;
 
@@ -159,7 +162,7 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
       errors.push(`${tag}: modello non definito "${name}"`);
       return null;
     }
-    if (type === 'SUBCKT' ? !isSubcircuitCard(model.card) : modelType(model.card) !== type) {
+    if (!fitsModelType(model.card, type)) {
       errors.push(`${tag}: il modello "${name}" non è di tipo ${type}`);
       return null;
     }
@@ -181,6 +184,43 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         }
         const name = uniqueName(s.prefix, el.tag);
         if (name) lines.push(`${name} ${node(s.a)} ${node(s.b)} ${value}`);
+        break;
+      }
+      case 'regulator': {
+        const params = regulatorParams(el, s);
+        if (!params) {
+          errors.push(`${el.tag}: valori del regolatore non validi`);
+          break;
+        }
+        const name = uniqueName('X', el.tag);
+        if (!name) break;
+        const [input, reference, output] = [node(s.input), node(s.ref), node(s.output)];
+        // A generator of no voltage on the output, for the current to be read
+        const inner = `xo${name}`;
+        lines.push(`VS${name} ${inner} ${output} 0`);
+        const modelName = String(el.props.model ?? '').trim();
+        if (modelName) {
+          const model = useModel(el.tag, modelName, 'REGULATOR');
+          if (model === null) break;
+          const roles = readRegulatorRoles(el.props.pins, subcircuitPins(usedModels.get(model)!.card));
+          if (!roles) {
+            errors.push(`${el.tag}: i piedini del modello "${model}" non sono assegnati uno per funzione`);
+            break;
+          }
+          const nodes: Record<RegulatorRole, string> = { in: input, ref: reference, out: inner };
+          lines.push(`${name} ${roles.map((role) => nodes[role]).join(' ')} ${model}`);
+          break;
+        }
+        const { polarity: p, vNominal, dropout, iMax, iq } = params;
+        // The same law as the real-time engine, written on the current: a law on the output voltage
+        // would be computed far too high at the limit, and Newton would go back and forth without an end
+        const given = `(${p}*i(VS${name}))`;
+        const drop = `${REGULATOR_STIFFNESS}*max(0,${given}-${iMax})-${REGULATOR_STIFFNESS}*max(0,-${given})`;
+        const source = `xs${name}`;
+        lines.push(`BO${name} ${source} ${reference} V=${p}*(min(${vNominal},${p}*(v(${input})-v(${reference}))-${dropout})-(${drop}))`);
+        lines.push(`RS${name} ${source} ${inner} ${1 / REGULATOR_GAIN}`);
+        lines.push(`BI${name} ${input} ${reference} I=i(VS${name})+${p * iq}`);
+        lines.push(`RI${name} ${input} ${reference} ${REGULATOR_LEAK}`, `RO${name} ${inner} ${reference} ${REGULATOR_LEAK}`);
         break;
       }
       case 'block': {
@@ -207,6 +247,16 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         }
         const name = uniqueName('R', el.tag);
         if (name) lines.push(`${name} ${node(s.a)} ${node(s.b)} ${resistance}`);
+        break;
+      }
+      case 'isource': {
+        const value = String(el.props[s.valueProp] ?? '').trim();
+        if (!SPICE_VALUE.test(value)) {
+          errors.push(`${el.tag}: valore non valido "${value}"`);
+          break;
+        }
+        const name = uniqueName('I', el.tag);
+        if (name) lines.push(`${name} ${node(s.a)} ${node(s.b)} DC ${value}`, `RL${name} ${node(s.a)} ${node(s.b)} ${CURRENT_SOURCE_LEAK}`);
         break;
       }
       case 'vsource': {
@@ -350,7 +400,7 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
 
   // The name a generator has in the netlist, for the sweep command to refer to it
   const sweptName = (id: string | undefined) => {
-    const el = circuit.elements.find((e) => e.id === id && e.def === 'vsource');
+    const el = circuit.elements.find((e) => e.id === id && getDevice(e.def)?.spice.kind === 'vsource');
     return el ? cardName('V', el.tag) : null;
   };
   if (analysis.type === 'dc' && errors.length === 0) {

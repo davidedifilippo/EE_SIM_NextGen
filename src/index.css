@@ -164,17 +164,117 @@ button.close-results {
 .palette {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   gap: 6px;
-  width: 132px;
+  width: 212px;
+  min-height: 0;
   padding: 8px;
-  overflow-y: auto;
   background: #ffffff;
   border-right: 1px solid #cbd5e1;
 }
 
-.palette button {
+.palette-search {
+  width: 100%;
+  min-width: 0;
+}
+
+.palette-sections {
+  display: flex;
   flex-shrink: 0;
-  text-align: left;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.palette-sections::-webkit-scrollbar {
+  display: none;
+}
+
+/* Tall for the finger, thin for the eye */
+.palette-bar {
+  position: relative;
+  flex-shrink: 0;
+  height: 14px;
+  margin-top: -4px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.palette-bar::before {
+  position: absolute;
+  top: 5px;
+  right: 0;
+  left: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: #e2e8f0;
+  content: '';
+}
+
+.palette-bar-thumb {
+  position: absolute;
+  top: 5px;
+  height: 4px;
+  border-radius: 2px;
+  background: #64748b;
+}
+
+.palette-sections button {
+  flex-shrink: 0;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.palette-parts {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.palette-parts h3 {
+  margin: 8px 0 4px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.palette-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.palette button.part {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 4px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.palette button.part svg {
+  width: 100%;
+  height: 40px;
+}
+
+.palette button.part span {
+  overflow-wrap: anywhere;
+}
+
+.regulator-summary {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.regulator-summary .failed {
+  color: #b91c1c;
 }
 
 .canvas-area {
@@ -714,12 +814,43 @@ button.close-results {
   }
 
   .palette {
-    flex-direction: row;
     width: 100%;
-    overflow-x: auto;
-    overflow-y: hidden;
     border-right: none;
     border-bottom: 1px solid #cbd5e1;
+  }
+
+  .palette-parts {
+    overflow-x: auto;
+    overflow-y: hidden;
+    display: flex;
+    gap: 8px;
+  }
+
+  .palette-parts section {
+    display: flex;
+    flex-shrink: 0;
+    flex-direction: column;
+  }
+
+  .palette-parts {
+    flex: none;
+  }
+
+  .palette-parts h3 {
+    display: none;
+  }
+
+  .palette button.part svg {
+    height: 28px;
+  }
+
+  .palette-grid {
+    display: flex;
+  }
+
+  .palette button.part {
+    flex-shrink: 0;
+    width: 72px;
   }
 
   .canvas-area {

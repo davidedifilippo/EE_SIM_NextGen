@@ -30,18 +30,22 @@ export interface PropDef {
   options?: { value: string; label: string }[];
 }
 
-/** OPAMP is a subcircuit with five pins, in place of the ideal part; SUBCKT is any subcircuit, as a block of its own. */
-export type ModelType = 'D' | 'NPN' | 'PNP' | 'NMOS' | 'PMOS' | 'OPAMP' | 'SUBCKT';
+/** OPAMP is a subcircuit with five pins, in place of the ideal part; REGULATOR one with three, in place of the simple behaviour; SUBCKT is any subcircuit, as a block of its own. */
+export type ModelType = 'D' | 'NPN' | 'PNP' | 'NMOS' | 'PMOS' | 'OPAMP' | 'SUBCKT' | 'REGULATOR';
 
 /** How a component maps to SPICE. Terminal order follows the SPICE card. */
 export type SpiceDef =
   | { kind: 'ground'; terminal: string }
   | { kind: 'passive'; prefix: 'R' | 'C' | 'L'; a: string; b: string; valueProp: string }
   | { kind: 'vsource'; pos: string; neg: string }
+  /** The current goes through it from a to b. */
+  | { kind: 'isource'; a: string; b: string; valueProp: string }
   | { kind: 'diode'; anode: string; cathode: string; modelProp: string }
   | { kind: 'bjt'; collector: string; base: string; emitter: string; modelProp: string; modelType: 'NPN' | 'PNP' }
   | { kind: 'mos'; drain: string; gate: string; source: string; modelProp: string; modelType: 'NMOS' | 'PMOS' }
   | { kind: 'opamp'; plus: string; minus: string; out: string; highProp: string; lowProp: string; gbwProp: string; modelProp: string; pinsProp: string }
+  /** ref is ground, or ADJ on an adjustable part; polarity is -1 on those for negative voltages. */
+  | { kind: 'regulator'; input: string; output: string; ref: string; vNominal: number; polarity: 1 | -1; iq: number }
   | { kind: 'block'; pins: string[]; modelProp: string }
   | { kind: 'meter'; a: string; b: string; modeProp: string }
   | { kind: 'transformer'; p1: string; p2: string; s1: string; s2: string; ratioProp: string; inductanceProp: string; couplingProp: string };
@@ -49,12 +53,16 @@ export type SpiceDef =
 export interface ComponentDef {
   id: string;
   name: string;
+  /** The section of the library. */
+  category: string;
   /** Default tag prefix, e.g. "R". Omit for components without a tag (ground). */
   tagPrefix?: string;
   terminals: TerminalDef[];
   symbol: Prim[];
   props: PropDef[];
   spice: SpiceDef;
+  /** Other words it can be found by in the library. */
+  searchTerms?: string;
   /** Not in the list of parts: reached from another, as a block changes with the pins of its model. */
   isHidden?: boolean;
 }

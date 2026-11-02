@@ -53,6 +53,9 @@ export function currentLabels(circuit: Circuit, layout: LiveLayout): CurrentLabe
     const kind = getDevice(el.def)?.spice.kind;
     // It has its own display
     if (kind === 'meter') return [];
+    if (kind === 'regulator') {
+      return ['Iin', 'Iout'].map((name, k) => ({ dot: device.firstDot + k, name, x: el.x + 6, y: el.y + 34 + k * LINE_HEIGHT, anchor: 'start' as const }));
+    }
     if (kind === 'transformer') {
       return ['I1', 'I2'].map((name, k) => ({ dot: device.firstDot + k, name, x: el.x, y: el.y + 48 + k * LINE_HEIGHT, anchor: 'middle' as const }));
     }

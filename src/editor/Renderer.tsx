@@ -3,6 +3,8 @@ import React from 'react';
 import { Circuit, ComponentDef, Element, Prim, Pt, Rotation, Wire } from '../model/types';
 import { elementSymbol, getDevice } from '../library/devices';
 import { sourceLabel } from '../netlist/source';
+import { parseSpiceValue } from '../netlist/values';
+import { formatEngineering } from '../ui/chartMath';
 import { Box, dist, isPointOnSegment, localToWorld } from '../utils/geometry';
 
 type Press = React.PointerEvent;
@@ -182,6 +184,11 @@ function getBounds(def: ComponentDef) {
     : { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
+const currentLabel = (value: unknown) => {
+  const current = parseSpiceValue(String(value ?? ''));
+  return current === null ? '?' : formatEngineering(current, 'A');
+};
+
 const ElementItem: React.FC<{
   elem: Element;
   isSelected: boolean;
@@ -196,17 +203,20 @@ const ElementItem: React.FC<{
   const isTransistor = def.spice.kind === 'bjt' || def.spice.kind === 'mos';
   const isBesideLabel = elem.rot === 90 || elem.rot === 270 || isTransistor;
   const isBlock = def.spice.kind === 'block';
+  const isRegulator = def.spice.kind === 'regulator';
   // The box is as tall as its pins: its labels go beyond it
   const blockReach = Math.max(...def.terminals.map((t) => Math.abs(t.y))) + 16;
   const blockPinNames = isBlock ? String(elem.props.pinNames ?? '').split(' ') : [];
-  const value = def.id === 'vsource' ? sourceLabel(elem.props) : def.spice.kind === 'opamp' || def.spice.kind === 'meter' ? '' : def.spice.kind === 'transformer' ? `${elem.props.ratio}:1` : def.props[0] ? String(elem.props[def.props[0].key] ?? '') : '';
-  const labelProps = def.spice.kind === 'opamp' && !isBesideLabel
+  const value = def.spice.kind === 'vsource' ? sourceLabel(elem.props) : def.spice.kind === 'isource' ? currentLabel(elem.props.value) : def.spice.kind === 'opamp' || def.spice.kind === 'meter' || isRegulator ? '' : def.spice.kind === 'transformer' ? `${elem.props.ratio}:1` : def.props[0] ? String(elem.props[def.props[0].key] ?? '') : '';
+  const labelProps = isRegulator && elem.rot === 180
+    ? { x: 8, textAnchor: 'start' as const } // Clear of the lead that now goes up
+    : def.spice.kind === 'opamp' && !isBesideLabel
     ? { x: 8, textAnchor: 'start' as const } // Clear of the sloping side of the triangle
     : !isBesideLabel
     ? { x: 0, textAnchor: 'middle' as const }
     : isTransistor && elem.rot === 180
       ? { x: -28, textAnchor: 'end' as const }
-      : { x: isTransistor ? 28 : def.spice.kind === 'meter' ? 32 : isBlock ? blockReach + 6 : 24, textAnchor: 'start' as const };
+      : { x: isTransistor ? 28 : def.spice.kind === 'meter' ? 32 : isBlock ? blockReach + 6 : isRegulator ? 26 : 24, textAnchor: 'start' as const };
 
   return (
     <g
@@ -234,6 +244,25 @@ const ElementItem: React.FC<{
         <PrimitiveItem key={idx} prim={prim} />
       ))}
 
+      {/* Its name and pins on the box, upright whatever the rotation */}
+      {isRegulator && (
+        <g transform={`rotate(${-elem.rot})`} pointerEvents="none" textAnchor="middle" fill="#0f172a">
+          {/* Standing, the box is narrow: the name makes room for the pin on its side */}
+          <text x={elem.rot === 90 ? 4 : elem.rot === 270 ? -4 : 0} y={4} fontSize={isBesideLabel ? 10 : 11} fontWeight={700}>
+            {def.name}
+          </text>
+        </g>
+      )}
+      {isRegulator &&
+        def.terminals.map((t) => {
+          const [x, y] = t.id === 'in' ? [-21, -11] : t.id === 'out' ? [20, -11] : [0, 13];
+          return (
+            <text key={t.id} transform={`translate(${x} ${y})${t.id === 'ref' && isBesideLabel ? '' : ` rotate(${-elem.rot})`}`} y={3} textAnchor="middle" fontSize={8} fill="#475569" pointerEvents="none">
+              {t.id === 'ref' ? (def.name.startsWith('LM') ? 'ADJ' : 'GND') : t.id.toUpperCase()}
+            </text>
+          );
+        })}
+
       {/* The name of each pin, next to it inside the box: upright, whatever the rotation */}
       {isBlock &&
         def.terminals.map((t, k) => {
@@ -249,7 +278,7 @@ const ElementItem: React.FC<{
       {/* Labels are counter-rotated so they stay upright and keep their world position */}
       {def.tagPrefix && (
         <g transform={`${elem.flip ? 'scale(1, -1) ' : ''}rotate(${-elem.rot})`} pointerEvents="none" fontSize={11}>
-          <text y={isBesideLabel ? -4 : def.spice.kind === 'meter' ? -33 : isBlock ? -blockReach - 4 : -24} fontWeight={700} fill="#0f172a" {...labelProps}>
+          <text y={isBesideLabel ? -4 : def.spice.kind === 'meter' ? -33 : isBlock ? -blockReach - 4 : isRegulator ? -25 : -24} fontWeight={700} fill="#0f172a" {...labelProps}>
             {elem.tag}
           </text>
           <text y={isBesideLabel ? 10 : isBlock ? blockReach + 13 : 34} fill="#475569" {...labelProps}>
@@ -281,7 +310,7 @@ const ElementItem: React.FC<{
   );
 };
 
-const PrimitiveItem: React.FC<{ prim: Prim }> = ({ prim }) => {
+export const PrimitiveItem: React.FC<{ prim: Prim }> = ({ prim }) => {
   const stroke = prim.stroke || '#0f172a';
   switch (prim.t) {
     case 'line':

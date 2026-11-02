@@ -1,6 +1,7 @@
+import { REGULATOR_GAIN, REGULATOR_LEAK, RegulatorRegion, regulatorPoint, regulatorPower, THERMAL_RESTART, THERMAL_SHUTDOWN, THERMAL_STEPS } from './regulator';
 import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams, MosParams } from './compile';
 import { luFactor, luSolve } from './linear';
-import { OPAMP_GAIN, TRANSFORMER_WINDING_RESISTANCE } from '../netlist/generate';
+import { CURRENT_SOURCE_LEAK, OPAMP_GAIN, TRANSFORMER_WINDING_RESISTANCE } from '../netlist/generate';
 
 /** Same default as SPICE: minimum conductance across a junction. */
 const GMIN = 1e-12;
@@ -172,6 +173,8 @@ function mosOperatingPoint(p: MosParams, vgs: number, vds: number) {
  * Modified nodal analysis with Newton-Raphson. Capacitors and inductors use trapezoidal
  * companion models, the default integration method of ngspice.
  */
+const [REGULATOR_ACTIVE, REGULATOR_NOT_GIVING, REGULATOR_AT_LIMIT] = [0, 1, 2];
+
 export class RealtimeEngine {
   time = 0;
   /** Node voltages followed by branch currents. */
@@ -199,6 +202,9 @@ export class RealtimeEngine {
   private readonly vIterBody: Float64Array;
   /** Per op amp: LINEAR, or +1 and -1 for its rails. */
   private readonly opAmpState: Int8Array;
+  private readonly regulatorTj: Float64Array;
+  private readonly regulatorIsOff: Uint8Array;
+  private readonly regulatorState: Int8Array;
   private readonly unitRhs: Float64Array;
   private readonly opAmps: { index: number; device: Extract<CompiledDevice, { kind: 'opamp' }> }[] = [];
   private opAmpChanges = 0;
@@ -229,6 +235,9 @@ export class RealtimeEngine {
     this.vIterBc = new Float64Array(devices.length);
     this.vIterBody = new Float64Array(devices.length);
     this.opAmpState = new Int8Array(devices.length);
+    this.regulatorTj = Float64Array.from(devices, (d) => (d.kind === 'regulator' ? d.params.ambient : 0));
+    this.regulatorIsOff = new Uint8Array(devices.length);
+    this.regulatorState = new Int8Array(devices.length);
     this.unitRhs = new Float64Array(size);
     this.vCrit = new Float64Array(devices.length);
     devices.forEach((d, i) => {
@@ -237,7 +246,7 @@ export class RealtimeEngine {
       else if (d.kind === 'bjt') this.vCrit[i] = criticalVoltage(d.params.is, d.params.vt);
       else if (d.kind === 'opamp') this.opAmps.push({ index: i, device: d });
     });
-    this.isNonlinear = devices.some((d) => d.kind === 'diode' || d.kind === 'bjt' || d.kind === 'mos' || d.kind === 'opamp');
+    this.isNonlinear = devices.some((d) => d.kind === 'diode' || d.kind === 'bjt' || d.kind === 'mos' || d.kind === 'opamp' || d.kind === 'regulator');
   }
 
   private voltage(node: number): number {
@@ -288,6 +297,13 @@ export class RealtimeEngine {
         case 'vsource':
         case 'opamp':
           this.addBranchColumns(d.a, d.b, d.branch);
+          break;
+        case 'isource':
+          this.addG(d.a, d.b, 1 / CURRENT_SOURCE_LEAK);
+          break;
+        case 'regulator':
+          this.addG(d.a, d.base, 1 / REGULATOR_LEAK);
+          this.addG(d.b, d.base, 1 / REGULATOR_LEAK);
           break;
         case 'transformer':
           this.addG(d.a, d.ap, 1 / TRANSFORMER_WINDING_RESISTANCE);
@@ -352,6 +368,10 @@ export class RealtimeEngine {
           break;
         case 'vsource':
           rhs[d.branch] = d.wave(t) * sourceScale;
+          break;
+        case 'isource':
+          if (d.a >= 0) rhs[d.a] -= d.current * sourceScale;
+          if (d.b >= 0) rhs[d.b] += d.current * sourceScale;
           break;
         case 'transformer':
           if (h > 0) {
@@ -455,6 +475,56 @@ export class RealtimeEngine {
    * right state. Saying which one holds from the last solution ends, unlike a smooth curve at this
    * gain, where each iteration would throw the output from one rail to the other.
    */
+  private regulatorVoltages(d: Extract<CompiledDevice, { kind: 'regulator' }>) {
+    const { polarity } = d.params;
+    const reference = this.voltage(d.base);
+    return { input: polarity * (this.voltage(d.a) - reference), output: polarity * (this.voltage(d.b) - reference) };
+  }
+
+  private regulatorCurrent(i: number, d: Extract<CompiledDevice, { kind: 'regulator' }>): { i: number; region: RegulatorRegion } {
+    if (this.regulatorIsOff[i]) return { i: 0, region: 'off' };
+    const { input, output } = this.regulatorVoltages(d);
+    return regulatorPoint(d.params, input, output);
+  }
+
+  /**
+   * Linear in each state, with a straight line in the node voltages. The state only moves to the one
+   * next to it: at the limit an output with a light load is computed far too high, and going straight
+   * to off would then bring it back to zero, and to the limit again, without an end.
+   */
+  private stampRegulator(i: number, d: Extract<CompiledDevice, { kind: 'regulator' }>): boolean {
+    const { polarity, vNominal, dropout, iq, iMax } = d.params;
+    const { input, output } = this.regulatorVoltages(d);
+    const isDropout = input - dropout < vNominal;
+    const wanted = REGULATOR_GAIN * ((isDropout ? input - dropout : vNominal) - output);
+    let state = this.regulatorState[i];
+    if (this.regulatorIsOff[i]) state = REGULATOR_NOT_GIVING;
+    else if (state === REGULATOR_ACTIVE) state = wanted <= 0 ? REGULATOR_NOT_GIVING : wanted >= iMax ? REGULATOR_AT_LIMIT : REGULATOR_ACTIVE;
+    else if (state === REGULATOR_NOT_GIVING ? wanted > 0 : wanted < iMax) state = REGULATOR_ACTIVE;
+    const hasChanged = state !== this.regulatorState[i];
+    this.regulatorState[i] = state;
+
+    const g = polarity * REGULATOR_GAIN;
+    // The current leaving the input is polarity * (i + iq), and the same i enters the output
+    let constant = state === REGULATOR_AT_LIMIT ? iMax : 0;
+    const slopes: [number, number][] = [];
+    if (state === REGULATOR_ACTIVE && !isDropout) {
+      constant = REGULATOR_GAIN * vNominal;
+      slopes.push([d.b, -g], [d.base, g]);
+    } else if (state === REGULATOR_ACTIVE) {
+      constant = -REGULATOR_GAIN * dropout;
+      slopes.push([d.a, g], [d.b, -g]);
+    }
+    for (const [node, slope] of slopes) {
+      this.addLu(d.a, node, polarity * slope);
+      this.addLu(d.b, node, -polarity * slope);
+    }
+    this.addRhs(d.a, -polarity * (constant + iq));
+    this.addRhs(d.b, polarity * constant);
+    this.addRhs(d.base, polarity * iq);
+    return hasChanged;
+  }
+
   private stampOpAmp(i: number, d: Extract<CompiledDevice, { kind: 'opamp' }>): boolean {
     const { lu, rhs, n } = this;
     const target = OPAMP_GAIN * (this.voltage(d.plus) - this.voltage(d.minus));
@@ -537,6 +607,7 @@ export class RealtimeEngine {
       if (d.kind === 'bjt' && this.stampBjt(i, d)) limited = true;
       if (d.kind === 'mos' && this.stampMos(i, d)) limited = true;
       if (d.kind === 'opamp' && this.stampOpAmp(i, d)) limited = true;
+      if (d.kind === 'regulator' && this.stampRegulator(i, d)) limited = true;
       if (d.kind !== 'diode') return;
       const raw = this.voltage(d.junction) - this.voltage(d.b);
       const v = limitDiode(raw, this.vIter[i], d.params, this.vCrit[i]);
@@ -620,6 +691,12 @@ export class RealtimeEngine {
         this.vPrev2[i] = h > 0 ? this.voltage(d.cp) - this.voltage(d.d) : 0;
         this.iPrev[i] = this.x[d.branch];
         this.iPrev2[i] = this.x[d.branch2];
+      } else if (d.kind === 'regulator' && h > 0) {
+        const { input, output } = this.regulatorVoltages(d);
+        const heat = regulatorPower(d.params, input, output, this.regulatorCurrent(i, d).i);
+        this.regulatorTj[i] += (d.params.ambient + heat * d.params.rth - this.regulatorTj[i]) / THERMAL_STEPS;
+        if (this.regulatorTj[i] > THERMAL_SHUTDOWN) this.regulatorIsOff[i] = 1;
+        else if (this.regulatorTj[i] < THERMAL_RESTART) this.regulatorIsOff[i] = 0;
       } else if (d.kind === 'opamp') {
         this.vPrev[i] = this.voltage(d.a);
         this.iPrev[i] = OPAMP_GAIN * (this.voltage(d.plus) - this.voltage(d.minus));
@@ -634,6 +711,8 @@ export class RealtimeEngine {
     this.vIterBc.fill(0);
     this.vIterBody.fill(0);
     this.opAmpState.fill(LINEAR);
+    this.regulatorIsOff.fill(0);
+    this.regulatorState.fill(REGULATOR_ACTIVE);
     if (!this.solve(this.time, 0, 1)) {
       // Source stepping: bring the sources up gradually, each solution seeding the next
       this.x.fill(0);
@@ -641,6 +720,7 @@ export class RealtimeEngine {
       this.vIterBc.fill(0);
       this.vIterBody.fill(0);
       this.opAmpState.fill(LINEAR);
+      this.regulatorState.fill(REGULATOR_ACTIVE);
       for (let scale = 0.1; scale < 1.05; scale += 0.1) {
         if (!this.solve(this.time, 0, Math.min(scale, 1))) throw new SolverError('Punto di lavoro non trovato');
       }
@@ -668,6 +748,9 @@ export class RealtimeEngine {
     this.vIterBc.set(previous.vIterBc);
     this.vIterBody.set(previous.vIterBody);
     this.opAmpState.set(previous.opAmpState);
+    this.regulatorTj.set(previous.regulatorTj);
+    this.regulatorIsOff.set(previous.regulatorIsOff);
+    this.regulatorState.set(previous.regulatorState);
     // With another model the old junction voltage can sit far up the new exponential, where
     // Newton has nothing to hold on to: from zero, the limiter walks there safely
     this.compiled.devices.forEach((d, i) => {
@@ -687,6 +770,7 @@ export class RealtimeEngine {
     const startIterBc = this.vIterBc.slice();
     const startIterBody = this.vIterBody.slice();
     const startOpAmpState = this.opAmpState.slice();
+    const startRegulatorState = this.regulatorState.slice();
     if (this.solve(this.time + h, h, 1)) {
       this.commit(h);
       this.time += h;
@@ -698,6 +782,7 @@ export class RealtimeEngine {
     this.vIterBc.set(startIterBc);
     this.vIterBody.set(startIterBody);
     this.opAmpState.set(startOpAmpState);
+    this.regulatorState.set(startRegulatorState);
     this.step(h / 2, depth + 1);
     this.step(h / 2, depth + 1);
   }
@@ -714,6 +799,8 @@ export class RealtimeEngine {
         return d.g * (this.voltage(d.a) - this.voltage(d.b));
       case 'capacitor':
         return this.iPrev[index];
+      case 'isource':
+        return d.current;
       case 'inductor':
       case 'vsource':
       case 'opamp':
@@ -725,8 +812,18 @@ export class RealtimeEngine {
       }
       case 'bjt':
       case 'mos':
+      case 'regulator':
         return this.terminalCurrents(index)[0];
     }
+  }
+
+  /** What a regulator is doing, for the display. */
+  regulatorStatus(index: number): { power: number; temperature: number; region: RegulatorRegion | 'thermal' } {
+    const d = this.compiled.devices[index];
+    if (d.kind !== 'regulator') return { power: 0, temperature: 0, region: 'off' };
+    const { input, output } = this.regulatorVoltages(d);
+    const { i, region } = this.regulatorCurrent(index, d);
+    return { power: regulatorPower(d.params, input, output, i), temperature: this.regulatorTj[index], region: this.regulatorIsOff[index] ? 'thermal' : region };
   }
 
   /** Current entering each terminal: first and second for two terminals, collector, base and emitter for a transistor. */
@@ -740,6 +837,11 @@ export class RealtimeEngine {
       const diode = diodeOperatingPoint(vBody, body).i + GMIN * vBody;
       const drain = polarity * ((isReversed ? -id : id) - diode);
       return [drain, 0, -drain];
+    }
+    if (d.kind === 'regulator') {
+      const { polarity, iq } = d.params;
+      const { i } = this.regulatorCurrent(index, d);
+      return [polarity * (i + iq), -polarity * i, -polarity * iq];
     }
     if (d.kind === 'opamp') return [this.x[d.branch], 0, 0];
     if (d.kind === 'transformer') return [this.x[d.branch], -this.x[d.branch], this.x[d.branch2], -this.x[d.branch2]];

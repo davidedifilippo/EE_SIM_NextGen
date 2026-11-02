@@ -2,8 +2,8 @@ import React from 'react';
 import { Circuit, Element, SpiceModel } from '../model/types';
 import { blockId, canMirror, getDevice } from '../library/devices';
 import { ImportedModel } from '../library/modelImport';
-import { modelsOfType } from '../library/models';
-import { OPAMP_ROLES, OpAmpRole, readOpAmpRoles, subcircuitPins } from '../library/subcircuit';
+import { fitsModelType, modelsOfType } from '../library/models';
+import { OPAMP_ROLES, OpAmpRole, readOpAmpRoles, readRegulatorRoles, REGULATOR_ROLES, RegulatorRole, subcircuitPins } from '../library/subcircuit';
 import { drawingSign, LiveFrame, LiveLayout, ScopeProbe } from '../realtime/liveSimulation';
 import { LiveReadout } from './LiveControls';
 import { ModelImporter } from './ModelImporter';
@@ -29,23 +29,23 @@ interface Props {
   onToggleProbe: (probe: ScopeProbe) => void;
 }
 
-const ROLE_LABELS: Record<OpAmpRole, string> = { plus: 'Ingresso +', minus: 'Ingresso −', high: 'Alimentazione +', low: 'Alimentazione −', out: 'Uscita' };
+const OPAMP_LABELS: Record<OpAmpRole, string> = { plus: 'Ingresso +', minus: 'Ingresso −', high: 'Alimentazione +', low: 'Alimentazione −', out: 'Uscita' };
+const REGULATOR_LABELS: Record<RegulatorRole, string> = { in: 'Ingresso', ref: 'Massa o ADJ', out: 'Uscita' };
 
 /** Which pin of a manufacturer's model does what. Names rarely tell, and the order is only a habit. */
-const OpAmpPins: React.FC<{ pins: string[]; chosen: unknown; onChange: (next: string) => void }> = ({ pins, chosen, onChange }) => {
-  const roles = readOpAmpRoles(chosen, pins) ?? OPAMP_ROLES;
+function ModelPins<Role extends string>({ pins, roles, allRoles, labels, onChange }: { pins: string[]; roles: Role[]; allRoles: Role[]; labels: Record<Role, string>; onChange: (next: string) => void }) {
   // Giving a pin the role of another swaps them, so that each role always stays on one pin
-  const assign = (index: number, role: OpAmpRole) => onChange(roles.map((r, k) => (k === index ? role : r === role ? roles[index] : r)).join(' '));
+  const assign = (index: number, role: Role) => onChange(roles.map((r, k) => (k === index ? role : r === role ? roles[index] : r)).join(' '));
   return (
     <details className="model-library">
       <summary>Piedini del modello</summary>
       {pins.map((pin, k) => (
         <label key={pin}>
           {pin}
-          <select value={roles[k]} onChange={(e) => assign(k, e.target.value as OpAmpRole)}>
-            {OPAMP_ROLES.map((role) => (
+          <select value={roles[k]} onChange={(e) => assign(k, e.target.value as Role)}>
+            {allRoles.map((role) => (
               <option key={role} value={role}>
-                {ROLE_LABELS[role]}
+                {labels[role]}
               </option>
             ))}
           </select>
@@ -53,7 +53,7 @@ const OpAmpPins: React.FC<{ pins: string[]; chosen: unknown; onChange: (next: st
       ))}
     </details>
   );
-};
+}
 
 export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onRotateSelected, onMirrorSelected, onSelectAll, onDeleteSelected, layout, frameRef, library, onImportModels, onRemoveModel, scopeIds, isScopeFull, onToggleProbe }) => {
   if (selectedIds.size === 0) {
@@ -81,29 +81,30 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
     <div className="properties">
       <strong>{def ? def.name : singleWire ? 'Filo' : `${selectedIds.size} oggetti selezionati`}</strong>
       {deviceIndex >= 0 && (
-        <LiveReadout deviceIndex={deviceIndex} sign={single ? drawingSign(single) : 1} transistorFirstDot={def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' ? layout!.devices[deviceIndex].firstDot : null} isMos={def?.spice.kind === 'mos'} windingsFirstDot={def?.spice.kind === 'transformer' ? layout!.devices[deviceIndex].firstDot : null} frameRef={frameRef} />
+        <LiveReadout deviceIndex={deviceIndex} sign={single ? drawingSign(single) : 1} transistorFirstDot={def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' ? layout!.devices[deviceIndex].firstDot : null} isMos={def?.spice.kind === 'mos'} windingsFirstDot={def?.spice.kind === 'transformer' ? layout!.devices[deviceIndex].firstDot : null} regulatorFirstDot={def?.spice.kind === 'regulator' ? layout!.devices[deviceIndex].firstDot : null} frameRef={frameRef} />
       )}
-      {single && def?.id === 'vsource' && <SourceInspector props={single.props} onChange={(props, record) => update({ props }, record)} />}
+      {single && def?.spice.kind === 'vsource' && <SourceInspector props={single.props} isDcOnly={def.id !== 'vsource'} onChange={(props, record) => update({ props }, record)} />}
       {single &&
-        def?.id !== 'vsource' &&
+        def?.spice.kind !== 'vsource' &&
         def?.props.map((p) => {
           // With a manufacturer's model the bandwidth is in the model
           if (p.key === 'gbw' && single.props.model) return null;
           const value = String(single.props[p.key] ?? '');
           const isOpAmpModel = p.modelType === 'OPAMP';
+          const isRegulatorModel = p.modelType === 'REGULATOR';
           const isBlock = p.modelType === 'SUBCKT';
           const options = p.type === 'model' ? modelsOfType(circuit, p.modelType ?? 'D', library) : [];
           const chosenCard = options.find((m) => m.name === value)?.card;
           // A block takes the shape of its model: the pins are part of the kind of part
           const chosen = (next: string, card: string | undefined): Partial<Element> => ({
-            props: { ...single.props, [p.key]: next, ...(isOpAmpModel ? { pins: '' } : {}), ...(isBlock && card ? { pinNames: subcircuitPins(card).join(' ') } : {}) },
+            props: { ...single.props, [p.key]: next, ...(isOpAmpModel || isRegulatorModel ? { pins: '' } : {}), ...(isBlock && card ? { pinNames: subcircuitPins(card).join(' ') } : {}) },
             ...(isBlock && card ? { def: blockId(subcircuitPins(card).length) } : {}),
           });
           const setValue = (next: string, record = true) => update(chosen(next, options.find((m) => m.name === next)?.card), record);
           const addModels = (models: ImportedModel[]) => {
             const isKept = onImportModels(models);
             // The part takes a model imported for it; out of a whole library, the choice is the user's
-            const fitting = models.filter((m) => m.type === p.modelType || (isBlock && m.type === 'OPAMP'));
+            const fitting = models.filter((m) => fitsModelType(m.card, p.modelType ?? 'D'));
             const usable = fitting.length === 1 ? fitting[0] : undefined;
             // A copy the circuit already has must follow, or the new version would never be used
             const imported = new Map(models.map((m) => [m.name, m.card]));
@@ -131,7 +132,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
                   </select>
                 ) : p.type === 'model' ? (
                   <select value={value} onChange={(e) => setValue(e.target.value)}>
-                    {isOpAmpModel && <option value="">Ideale</option>}
+                    {(isOpAmpModel || isRegulatorModel) && <option value="">{isOpAmpModel ? 'Ideale' : 'Semplice'}</option>}
                     {isBlock && !chosenCard && <option value="">Scegli…</option>}
                     {options.map((m) => (
                       <option key={m.name} value={m.name}>
@@ -142,21 +143,30 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
                 ) : (
                   <input value={value} onChange={(e) => setValue(e.target.value)} />
                 )}
-                {def.spice.kind === 'passive' && <ValueSlider value={value} label={p.label} onChange={setValue} />}
+                {(def.spice.kind === 'passive' || def.spice.kind === 'isource') && <ValueSlider value={value} label={p.label} onChange={setValue} />}
               </label>
               {p.type === 'model' && <ModelImporter library={library} onImport={addModels} onRemove={onRemoveModel} />}
               {isBlock && chosenCard && (
                 <p className="hint">Piedini, da sinistra in alto e poi a destra: {subcircuitPins(chosenCard).join(', ')}. Vale per l'Analisi precisa: con un sottocircuito l'animazione non parte.</p>
               )}
+              {isRegulatorModel && chosenCard && (
+                <>
+                  <ModelPins pins={subcircuitPins(chosenCard)} roles={readRegulatorRoles(single.props.pins, subcircuitPins(chosenCard)) ?? REGULATOR_ROLES} allRoles={REGULATOR_ROLES} labels={REGULATOR_LABELS} onChange={(pins) => update({ props: { ...single.props, pins } })} />
+                  <p className="hint">Il modello vale per l'Analisi precisa. L'animazione usa il comportamento semplice.</p>
+                </>
+              )}
               {isOpAmpModel && chosenCard && (
                 <>
-                  <OpAmpPins pins={subcircuitPins(chosenCard)} chosen={single.props.pins} onChange={(pins) => update({ props: { ...single.props, pins } })} />
+                  <ModelPins pins={subcircuitPins(chosenCard)} roles={readOpAmpRoles(single.props.pins, subcircuitPins(chosenCard)) ?? OPAMP_ROLES} allRoles={OPAMP_ROLES} labels={OPAMP_LABELS} onChange={(pins) => update({ props: { ...single.props, pins } })} />
                   <p className="hint">Il modello vale per l'Analisi precisa. L'animazione usa un operazionale ideale con queste alimentazioni.</p>
                 </>
               )}
             </React.Fragment>
           );
         })}
+      {single && def?.spice.kind === 'regulator' && (
+        <p className="hint">Oltre 150 °C l'uscita si spegne e sotto 125 °C riparte. La temperatura è giusta, i tempi sono accorciati per vederla: circa 2 s di animazione.</p>
+      )}
       {single && def?.spice.kind === 'meter' && (
         <p className="hint">
           {String(single.props.mode).startsWith('v') ? 'Collega i due puntali in parallelo ai punti da misurare.' : 'Apri il ramo e collega il multimetro in serie.'} Legge il puntale + rispetto al −. Con RMS esclude la componente continua. Vale per l'animazione.

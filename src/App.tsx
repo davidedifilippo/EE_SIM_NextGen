@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Circuit, ComponentDef, Rotation, SpiceModel } from './model/types';
-import { canMirror, DEVICES, getDevice } from './library/devices';
+import { canMirror, getDevice, isVoltageSource } from './library/devices';
 import { circuitForSaving, withLibraryModels } from './library/models';
 import { Analysis, describeNodes, generateNetlist, sweepCount } from './netlist/generate';
 import { parseSpiceValue } from './netlist/values';
@@ -19,14 +19,18 @@ import { hasSignal } from './ui/bode';
 import { DcFamily, DcSeries, DcSweepChart } from './ui/DcSweepChart';
 import { DcValues } from './ui/DcValues';
 import { LiveOverlay } from './ui/LiveOverlay';
+import { formatEngineering } from './ui/chartMath';
 import { MeterReadings } from './ui/MeterReadings';
+import { RegulatorStatus } from './ui/RegulatorStatus';
+import { regulatorSummaries, RegulatorSummary } from './ui/regulatorPower';
+import { ComponentLibrary } from './ui/ComponentLibrary';
 import { LiveLegend, LiveLegendHandle, SourceStats, SPEEDS } from './ui/LiveControls';
 import { ScopePanel } from './ui/ScopePanel';
 import { liveTraces, MAX_TRACES, nextSlot, ScopeTrace, traceLabel } from './ui/scopeTraces';
 import { useLiveSimulation } from './ui/useLiveSimulation';
 
 type Run =
-  | { kind: 'tran'; result: TranResult; series: Series[]; netlist: string }
+  | { kind: 'tran'; result: TranResult; series: Series[]; regulators: RegulatorSummary[]; netlist: string }
   | { kind: 'ac'; result: AcResult; series: AcSeries[]; netlist: string }
   | { kind: 'dc'; result: DcResult; series: DcSeries[]; xLabel: string; family: DcFamily | null; netlist: string };
 
@@ -35,6 +39,21 @@ const AC_POINTS_PER_DECADE = 100;
 
 const ENGINE_PRELOAD_DELAY_MS = 2000;
 const AUTOSAVE_DELAY_MS = 300;
+
+/** What each regulator dissipated in the analysis, and whether its protection would act. */
+const RegulatorTable: React.FC<{ regulators: RegulatorSummary[] }> = ({ regulators }) => (
+  <ul className="regulator-summary">
+    {regulators.map((r) => (
+      <li key={r.tag} className={r.wouldShutDown ? 'failed' : ''}>
+        <strong>
+          {r.tag} ({r.name})
+        </strong>
+        : potenza media {formatEngineering(r.power, 'W')}, giunzione a regime {Math.round(r.temperature)} °C
+        {r.wouldShutDown ? '. Interverrebbe la protezione termica: serve un dissipatore o meno caduta' : ''}
+      </li>
+    ))}
+  </ul>
+);
 
 export const App: React.FC = () => {
   const [circuit, setCircuit] = useState<Circuit>(() => loadAutosave() ?? halfWaveRectifier({ capacitor: '100u' }));
@@ -95,10 +114,12 @@ export const App: React.FC = () => {
     [live.layout, live.frameRef, handleScale],
   );
   const isDc = useMemo(() => {
-    const sources = circuit.elements.filter((el) => el.def === 'vsource');
-    return sources.length > 0 && sources.every((el) => isDcSource(el.props));
+    const sources = circuit.elements.filter(isVoltageSource);
+    const hasCurrentSource = circuit.elements.some((el) => getDevice(el.def)?.spice.kind === 'isource');
+    return (sources.length > 0 || hasCurrentSource) && sources.every((el) => isDcSource(el.props));
   }, [circuit]);
   const hasMeter = useMemo(() => resolved.elements.some((el) => el.def === 'multimeter'), [resolved]);
+  const hasRegulator = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'regulator'), [resolved]);
   const labels = useMemo(
     () =>
       live.errors.length === 0 &&
@@ -106,9 +127,10 @@ export const App: React.FC = () => {
         <>
           {showValues && isDc && <DcValues circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasMeter && <MeterReadings circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
+          {hasRegulator && <RegulatorStatus circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
         </>
       ),
-    [showValues, isDc, hasMeter, live.errors.length, resolved, live.layout, live.frameRef],
+    [showValues, isDc, hasMeter, hasRegulator, live.errors.length, resolved, live.layout, live.frameRef],
   );
 
   const latestCircuitForKeys = useRef(circuit);
@@ -241,7 +263,7 @@ export const App: React.FC = () => {
     });
   }, [circuit, selectedIds, handleChange]);
 
-  const generators = useMemo(() => circuit.elements.filter((el) => el.def === 'vsource'), [circuit]);
+  const generators = useMemo(() => circuit.elements.filter(isVoltageSource), [circuit]);
   // A choice whose generator has gone falls back on the first one, or on no family
   const sweptId = generators.some((g) => g.id === dcSource) ? dcSource : (generators[0]?.id ?? '');
   const familyId = generators.some((g) => g.id === dcFamilySource) && dcFamilySource !== sweptId ? dcFamilySource : '';
@@ -294,7 +316,7 @@ export const App: React.FC = () => {
         setRun({ kind: 'ac', result, series: seriesOf(nodes), netlist: netlist.text });
       } else {
         const result = await simulate(netlist.text);
-        setRun({ kind: 'tran', result, series: seriesOf([...result.voltages.keys()]), netlist: netlist.text });
+        setRun({ kind: 'tran', result, series: seriesOf([...result.voltages.keys()]), regulators: regulatorSummaries(resolved, netlist.nodeOf, result), netlist: netlist.text });
       }
     } catch (err) {
       setErrors([err instanceof Error ? err.message : String(err)]);
@@ -445,24 +467,16 @@ export const App: React.FC = () => {
       </header>
 
       <div className="workspace">
-        <nav className="palette" aria-label="Componenti">
-          {DEVICES.filter((def) => !def.isHidden).map((def) => (
-            <button
-              key={def.id}
-              className={activeDef?.id === def.id ? 'active' : ''}
-              aria-pressed={activeDef?.id === def.id}
-              onClick={() => {
-                setActiveDef(activeDef?.id === def.id ? null : def);
-                setSelectedIds(new Set());
-              }}
-            >
-              {def.name}
-            </button>
-          ))}
-        </nav>
+        <ComponentLibrary
+          active={activeDef}
+          onChoose={(def) => {
+            setActiveDef(activeDef?.id === def.id ? null : def);
+            setSelectedIds(new Set());
+          }}
+        />
 
         <div className="canvas-area">
-          {resolved.elements.some((el) => el.def === 'opamp' && el.props.model) && <p className="live-note">Animazione con operazionali ideali: i modelli importati valgono per l'Analisi precisa</p>}
+          {resolved.elements.some((el) => (el.def === 'opamp' || getDevice(el.def)?.spice.kind === 'regulator') && el.props.model) && <p className="live-note">Animazione con il comportamento semplice: i modelli importati valgono per l'Analisi precisa</p>}
           <SchematicCanvas
             key={documentId}
             circuit={circuit}
@@ -534,6 +548,7 @@ export const App: React.FC = () => {
           )}
           {isStale && <p className="stale">Il circuito o l'analisi sono cambiati: il grafico mostra la simulazione precedente.</p>}
           {run?.kind === 'tran' && <TransientChart result={run.result} series={run.series} />}
+          {run?.kind === 'tran' && run.regulators.length > 0 && <RegulatorTable regulators={run.regulators} />}
           {run?.kind === 'ac' && <BodeChart key={run.netlist} result={run.result} series={run.series} />}
           {run?.kind === 'dc' && <DcSweepChart key={run.netlist} result={run.result} series={run.series} xLabel={run.xLabel} family={run.family} />}
         </section>

@@ -4,6 +4,7 @@ import { computeConnectivity } from '../netlist/connectivity';
 import { localToWorld, ptKey } from '../utils/geometry';
 import { CompiledCircuit, compileCircuit } from './compile';
 import { METER_MODES, MeterWindow, readingWindow, slowestPeriod } from './meter';
+import { RegulatorRegion } from './regulator';
 import { RealtimeEngine, SolverError } from './engine';
 import { buildWireGraph, solveWireCurrents, WireGraph } from './wireGraph';
 
@@ -37,12 +38,14 @@ export interface LiveFrame {
   deviceCurrent: Float64Array;
   /** Voltage across each device, first terminal minus second; collector minus emitter or drain minus source for a transistor. */
   deviceVoltage: Float64Array;
-  /** Base minus emitter or gate minus source of a transistor, voltage of the secondary of a transformer, 0 for the rest. */
+  /** Base minus emitter or gate minus source of a transistor, voltage of the secondary of a transformer, output of a regulator, 0 for the rest. */
   deviceVbe: Float64Array;
   dotCurrent: Float64Array;
   /** Reading of each device that is a multimeter, NaN for the rest and before the first step. */
   meterMean: Float64Array;
   meterAc: Float64Array;
+  /** For each device that is a regulator: heat, junction temperature and what it is doing. */
+  regulators: (RegulatorDisplay | null)[];
   /** Samples of the probes since the last frame. */
   scope: ScopeSamples | null;
 }
@@ -51,6 +54,12 @@ export interface LiveFrame {
 export type ScopeProbe =
   | { id: string; kind: 'node'; wireId: string }
   | { id: string; kind: 'voltage' | 'current' | 'vbe' | 'ib'; elementId: string };
+
+export interface RegulatorDisplay {
+  power: number;
+  temperature: number;
+  region: RegulatorRegion | 'thermal';
+}
 
 export interface ScopeSamples {
   probeRevision: number;
@@ -70,10 +79,13 @@ export function drawingSign(el: Element): 1 | -1 {
 
 const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
   switch (s.kind) {
+    case 'regulator':
+      return [s.input, s.output, s.ref];
     case 'block':
       return s.pins;
     case 'passive':
     case 'meter':
+    case 'isource':
       return [s.a, s.b];
     case 'vsource':
       return [s.pos, s.neg];
@@ -187,9 +199,11 @@ export class LiveSimulation {
         case 'current':
           return () => sign * engine.deviceCurrent(index);
         case 'vbe':
+          if (device.kind === 'regulator') return () => engine.nodeVoltage(device.b) - engine.nodeVoltage(device.base);
           if (device.kind === 'transformer') return () => engine.nodeVoltage(device.c) - engine.nodeVoltage(device.d);
           return device.kind === 'bjt' || device.kind === 'mos' ? () => engine.nodeVoltage(device.base) - engine.nodeVoltage(device.b) : () => NaN;
         case 'ib':
+          if (device.kind === 'regulator') return () => -engine.terminalCurrents(index)[1];
           if (device.kind === 'transformer') return () => engine.terminalCurrents(index)[2];
           return device.kind === 'bjt' ? () => engine.terminalCurrents(index)[1] : () => NaN;
       }
@@ -311,6 +325,7 @@ export class LiveSimulation {
       deviceVoltage[i] = engine.nodeVoltage(d.a) - engine.nodeVoltage(d.b);
       if (d.kind === 'transformer') deviceVbe[i] = engine.nodeVoltage(d.c) - engine.nodeVoltage(d.d);
       if (d.kind === 'bjt' || d.kind === 'mos') deviceVbe[i] = engine.nodeVoltage(d.base) - engine.nodeVoltage(d.b);
+      if (d.kind === 'regulator') deviceVbe[i] = engine.nodeVoltage(d.b) - engine.nodeVoltage(d.base);
       const { firstDot } = layout.devices[i];
       if (currents.length === 2) dotCurrent[firstDot] = currents[0];
       else if (currents.length === 4) [dotCurrent[firstDot], dotCurrent[firstDot + 1]] = [currents[0], currents[2]];
@@ -332,6 +347,7 @@ export class LiveSimulation {
       meterMean[index] = window.reading.mean;
       meterAc[index] = window.reading.ac;
     });
-    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, scope: this.takeSamples() };
+    const regulators = devices.map((d, i) => (d.kind === 'regulator' ? engine.regulatorStatus(i) : null));
+    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, scope: this.takeSamples() };
   }
 }
