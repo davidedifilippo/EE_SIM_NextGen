@@ -2,14 +2,14 @@ import React from 'react';
 
 /** The name on a dark plate, with a chip outline and its traces. Drawn, so that it stays sharp at any size. */
 export const Logo: React.FC = () => (
-  <svg className="logo" viewBox="0 0 190 68" role="img" aria-label="EE_SIM NextGen">
+  <svg className="logo" viewBox="0 0 190 84" role="img" aria-label="EE_SIM NextGen, by Ing. Di Filippo Davide">
     <defs>
       <linearGradient id="logo-nextgen" x1="0" x2="1" y1="0" y2="0">
         <stop offset="0" stopColor="#2ee6ff" />
         <stop offset="1" stopColor="#2f7bff" />
       </linearGradient>
     </defs>
-    <rect width="190" height="68" rx="8" fill="#071a38" />
+    <rect width="190" height="84" rx="8" fill="#071a38" />
     <g fill="none" strokeLinecap="round" strokeLinejoin="round">
       {/* The outline of the chip, with its pins */}
       <path d="M 66 12 L 62 8 H 22 L 15 14 L 11 48 L 16 53 H 54 L 59 49 H 70" stroke="#3cb4ff" strokeWidth="2" />
@@ -28,6 +28,9 @@ export const Logo: React.FC = () => (
       </text>
       <text x="74" y="56" fontSize="21" fill="url(#logo-nextgen)">
         NextGen
+      </text>
+      <text x="95" y="77" fontSize="11" fontWeight="600" fill="#ffffff" textAnchor="middle">
+        by Ing. Di Filippo Davide
       </text>
     </g>
   </svg>
