@@ -1,8 +1,9 @@
 // Adapted from PowerCad_NextGen (see THIRD_PARTY_NOTICES.md).
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Circuit, ComponentDef, Element, Pt, Rotation, Wire } from '../model/types';
-import { createElement, getDevice } from '../library/devices';
+import { canMirror, canRotate, createElement, getDevice } from '../library/devices';
 import { Box, dist, isElementInBox, isPointInBox, isPointOnSegment, isWireInBox, localToWorld, snap, snapPt } from '../utils/geometry';
+import { ContextMenu, MenuItem } from './ContextMenu';
 import { Renderer } from './Renderer';
 import { anchoredWires, followMove, isShortWire, selectionBounds, wireEndingAt, WireFollower, wireFollowers } from './wireRouting';
 
@@ -15,6 +16,14 @@ interface Props {
   onPlacedDef: () => void;
   onDeleteSelected: () => void;
   onRotateSelected: () => void;
+  onMirrorSelected: () => void;
+  onSelectAll: () => void;
+  onCopy: () => void;
+  onCut: () => void;
+  onDuplicate: () => void;
+  /** With a point of the sheet to land on, or a step from the last copy. Null with nothing to paste. */
+  onPaste: ((at?: Pt) => void) | null;
+  viewRef: React.MutableRefObject<(() => Box) | null>;
   overlay?: React.ReactNode;
   labels?: React.ReactNode;
 }
@@ -72,7 +81,7 @@ const MAX_ZOOM = 4;
 /** Screen pixels a press must travel to count as a drag and not as a tap. */
 const DRAG_THRESHOLD = 4;
 
-/** A finger held still this long on the empty sheet starts a selection area instead of moving the view. */
+/** A finger held still this long starts a selection area on the empty sheet, and opens the menu on a part. */
 const LONG_PRESS_MS = 400;
 
 const hitRadius = (e: React.PointerEvent) => (e.pointerType === 'touch' ? 20 : 12);
@@ -92,6 +101,13 @@ export const SchematicCanvas: React.FC<Props> = ({
   onPlacedDef,
   onDeleteSelected,
   onRotateSelected,
+  onMirrorSelected,
+  onSelectAll,
+  onCopy,
+  onCut,
+  onDuplicate,
+  onPaste,
+  viewRef,
   overlay,
   labels,
 }) => {
@@ -111,6 +127,11 @@ export const SchematicCanvas: React.FC<Props> = ({
   /** Where the current press began: without a move from there it is a tap, and cannot end a wire. */
   const pressRef = useRef<Pt>({ x: 0, y: 0 });
   const longPressRef = useRef<number | null>(null);
+  /** The part or wire under the current press, which the event of the menu cannot tell. */
+  const pressedRef = useRef<string | null>(null);
+  const pressWasTouchRef = useRef(false);
+  /** With `sheetPoint` it was opened on the empty sheet, and a paste lands there. */
+  const [menu, setMenu] = useState<{ at: Pt; sheetPoint: Pt | null } | null>(null);
 
   useEffect(() => setPlacementRot(0), [activeDefToPlace]);
 
@@ -169,6 +190,12 @@ export const SchematicCanvas: React.FC<Props> = ({
     if (!containerRef.current) return { x: 0, y: 0 };
     const rect = containerRef.current.getBoundingClientRect();
     return { x: (screenX - rect.left - pan.x) / zoom, y: (screenY - rect.top - pan.y) / zoom };
+  };
+
+  viewRef.current = () => {
+    const el = containerRef.current;
+    const [width, height] = el ? [el.clientWidth, el.clientHeight] : [0, 0];
+    return { x1: -pan.x / zoom, y1: -pan.y / zoom, x2: (width - pan.x) / zoom, y2: (height - pan.y) / zoom };
   };
 
   const zoomAround = (screen: Pt, newZoom: number) => {
@@ -261,6 +288,10 @@ export const SchematicCanvas: React.FC<Props> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+      if (menu) {
+        if (e.key === 'Escape') setMenu(null);
+        return;
+      }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.size > 0) {
         e.preventDefault();
         onDeleteSelected();
@@ -321,6 +352,8 @@ export const SchematicCanvas: React.FC<Props> = ({
 
   const handlePointerDownCapture = (e: React.PointerEvent) => {
     pressRef.current = { x: e.clientX, y: e.clientY };
+    pressedRef.current = null;
+    pressWasTouchRef.current = e.pointerType === 'touch';
     cancelLongPress();
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointersRef.current.size === 2) {
@@ -338,7 +371,46 @@ export const SchematicCanvas: React.FC<Props> = ({
     if (e.button === 0 && !activeDefToPlace && wireDraft.length === 0 && groupBounds && isPointInBox(screenToWorld(e.clientX, e.clientY), groupBounds)) {
       e.stopPropagation();
       startSelectionMove(e);
+      startMenuPress(e);
     }
+  };
+
+  /** Everything in progress gives way to the menu: its press must not end in a move or a tap. */
+  const stopGestures = () => {
+    cancelLongPress();
+    dragRef.current = null;
+    setIsPanning(false);
+    setSelectionBox(null);
+  };
+
+  const startMenuPress = (e: React.PointerEvent, id?: string) => {
+    if (e.pointerType !== 'touch') return;
+    const at = { x: e.clientX, y: e.clientY };
+    longPressRef.current = window.setTimeout(() => {
+      longPressRef.current = null;
+      stopGestures();
+      if (id && !selectedIds.has(id)) onSelectIds(new Set([id]));
+      setMenu({ at, sheetPoint: null });
+      navigator.vibrate?.(20);
+    }, LONG_PRESS_MS);
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    // A finger has its own long press, and Android would also send this at the end of one
+    if (pressWasTouchRef.current || activeDefToPlace || wireDraft.length > 0) return;
+    stopGestures();
+    const world = screenToWorld(e.clientX, e.clientY);
+    const isOnGroup = groupBounds !== null && isPointInBox(world, groupBounds);
+    const pressed = pressedRef.current;
+    if (!isOnGroup && pressed) {
+      if (!selectedIds.has(pressed)) onSelectIds(new Set([pressed]));
+    } else if (!isOnGroup) {
+      onSelectIds(new Set());
+    }
+    const isOnSheet = !isOnGroup && !pressed;
+    if (isOnSheet && !onPaste && circuit.elements.length + circuit.wires.length === 0) return;
+    setMenu({ at: { x: e.clientX, y: e.clientY }, sheetPoint: isOnSheet ? world : null });
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -584,6 +656,7 @@ export const SchematicCanvas: React.FC<Props> = ({
 
   const handleElementDown = (elem: Element, e: React.PointerEvent) => {
     e.stopPropagation();
+    pressedRef.current = elem.id;
     if (e.button !== 0) return;
 
     const world = screenToWorld(e.clientX, e.clientY);
@@ -600,6 +673,7 @@ export const SchematicCanvas: React.FC<Props> = ({
     if (wireDraft.length > 0) return;
 
     const isAlreadySelected = selectedIds.has(elem.id);
+    startMenuPress(e, elem.id);
     if (isAlreadySelected && selectedIds.size > 1) {
       startSelectionMove(e);
       return;
@@ -622,6 +696,7 @@ export const SchematicCanvas: React.FC<Props> = ({
 
   const handleWireDown = (wire: Wire, e: React.PointerEvent) => {
     e.stopPropagation();
+    pressedRef.current = wire.id;
     if (e.button !== 0) return;
 
     const world = screenToWorld(e.clientX, e.clientY);
@@ -645,6 +720,7 @@ export const SchematicCanvas: React.FC<Props> = ({
         return;
       }
     }
+    startMenuPress(e, wire.id);
     if (isAlreadySelected && selectedIds.size > 1) {
       startSelectionMove(e);
       return;
@@ -722,41 +798,60 @@ export const SchematicCanvas: React.FC<Props> = ({
   const ghost =
     activeDefToPlace && mouseWorld ? { def: activeDefToPlace, ...snapPt(mouseWorld), rot: placementRot } : null;
 
+  const selectedElements = circuit.elements.filter((el) => selectedIds.has(el.id));
+  const menuItems = (sheetPoint: Pt | null): MenuItem[] => [
+    ...(sheetPoint
+      ? []
+      : [
+          { label: 'Copia', action: onCopy },
+          { label: 'Taglia', action: onCut },
+          { label: 'Duplica', action: onDuplicate },
+        ]),
+    ...(onPaste ? [{ label: 'Incolla', action: () => onPaste(sheetPoint ?? undefined) }] : []),
+    ...(!sheetPoint && selectedElements.some((el) => canRotate(getDevice(el.def))) ? [{ label: 'Ruota', action: onRotateSelected }] : []),
+    ...(!sheetPoint && selectedElements.some((el) => canMirror(getDevice(el.def))) ? [{ label: 'Specchia', action: onMirrorSelected }] : []),
+    ...(sheetPoint ? [] : [{ label: 'Elimina', action: onDeleteSelected, isDanger: true }]),
+    ...(circuit.elements.length + circuit.wires.length > 0 ? [{ label: 'Seleziona tutto', action: onSelectAll }] : []),
+  ];
+
   return (
-    <div
-      ref={containerRef}
-      className="schematic-canvas"
-      onPointerDownCapture={handlePointerDownCapture}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerLeave={() => setMouseWorld(null)}
-      onContextMenu={(e) => e.preventDefault()}
-      style={{
-        cursor: isPanning ? 'grabbing' : activeDefToPlace ? 'copy' : wireDraft.length > 0 || hoveredTerminal ? 'crosshair' : 'default',
-      }}
-    >
-      <svg width="100%" height="100%" style={{ display: 'block' }}>
-        <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
-          <Renderer
-            circuit={circuit}
-            selectedIds={selectedIds}
-            selectionBox={selectionBox}
-            groupBounds={groupBounds}
-            onElementDown={handleElementDown}
-            onMeterMode={(elem, mode) => onChange({ ...circuit, elements: circuit.elements.map((el) => (el.id === elem.id ? { ...el, props: { ...el.props, mode } } : el)) })}
-            onWireDown={handleWireDown}
-            onWireHandleDown={handleWireHandleDown}
-            onTerminalDown={handleTerminalDown}
-            onTerminalUp={handleTerminalUp}
-            wireDraft={displayDraft}
-            ghost={ghost}
-            hoveredTerminal={hoveredTerminal}
-            overlay={overlay}
-            labels={labels}
-          />
-        </g>
-      </svg>
-    </div>
+    <>
+      <div
+        ref={containerRef}
+        className="schematic-canvas"
+        onPointerDownCapture={handlePointerDownCapture}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={() => setMouseWorld(null)}
+        onContextMenu={handleContextMenu}
+        style={{
+          cursor: isPanning ? 'grabbing' : activeDefToPlace ? 'copy' : wireDraft.length > 0 || hoveredTerminal ? 'crosshair' : 'default',
+        }}
+      >
+        <svg width="100%" height="100%" style={{ display: 'block' }}>
+          <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+            <Renderer
+              circuit={circuit}
+              selectedIds={selectedIds}
+              selectionBox={selectionBox}
+              groupBounds={groupBounds}
+              onElementDown={handleElementDown}
+              onMeterMode={(elem, mode) => onChange({ ...circuit, elements: circuit.elements.map((el) => (el.id === elem.id ? { ...el, props: { ...el.props, mode } } : el)) })}
+              onWireDown={handleWireDown}
+              onWireHandleDown={handleWireHandleDown}
+              onTerminalDown={handleTerminalDown}
+              onTerminalUp={handleTerminalUp}
+              wireDraft={displayDraft}
+              ghost={ghost}
+              hoveredTerminal={hoveredTerminal}
+              overlay={overlay}
+              labels={labels}
+            />
+          </g>
+        </svg>
+      </div>
+      {menu && <ContextMenu at={menu.at} items={menuItems(menu.sheetPoint)} onClose={() => setMenu(null)} />}
+    </>
   );
 };

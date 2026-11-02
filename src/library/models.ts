@@ -74,7 +74,7 @@ export function modelsOfType(circuit: Circuit, type: ModelType, library: SpiceMo
 export const isBuiltInModel = (model: SpiceModel) => LIBRARY.some((m) => m.name === model.name && m.card === model.card);
 
 /** The model names the parts of the circuit refer to, each once. */
-function usedModelNames(circuit: Circuit): string[] {
+export function usedModelNames(circuit: Circuit): string[] {
   const names = circuit.elements.flatMap((el) => {
     const spice = getDevice(el.def)?.spice;
     if (spice?.kind === 'regulator') return [String(el.props.model ?? '')];

@@ -428,6 +428,39 @@ button.close-results {
   -webkit-user-select: none;
   /* Gestures are handled by the canvas: without this the browser scrolls and zooms the page */
   touch-action: none;
+  /* A finger held still opens our menu, not the one of Safari */
+  -webkit-touch-callout: none;
+}
+
+.context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+
+.context-menu {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.2);
+}
+
+.context-menu button {
+  min-height: 40px;
+  padding: 0 12px;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+}
+
+.context-menu button:hover {
+  background: #eff6ff;
 }
 
 .side-panel {

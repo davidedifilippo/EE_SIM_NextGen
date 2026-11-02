@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Circuit, ComponentDef, Rotation, SpiceModel } from './model/types';
+import { Circuit, ComponentDef, Pt, Rotation, SpiceModel } from './model/types';
 import { canMirror, canRotate, getDevice, isVoltageSource } from './library/devices';
 import { circuitForSaving, withLibraryModels } from './library/models';
 import { Analysis, describeNodes, generateNetlist, sweepCount } from './netlist/generate';
 import { parseSpiceValue } from './netlist/values';
 import { isDcSource } from './netlist/source';
 import { halfWaveRectifier } from './samples/halfWaveRectifier';
+import { clearOfCircuit, Clip, copySelection, moveInView, moveToCenter, PASTE_STEP, pasteClipboard } from './editor/clipboard';
 import { SchematicCanvas } from './editor/SchematicCanvas';
+import { Box } from './utils/geometry';
 import { libraryAtStart, mergeModels, saveLibrary } from './storage/modelLibrary';
 import { downloadCircuit, INVALID_FILE, loadAutosave, MAX_FILE_BYTES, parseCircuitFile, saveAutosave } from './storage/circuitFile';
 import { PropertiesPanel } from './ui/PropertiesPanel';
@@ -68,6 +70,10 @@ export const App: React.FC = () => {
   const [redoStack, setRedoStack] = useState<Circuit[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeDef, setActiveDef] = useState<ComponentDef | null>(null);
+  /** Outlives the circuit, to paste into another one. `pastes` says how far the next copy lands. */
+  const [clipboard, setClipboard] = useState<{ clip: Clip; pastes: number } | null>(null);
+  /** What part of the sheet the canvas shows now. */
+  const viewRef = useRef<(() => Box) | null>(null);
   const [stop, setStop] = useState('100m');
   const [step, setStep] = useState('20u');
   const [analysisKind, setAnalysisKind] = useState<'tran' | 'ac' | 'dc'>('tran');
@@ -203,10 +209,17 @@ export const App: React.FC = () => {
     saveLibrary(next);
   };
 
+  // What was just pasted or placed may not be there any more
+  const keepSelectionIn = (target: Circuit) => {
+    const ids = new Set([...target.elements, ...target.wires].map((item) => item.id));
+    setSelectedIds((selected) => new Set([...selected].filter((id) => ids.has(id))));
+  };
+
   const undo = useCallback(() => {
     if (history.length === 0) return;
     const target = history[history.length - 1];
     refitIfOtherCircuit(target);
+    keepSelectionIn(target);
     setRedoStack((r) => [circuit, ...r]);
     setCircuit(target);
     setHistory((h) => h.slice(0, -1));
@@ -215,6 +228,7 @@ export const App: React.FC = () => {
   const redo = useCallback(() => {
     if (redoStack.length === 0) return;
     refitIfOtherCircuit(redoStack[0]);
+    keepSelectionIn(redoStack[0]);
     setHistory((h) => [...h, circuit]);
     setCircuit(redoStack[0]);
     setRedoStack((r) => r.slice(1));
@@ -263,6 +277,70 @@ export const App: React.FC = () => {
       ),
     });
   }, [circuit, selectedIds, handleChange]);
+
+  const pasteClip = useCallback(
+    (clip: Clip, move: Pt) => {
+      const available = { ...resolved, models: [...resolved.models, ...library] };
+      const pasted = pasteClipboard(circuit, available, clip, move, Date.now());
+      handleChange(pasted.circuit);
+      setSelectedIds(pasted.ids);
+      setActiveDef(null);
+      if (pasted.conflicts.length > 0) setErrors(pasted.conflicts.map((name) => `Il circuito ha già un modello "${name}" diverso da quello copiato: resta il suo`));
+    },
+    [circuit, resolved, library, handleChange],
+  );
+
+  const copySelected = useCallback(() => {
+    const clip = copySelection(resolved, selectedIds);
+    if (clip) setClipboard({ clip, pastes: 1 });
+  }, [resolved, selectedIds]);
+
+  // The first paste after a cut goes back where the parts were, connected as before
+  const cutSelected = useCallback(() => {
+    const clip = copySelection(resolved, selectedIds);
+    if (!clip) return;
+    setClipboard({ clip, pastes: 0 });
+    deleteSelected();
+  }, [resolved, selectedIds, deleteSelected]);
+
+  /** On a point of the sheet, or else a step further than the last copy. */
+  const paste = useCallback(
+    (at?: Pt) => {
+      if (!clipboard) return;
+      if (at) {
+        pasteClip(clipboard.clip, clearOfCircuit(circuit, clipboard.clip, moveToCenter(clipboard.clip, at)));
+        return;
+      }
+      const reach = clipboard.pastes * PASTE_STEP;
+      const move = { x: reach, y: reach };
+      const inView = viewRef.current ? moveInView(clipboard.clip, move, viewRef.current()) : move;
+      pasteClip(clipboard.clip, reach === 0 ? inView : clearOfCircuit(circuit, clipboard.clip, inView));
+      setClipboard({ ...clipboard, pastes: clipboard.pastes + 1 });
+    },
+    [circuit, clipboard, pasteClip],
+  );
+
+  // Does not touch what was copied before
+  const duplicateSelected = useCallback(() => {
+    const clip = copySelection(resolved, selectedIds);
+    if (clip) pasteClip(clip, clearOfCircuit(circuit, clip, { x: PASTE_STEP, y: PASTE_STEP }));
+  }, [circuit, resolved, selectedIds, pasteClip]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+      const key = e.key.toLowerCase();
+      // Text chosen in the results is for the browser to copy
+      if ((key === 'c' || key === 'x') && !window.getSelection()?.isCollapsed) return;
+      const action = { c: copySelected, x: cutSelected, v: () => paste(), d: duplicateSelected }[key];
+      if (!action) return;
+      e.preventDefault();
+      action();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [copySelected, cutSelected, paste, duplicateSelected]);
 
   const generators = useMemo(() => circuit.elements.filter(isVoltageSource), [circuit]);
   // A choice whose generator has gone falls back on the first one, or on no family
@@ -490,6 +568,13 @@ export const App: React.FC = () => {
             onPlacedDef={() => setActiveDef(null)}
             onDeleteSelected={deleteSelected}
             onRotateSelected={rotateSelected}
+            onMirrorSelected={mirrorSelected}
+            onSelectAll={selectAll}
+            onCopy={copySelected}
+            onCut={cutSelected}
+            onDuplicate={duplicateSelected}
+            onPaste={clipboard ? paste : null}
+            viewRef={viewRef}
             overlay={overlay}
             labels={labels}
           />
@@ -506,6 +591,10 @@ export const App: React.FC = () => {
             onMirrorSelected={mirrorSelected}
             onSelectAll={selectAll}
             onDeleteSelected={deleteSelected}
+            onCopy={copySelected}
+            onCut={cutSelected}
+            onDuplicate={duplicateSelected}
+            onPaste={clipboard ? paste : null}
             layout={live.layout}
             frameRef={live.frameRef}
             library={library}

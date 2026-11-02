@@ -19,6 +19,11 @@ interface Props {
   onMirrorSelected: () => void;
   onSelectAll: () => void;
   onDeleteSelected: () => void;
+  onCopy: () => void;
+  onCut: () => void;
+  onDuplicate: () => void;
+  /** Null with nothing to paste. */
+  onPaste: (() => void) | null;
   layout: LiveLayout | null;
   frameRef: React.MutableRefObject<LiveFrame | null>;
   library: SpiceModel[];
@@ -55,12 +60,13 @@ function ModelPins<Role extends string>({ pins, roles, allRoles, labels, onChang
   );
 }
 
-export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onRotateSelected, onMirrorSelected, onSelectAll, onDeleteSelected, layout, frameRef, library, onImportModels, onRemoveModel, scopeIds, isScopeFull, onToggleProbe }) => {
+export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onRotateSelected, onMirrorSelected, onSelectAll, onDeleteSelected, onCopy, onCut, onDuplicate, onPaste, layout, frameRef, library, onImportModels, onRemoveModel, scopeIds, isScopeFull, onToggleProbe }) => {
   if (selectedIds.size === 0) {
     return (
       <div className="properties">
         <p className="hint">Seleziona un componente per modificarne i valori. Per collegare, parti da un terminale. Per un'area, tieni fermo un dito sul foglio e poi trascina, oppure trascina con il mouse.</p>
         {circuit.elements.length + circuit.wires.length > 0 && <button onClick={onSelectAll}>Seleziona tutto</button>}
+        {onPaste && <button onClick={() => onPaste()}>Incolla</button>}
       </div>
     );
   }
@@ -205,6 +211,12 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
         <button className="danger" onClick={onDeleteSelected}>
           Elimina
         </button>
+      </div>
+      <div className="button-row">
+        <button onClick={onCopy}>Copia</button>
+        <button onClick={onCut}>Taglia</button>
+        <button onClick={onDuplicate}>Duplica</button>
+        {onPaste && <button onClick={() => onPaste()}>Incolla</button>}
       </div>
     </div>
   );
