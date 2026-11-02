@@ -28,7 +28,8 @@ export interface PropDef {
   modelType?: ModelType;
 }
 
-export type ModelType = 'D' | 'NPN' | 'PNP' | 'NMOS' | 'PMOS';
+/** OPAMP is a subcircuit with its five pins, in place of the ideal part. */
+export type ModelType = 'D' | 'NPN' | 'PNP' | 'NMOS' | 'PMOS' | 'OPAMP';
 
 /** How a component maps to SPICE. Terminal order follows the SPICE card. */
 export type SpiceDef =
@@ -38,7 +39,7 @@ export type SpiceDef =
   | { kind: 'diode'; anode: string; cathode: string; modelProp: string }
   | { kind: 'bjt'; collector: string; base: string; emitter: string; modelProp: string; modelType: 'NPN' | 'PNP' }
   | { kind: 'mos'; drain: string; gate: string; source: string; modelProp: string; modelType: 'NMOS' | 'PMOS' }
-  | { kind: 'opamp'; plus: string; minus: string; out: string; highProp: string; lowProp: string; gbwProp: string }
+  | { kind: 'opamp'; plus: string; minus: string; out: string; highProp: string; lowProp: string; gbwProp: string; modelProp: string; pinsProp: string }
   | { kind: 'transformer'; p1: string; p2: string; s1: string; s2: string; ratioProp: string; inductanceProp: string; couplingProp: string };
 
 export interface ComponentDef {
@@ -71,7 +72,7 @@ export interface Wire {
 
 export interface SpiceModel {
   name: string;
-  /** Full card, e.g. ".model D1N4148 D(IS=2.52n)". */
+  /** Full card, e.g. ".model D1N4148 D(IS=2.52n)". A subcircuit takes several lines. */
   card: string;
 }
 

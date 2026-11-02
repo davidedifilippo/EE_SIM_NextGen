@@ -1,6 +1,7 @@
 import { Circuit, ModelType, SpiceModel } from '../model/types';
 import { getDevice } from '../library/devices';
-import { findModel, isVdmos, modelType } from '../library/models';
+import { findModel, isSubcircuitCard, isVdmos, modelType } from '../library/models';
+import { normalizeSubcircuitCard, OpAmpRole, readOpAmpRoles, subcircuitPins } from '../library/subcircuit';
 import { computeConnectivity, terminalKey } from './connectivity';
 import { sourceAcSpec, sourceDcSpec, sourceSpec } from './source';
 import { parseSpiceValue } from './values';
@@ -226,6 +227,25 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
           errors.push(`${el.tag}: alimentazioni non valide`);
           break;
         }
+        const modelName = String(el.props[s.modelProp] ?? '').trim();
+        if (modelName) {
+          const model = useModel(el.tag, modelName, 'OPAMP');
+          if (model === null) break;
+          const pins = subcircuitPins(usedModels.get(model)!.card);
+          const roles = readOpAmpRoles(el.props[s.pinsProp], pins);
+          if (!roles) {
+            errors.push(`${el.tag}: i piedini del modello "${model}" non sono assegnati uno per funzione`);
+            break;
+          }
+          const name = uniqueName('X', el.tag);
+          if (name) {
+            // The symbol has no supply pins: the two values become generators of its own
+            const nodes: Record<OpAmpRole, string> = { plus: node(s.plus), minus: node(s.minus), out: node(s.out), high: `xh${name}`, low: `xl${name}` };
+            lines.push(`VH${name} xh${name} 0 ${high}`, `VL${name} xl${name} 0 ${low}`);
+            lines.push(`${name} ${roles.map((role) => nodes[role]).join(' ')} ${model}`);
+          }
+          break;
+        }
         const gbwText = String(el.props[s.gbwProp] ?? '').trim();
         const gbw = gbwText ? parseSpiceValue(gbwText) : 0;
         if (gbw === null || gbw < 0) {
@@ -269,7 +289,7 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
 
   const modelCards = [...usedModels.values()];
   for (const m of modelCards) {
-    if (!isSingleLine(m.card)) errors.push(`Modello ${m.name}: la card deve stare su una riga`);
+    if (isSubcircuitCard(m.card) ? !normalizeSubcircuitCard(m.card) : !isSingleLine(m.card)) errors.push(`Modello ${m.name}: la card non è valida`);
   }
   if (!isSingleLine(circuit.title)) errors.push('Il titolo deve stare su una riga');
   const checks =

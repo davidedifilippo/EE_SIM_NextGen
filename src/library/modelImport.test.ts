@@ -52,7 +52,7 @@ describe('parseModelText', () => {
   });
 
   it('explains what it cannot use', () => {
-    expect(skipped).toEqual(['J1: modello NJF non ancora supportato', 'OPA: i sottocircuiti non sono ancora supportati']);
+    expect(skipped).toEqual(['J1: modello NJF non ancora supportato', 'OPA: ha 3 piedini, per ora si importano solo gli operazionali a 5']);
   });
 
   it('finds nothing in text without models', () => {
@@ -118,7 +118,7 @@ describe('a subcircuit that only wraps one part', () => {
   ])('stays a subcircuit with %s', (_, text) => {
     const read = parseModelText(text);
     expect(read.models).toEqual([]);
-    expect(read.skipped).toEqual(['X: i sottocircuiti non sono ancora supportati']);
+    expect(read.skipped).toEqual([expect.stringMatching(/^X: ha \d piedini, per ora si importano solo gli operazionali a 5$/)]);
   });
 
   it('also unwraps a diode, with parameters from a .param line', () => {

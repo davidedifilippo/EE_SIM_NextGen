@@ -29,10 +29,13 @@ export function findModel(circuit: Circuit, name: string): SpiceModel | undefine
 
 /** A VDMOS counts as the N or P channel part it is: only the netlist and the engine see the difference. */
 export function modelType(card: string): string | null {
+  if (isSubcircuitCard(card)) return 'OPAMP';
   const type = /^\s*\.model\s+\S+\s+([a-z]+)/i.exec(card)?.[1].toUpperCase() ?? null;
   if (type !== 'VDMOS') return type;
   return /[\s(]pchan\b/i.test(card) ? 'PMOS' : 'NMOS';
 }
+
+export const isSubcircuitCard = (card: string) => /^\s*\.subckt\s/i.test(card);
 
 export const isVdmos = (card: string) => /^\s*\.model\s+\S+\s+vdmos\b/i.test(card);
 
@@ -52,9 +55,9 @@ export const isBuiltInModel = (model: SpiceModel) => LIBRARY.some((m) => m.name 
 function usedModelNames(circuit: Circuit): string[] {
   const names = circuit.elements.flatMap((el) => {
     const spice = getDevice(el.def)?.spice;
-    return spice && (spice.kind === 'diode' || spice.kind === 'bjt' || spice.kind === 'mos') ? [String(el.props[spice.modelProp] ?? '')] : [];
+    return spice && (spice.kind === 'diode' || spice.kind === 'bjt' || spice.kind === 'mos' || spice.kind === 'opamp') ? [String(el.props[spice.modelProp] ?? '')] : [];
   });
-  return [...new Set(names)];
+  return [...new Set(names)].filter(Boolean);
 }
 
 /** The circuit as the engines must see it: they run apart from the page and cannot read the library. */

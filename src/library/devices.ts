@@ -204,9 +204,10 @@ export const DEVICES: ComponentDef[] = [
     props: [
       { key: 'high', label: 'Alimentazione + (V)', type: 'text', default: '15' },
       { key: 'low', label: 'Alimentazione − (V)', type: 'text', default: '-15' },
+      { key: 'model', label: 'Modello', type: 'model', default: '', modelType: 'OPAMP' },
       { key: 'gbw', label: 'GBW (Hz), vuoto se ideale', type: 'text', default: '' },
     ],
-    spice: { kind: 'opamp', plus: 'plus', minus: 'minus', out: 'out', highProp: 'high', lowProp: 'low', gbwProp: 'gbw' },
+    spice: { kind: 'opamp', plus: 'plus', minus: 'minus', out: 'out', highProp: 'high', lowProp: 'low', gbwProp: 'gbw', modelProp: 'model', pinsProp: 'pins' },
   },
   {
     id: 'transformer',

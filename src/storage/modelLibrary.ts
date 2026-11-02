@@ -1,4 +1,4 @@
-import { normalizeModelCard } from '../library/modelImport';
+import { cleanStoredCard } from '../library/modelImport';
 import { isBuiltInModel } from '../library/models';
 import { Circuit, SpiceModel } from '../model/types';
 
@@ -18,8 +18,8 @@ export function loadLibrary(storage: Storable = localStorage): SpiceModel[] {
     const stored: unknown = JSON.parse(storage.getItem(LIBRARY_KEY) ?? '[]');
     if (!Array.isArray(stored)) return [];
     return stored.flatMap((item): SpiceModel[] => {
-      const model = typeof item?.card === 'string' ? normalizeModelCard(item.card) : null;
-      return model ? [{ name: model.name, card: model.card }] : [];
+      const model = typeof item?.card === 'string' ? cleanStoredCard(item.card) : null;
+      return model ? [model] : [];
     });
   } catch {
     return [];

@@ -3,6 +3,7 @@ import { Circuit, Element, SpiceModel } from '../model/types';
 import { canMirror, getDevice } from '../library/devices';
 import { ImportedModel } from '../library/modelImport';
 import { modelsOfType } from '../library/models';
+import { OPAMP_ROLES, OpAmpRole, readOpAmpRoles, subcircuitPins } from '../library/subcircuit';
 import { drawingSign, LiveFrame, LiveLayout, ScopeProbe } from '../realtime/liveSimulation';
 import { LiveReadout } from './LiveControls';
 import { ModelImporter } from './ModelImporter';
@@ -27,6 +28,32 @@ interface Props {
   isScopeFull: boolean;
   onToggleProbe: (probe: ScopeProbe) => void;
 }
+
+const ROLE_LABELS: Record<OpAmpRole, string> = { plus: 'Ingresso +', minus: 'Ingresso −', high: 'Alimentazione +', low: 'Alimentazione −', out: 'Uscita' };
+
+/** Which pin of a manufacturer's model does what. Names rarely tell, and the order is only a habit. */
+const OpAmpPins: React.FC<{ pins: string[]; chosen: unknown; onChange: (next: string) => void }> = ({ pins, chosen, onChange }) => {
+  const roles = readOpAmpRoles(chosen, pins) ?? OPAMP_ROLES;
+  // Giving a pin the role of another swaps them, so that each role always stays on one pin
+  const assign = (index: number, role: OpAmpRole) => onChange(roles.map((r, k) => (k === index ? role : r === role ? roles[index] : r)).join(' '));
+  return (
+    <details className="model-library">
+      <summary>Piedini del modello</summary>
+      {pins.map((pin, k) => (
+        <label key={pin}>
+          {pin}
+          <select value={roles[k]} onChange={(e) => assign(k, e.target.value as OpAmpRole)}>
+            {OPAMP_ROLES.map((role) => (
+              <option key={role} value={role}>
+                {ROLE_LABELS[role]}
+              </option>
+            ))}
+          </select>
+        </label>
+      ))}
+    </details>
+  );
+};
 
 export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onRotateSelected, onMirrorSelected, onSelectAll, onDeleteSelected, layout, frameRef, library, onImportModels, onRemoveModel, scopeIds, isScopeFull, onToggleProbe }) => {
   if (selectedIds.size === 0) {
@@ -60,8 +87,13 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
       {single &&
         def?.id !== 'vsource' &&
         def?.props.map((p) => {
+          // With a manufacturer's model the bandwidth is in the model
+          if (p.key === 'gbw' && single.props.model) return null;
           const value = String(single.props[p.key] ?? '');
-          const setValue = (next: string, record = true) => update({ props: { ...single.props, [p.key]: next } }, record);
+          const isOpAmpModel = p.modelType === 'OPAMP';
+          const setValue = (next: string, record = true) => update({ props: { ...single.props, [p.key]: next, ...(isOpAmpModel ? { pins: '' } : {}) } }, record);
+          const options = p.type === 'model' ? modelsOfType(circuit, p.modelType ?? 'D', library) : [];
+          const chosenCard = options.find((m) => m.name === value)?.card;
           const addModels = (models: ImportedModel[]) => {
             const isKept = onImportModels(models);
             // The part takes a model imported for it; out of a whole library, the choice is the user's
@@ -74,7 +106,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
               onChange({
                 ...circuit,
                 models: circuit.models.map((m) => ({ name: m.name, card: imported.get(m.name) ?? m.card })),
-                elements: circuit.elements.map((el) => (el.id === single.id && usable ? { ...el, props: { ...el.props, [p.key]: usable.name } } : el)),
+                elements: circuit.elements.map((el) => (el.id === single.id && usable ? { ...el, props: { ...el.props, [p.key]: usable.name, ...(isOpAmpModel ? { pins: '' } : {}) } } : el)),
               });
             }
             return isKept;
@@ -85,7 +117,8 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
                 {p.label}
                 {p.type === 'model' ? (
                   <select value={value} onChange={(e) => setValue(e.target.value)}>
-                    {modelsOfType(circuit, p.modelType ?? 'D', library).map((m) => (
+                    {isOpAmpModel && <option value="">Ideale</option>}
+                    {options.map((m) => (
                       <option key={m.name} value={m.name}>
                         {m.name}
                       </option>
@@ -97,6 +130,12 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
                 {def.spice.kind === 'passive' && <ValueSlider value={value} label={p.label} onChange={setValue} />}
               </label>
               {p.type === 'model' && <ModelImporter library={library} onImport={addModels} onRemove={onRemoveModel} />}
+              {isOpAmpModel && chosenCard && (
+                <>
+                  <OpAmpPins pins={subcircuitPins(chosenCard)} chosen={single.props.pins} onChange={(pins) => update({ props: { ...single.props, pins } })} />
+                  <p className="hint">Il modello vale per l'Analisi precisa. L'animazione usa un operazionale ideale con queste alimentazioni.</p>
+                </>
+              )}
             </React.Fragment>
           );
         })}

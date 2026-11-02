@@ -1,86 +1,12 @@
-import { ModelType, SpiceModel } from '../model/types';
-import { isVdmos } from './models';
+import { SpiceModel } from '../model/types';
+import { isSubcircuitCard, isVdmos } from './models';
 import { parseSpiceValue } from '../netlist/values';
-import { evaluateExpression, ParamScope, readParams } from './spiceExpression';
+import { ImportedModel, logicalLines, ModelImport, normalizeModelCard } from './modelCard';
+import { ParamScope, readParams } from './spiceExpression';
+import { buildSubcircuit, endOfBlock, normalizeSubcircuitCard, OPAMP_PINS, readFileParts, referencedSubcircuits, subcircuitPins } from './subcircuit';
 
-/**
- * What ngspice accepts, checked one by one against the bundled build. Anything else must not
- * reach it: manufacturers add fields like Vceo or mfg, and those stop ngspice or hang it.
- */
-const BJT_PARAMS = new Set(
-  'IS BF NF VAF VA IKF IK ISE NE BR NR VAR VB IKR ISC NC RB IRB RBM RE RC CJE VJE PE MJE ME TF XTF VTF ITF PTF CJC VJC PC MJC MC XCJC TR CJS CCS VJS PS MJS MS XTB EG XTI KF AF FC TNOM TREF C2 C4 ISS NS LEVEL SUBS RCO VO GAMMA QCO VG CN D TRE1 TRE2 TRC1 TRC2 TRB1 TRB2 NKF'.split(' '),
-);
-const DIODE_PARAMS = new Set(
-  'IS JS RS N TT CJO CJ0 CJ VJ PB M MJ EG XTI KF AF FC BV IBV IB NBV IKF IK IKR TNOM TREF LEVEL ISR NR ISW JSW CJSW CJP TLEV TLEVC TM1 TM2 TTT1 TTT2 TRS TRS1 TRS2 TCV FCS'.split(' '),
-);
-const MOS1_PARAMS = new Set('VTO VT0 KP GAMMA PHI LAMBDA RD RS CBD CBS IS PB CGSO CGDO CGBO RSH CJ MJ CJSW MJSW JS TOX NSUB NSS TPG LD UO U0 KF AF FC TNOM LEVEL'.split(' '));
-const VDMOS_PARAMS = new Set(
-  'VTO KP PHI LAMBDA THETA RD RS RG RQ VQ MTRIODE TNOM KF AF TRD1 TRD2 TRG1 TRG2 TRS1 TRS2 CGDMIN CGDMAX A CGS CJO IS BV IBV NBV RB N TT EG XTI FC M VJ KSUBTHRES SUBSHIFT TKSUBTHRES1 TKSUBTHRES2 BEX VTOTC TCVTH MU CTHJ'.split(' '),
-);
-const acceptedFor = (keyword: string) => (keyword === 'D' ? DIODE_PARAMS : keyword === 'VDMOS' ? VDMOS_PARAMS : keyword === 'NPN' || keyword === 'PNP' ? BJT_PARAMS : MOS1_PARAMS);
-
-const MODEL_NAME = /^[A-Za-z0-9_.+-]+$/;
-/** Same parameter under the name LTspice uses, kept instead of being lost. */
-const BJT_ALIASES: Record<string, string> = { NK: 'NKF' };
-
-export interface ImportedModel extends SpiceModel {
-  type: ModelType;
-  /** Parameters left out because ngspice would not accept them, in the spelling of the source. */
-  ignored: string[];
-  /** Parameters whose value is an expression that cannot be computed. */
-  unresolved: string[];
-}
-
-export interface ModelImport {
-  models: ImportedModel[];
-  /** What was found and cannot be used, ready to show. */
-  skipped: string[];
-}
-
-const KEYWORDS = new Set(['D', 'NPN', 'PNP', 'NMOS', 'PMOS', 'VDMOS']);
-const UNRESOLVED = '{?}';
-
-/** One model statement on one line, with only what ngspice accepts. Null if it is not a usable model. */
-export function normalizeModelCard(statement: string, scope: ParamScope = new Map()): ImportedModel | null {
-  // Expressions first: they contain the parentheses and spaces that separate everything else
-  const computed = statement.replace(/\{([^{}]*)\}|'([^']*)'/g, (_, braces: string | undefined, quotes: string | undefined) => {
-    const value = evaluateExpression(braces ?? quotes ?? '', scope);
-    return value === null ? UNRESOLVED : String(value);
-  });
-  const match = /^\s*\.model\s+(\S+?)\s+([a-z]+)\s*(?:\((.*)\)|(.*))\s*$/is.exec(computed);
-  if (!match || !MODEL_NAME.test(match[1])) return null;
-  const keyword = match[2].toUpperCase();
-  if (!KEYWORDS.has(keyword)) return null;
-
-  const body = (match[3] ?? match[4] ?? '').replace(/[(),]/g, ' ');
-  const kept: string[] = [];
-  const ignored: string[] = [];
-  const unresolved: string[] = [];
-  for (const [, name, value] of body.matchAll(/([a-z_][\w.]*)\s*=\s*(\S+)/gi)) {
-    const upper = name.toUpperCase();
-    const known = keyword === 'NPN' || keyword === 'PNP' ? (BJT_ALIASES[upper] ?? upper) : upper;
-    if (value === UNRESOLVED) unresolved.push(name);
-    else if (acceptedFor(keyword).has(known) && parseSpiceValue(value) !== null) kept.push(`${known}=${value}`);
-    else ignored.push(name);
-  }
-  // The channel of a VDMOS is a bare word among the parameters
-  const isPchan = keyword === 'VDMOS' && /(^|\s)pchan(\s|$)/i.test(body);
-  const params = [...(isPchan ? ['PCHAN'] : []), ...kept].join(' ');
-  const type = (keyword === 'VDMOS' ? (isPchan ? 'PMOS' : 'NMOS') : keyword) as ModelType;
-  return { name: match[1], type, card: `.model ${match[1]} ${keyword}(${params})`, ignored, unresolved };
-}
-
-/** Joins continuation lines and drops comments, as SPICE reads a file. */
-function logicalLines(text: string): string[] {
-  const lines: string[] = [];
-  for (const raw of text.split(/\r\n|\r|\n/)) {
-    const line = raw.replace(/\s(;|\$).*$/, '').replace(/^(;|\$).*$/, '').trim();
-    if (!line || line.startsWith('*')) continue;
-    if (line.startsWith('+') && lines.length > 0) lines[lines.length - 1] += ` ${line.slice(1).trim()}`;
-    else lines.push(line);
-  }
-  return lines;
-}
+export { normalizeModelCard } from './modelCard';
+export type { ImportedModel, ModelImport } from './modelCard';
 
 const isDirective = (line: string, name: string) => line.toLowerCase().startsWith(name);
 const NODES_OF: Record<string, number> = { q: 3, d: 2, m: 3 };
@@ -133,6 +59,12 @@ function resolveAko(line: string, models: Map<string, ImportedModel>, scope: Par
   return { ...own, type: base.type, card: `.model ${name} ${keyword}(${body})` };
 }
 
+/** A card read back from a file or from storage, cleaned as if it were imported now. */
+export function cleanStoredCard(card: string): SpiceModel | null {
+  const clean = isSubcircuitCard(card) ? normalizeSubcircuitCard(card) : normalizeModelCard(card);
+  return clean ? { name: clean.name, card: clean.card } : null;
+}
+
 /** Lines for the person importing: models that lost the same parameters share one line. */
 export function describeImport({ models, skipped }: ModelImport): string[] {
   const byIgnored = new Map<string, string[]>();
@@ -165,17 +97,27 @@ export function parseModelText(text: string): ModelImport {
     else models.set(model.name, model);
   };
 
+  const parts = readFileParts(lines, globals);
+  const helpers = referencedSubcircuits(parts);
+
   // Resolved last, since a file can define them before the model they refer to
   const akoLines: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (isDirective(line, '.subckt')) {
-      const end = lines.findIndex((other, k) => k > i && isDirective(other, '.ends'));
-      const body = lines.slice(i + 1, end < 0 ? lines.length : end);
+      const end = endOfBlock(lines, i);
+      const body = lines.slice(i + 1, end);
+      const name = line.split(/\s+/)[1] ?? '?';
       const model = unwrapSubcircuit(line, body, globals);
       if (model) add(model);
-      else skipped.push(`${line.split(/\s+/)[1] ?? '?'}: i sottocircuiti non sono ancora supportati`);
-      i = end < 0 ? lines.length : end;
+      else if (!helpers.has(name.toLowerCase())) {
+        const pins = subcircuitPins(line);
+        const built = pins.length === OPAMP_PINS ? buildSubcircuit(line, body, parts) : null;
+        if (pins.length !== OPAMP_PINS) skipped.push(`${name}: ha ${pins.length} piedini, per ora si importano solo gli operazionali a ${OPAMP_PINS}`);
+        else if (built && 'reason' in built) skipped.push(`${name}: ${built.reason}`);
+        else if (built) models.set(built.name, { ...built, type: 'OPAMP', unresolved: [] });
+      }
+      i = end;
     } else if (AKO.test(line)) {
       akoLines.push(line);
     } else if (isDirective(line, '.model')) {

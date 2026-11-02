@@ -453,6 +453,7 @@ export const App: React.FC = () => {
         </nav>
 
         <div className="canvas-area">
+          {resolved.elements.some((el) => el.def === 'opamp' && el.props.model) && <p className="live-note">Animazione con operazionali ideali: i modelli importati valgono per l'Analisi precisa</p>}
           <SchematicCanvas
             key={documentId}
             circuit={circuit}
