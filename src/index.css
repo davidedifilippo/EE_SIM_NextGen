@@ -60,6 +60,21 @@ body,
 
 .analysis select {
   min-width: 56px;
+  color: #0f172a;
+  background-color: #eff6ff;
+  border-color: #1d4ed8;
+}
+
+/* What opens from the menu is an ordinary list */
+.analysis option {
+  color: #0f172a;
+  background: #ffffff;
+}
+
+.analysis input {
+  color: #0f172a;
+  background: #eff6ff;
+  border-color: #1d4ed8;
 }
 
 .bode-legend .viz-legend-item {
@@ -108,6 +123,16 @@ button.primary:disabled {
   color: #ffffff;
   background: #64748b;
   border-color: #64748b;
+}
+
+/* A dark orange: white text stays readable on it */
+button.run {
+  background: #c2410c;
+  border-color: #c2410c;
+}
+
+button.run:hover:not(:disabled) {
+  background: #9a3412;
 }
 
 button.danger {

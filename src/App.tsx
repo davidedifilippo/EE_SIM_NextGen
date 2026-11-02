@@ -334,7 +334,7 @@ export const App: React.FC = () => {
         <div className="button-row">
           <button onClick={() => openCircuit({ title: 'Circuito', elements: [], wires: [], models: [] })}>Nuovo</button>
           <button onClick={() => fileInputRef.current?.click()}>Apri</button>
-          <button onClick={() => downloadCircuit(forSaving)}>Salva</button>
+          <button className="primary" onClick={() => downloadCircuit(forSaving)}>Salva</button>
           <input
             ref={fileInputRef}
             type="file"
@@ -460,7 +460,7 @@ export const App: React.FC = () => {
               </label>
             </>
           )}
-          <button className="primary" onClick={runSimulation} disabled={running}>
+          <button className="primary run" onClick={runSimulation} disabled={running}>
             {running ? (isEngineReady() ? 'Analisi…' : 'Carico ngspice…') : 'Analisi precisa'}
           </button>
         </div>
