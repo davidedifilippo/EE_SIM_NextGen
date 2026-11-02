@@ -40,7 +40,7 @@ export const RegulatorStatus: React.FC<Props> = ({ circuit, layout, frameRef }) 
   }, [frameRef, parts]);
 
   return (
-    <g ref={rootRef} pointerEvents="none" textAnchor="middle" fontSize={11} fontWeight={700} fill="#b91c1c" style={{ paintOrder: 'stroke', stroke: '#ffffff', strokeWidth: 3, strokeLinejoin: 'round' }} data-testid="regulator-status">
+    <g ref={rootRef} pointerEvents="none" textAnchor="middle" fontSize={11} fontWeight={700} fill="var(--sch-alert)" style={{ paintOrder: 'stroke', stroke: 'var(--sch-halo)', strokeWidth: 3, strokeLinejoin: 'round' }} data-testid="regulator-status">
       {parts.map(({ el }) => (
         <text key={el.id} x={el.x} y={el.y - 38} />
       ))}

@@ -12,6 +12,8 @@ interface Props {
 }
 
 const REFRESH_MS = 200;
+/** The display of the instrument stays a pale screen in both themes, with dark figures. */
+const LCD_INK = '#0f172a';
 
 /** The display of each multimeter. Updates the text directly, as LiveOverlay does. */
 export const MeterReadings: React.FC<Props> = ({ circuit, layout, frameRef }) => {
@@ -43,10 +45,10 @@ export const MeterReadings: React.FC<Props> = ({ circuit, layout, frameRef }) =>
   }, [layout, frameRef, meters]);
 
   return (
-    <g ref={rootRef} pointerEvents="none" textAnchor="middle" fill="#0f172a" style={{ fontVariantNumeric: 'tabular-nums' }} data-testid="meter-readings">
+    <g ref={rootRef} pointerEvents="none" textAnchor="middle" fill="var(--sch-ink)" style={{ fontVariantNumeric: 'tabular-nums' }} data-testid="meter-readings">
       {meters.map(({ el, mode }) =>
         el.def === 'multimeter' ? (
-          <text key={el.id} data-meter="value" x={el.x} y={el.y - 49} fontSize={15} fontWeight={700} fontFamily="ui-monospace, Menlo, Consolas, monospace">
+          <text key={el.id} data-meter="value" x={el.x} y={el.y - 49} fontSize={15} fontWeight={700} fill={LCD_INK} fontFamily="ui-monospace, Menlo, Consolas, monospace">
             —
           </text>
         ) : (
@@ -54,7 +56,7 @@ export const MeterReadings: React.FC<Props> = ({ circuit, layout, frameRef }) =>
             <text data-meter="value" x={el.x} y={el.y + 1} fontSize={11} fontWeight={700}>
               —
             </text>
-            <text x={el.x} y={el.y + 15} fontSize={10} fill="#475569">
+            <text x={el.x} y={el.y + 15} fontSize={10} fill="var(--sch-muted)">
               {mode.symbol}
             </text>
           </React.Fragment>

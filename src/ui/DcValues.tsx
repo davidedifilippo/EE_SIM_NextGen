@@ -11,8 +11,8 @@ interface Props {
 }
 
 const REFRESH_MS = 200;
-const VOLTAGE_COLOR = '#1d4ed8';
-const CURRENT_COLOR = '#c2410c';
+const VOLTAGE_COLOR = 'var(--sch-voltage)';
+const CURRENT_COLOR = 'var(--sch-current)';
 
 /** Node voltages and component currents written on the schematic. Updates the text directly, as LiveOverlay does. */
 export const DcValues: React.FC<Props> = ({ circuit, layout, frameRef }) => {
@@ -41,7 +41,7 @@ export const DcValues: React.FC<Props> = ({ circuit, layout, frameRef }) => {
     return () => clearInterval(timer);
   }, [layout, frameRef, nodes, currents]);
 
-  const textStyle: React.CSSProperties = { paintOrder: 'stroke', stroke: '#ffffff', strokeWidth: 3, strokeLinejoin: 'round', fontVariantNumeric: 'tabular-nums' };
+  const textStyle: React.CSSProperties = { paintOrder: 'stroke', stroke: 'var(--sch-halo)', strokeWidth: 3, strokeLinejoin: 'round', fontVariantNumeric: 'tabular-nums' };
 
   return (
     <g ref={rootRef} pointerEvents="none" fontSize={11} fontWeight={600} style={textStyle} data-testid="dc-values">

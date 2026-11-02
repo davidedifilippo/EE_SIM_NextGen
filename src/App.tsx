@@ -23,6 +23,7 @@ import { DcValues } from './ui/DcValues';
 import { LiveOverlay } from './ui/LiveOverlay';
 import { formatEngineering } from './ui/chartMath';
 import { Logo } from './ui/Logo';
+import { THEME_CHOICES, useTheme } from './ui/theme';
 import { MeterReadings } from './ui/MeterReadings';
 import { RegulatorStatus } from './ui/RegulatorStatus';
 import { regulatorSummaries, RegulatorSummary } from './ui/regulatorPower';
@@ -93,6 +94,7 @@ export const App: React.FC = () => {
   const [liveRunning, setLiveRunning] = useState(true);
   const [speed, setSpeed] = useState(20e-3);
   const [showValues, setShowValues] = useState(true);
+  const [theme, setTheme] = useTheme();
 
   // ngspice arrives in the background once the page is up, so the first analysis finds it ready
   useEffect(() => {
@@ -437,6 +439,16 @@ export const App: React.FC = () => {
           <button onClick={redo} disabled={redoStack.length === 0}>
             Ripeti
           </button>
+          <label>
+            Tema
+            <select value={theme} onChange={(e) => setTheme(e.target.value as typeof theme)}>
+              {THEME_CHOICES.map(({ value, label }) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         <div className="button-row live-controls">
           <button onClick={() => setLiveRunning((r) => !r)}>{liveRunning ? 'Pausa' : 'Avvia'}</button>

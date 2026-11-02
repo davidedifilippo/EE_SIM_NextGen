@@ -18,7 +18,7 @@ function blockDevice(count: number): ComponentDef {
     terminals,
     symbol: [
       ...terminals.map((t): Prim => ({ t: 'line', x1: t.x, y1: t.y, x2: Math.sign(t.x) * 34, y2: t.y })),
-      { t: 'rect', x: -34, y: -halfHeight, w: 68, h: 2 * halfHeight, fill: '#f8fafc' },
+      { t: 'rect', x: -34, y: -halfHeight, w: 68, h: 2 * halfHeight, fill: 'var(--sch-part-soft)' },
     ],
     props: [{ key: 'model', label: 'Modello', type: 'model', default: '', modelType: 'SUBCKT' }],
     spice: { kind: 'block', pins: terminals.map((t) => t.id), modelProp: 'model' },
@@ -42,7 +42,7 @@ function regulatorDevice(name: string, vNominal: number, polarity: 1 | -1, isAdj
       { id: 'out', x: 40, y: 0 },
       { id: 'ref', x: 0, y: 40 },
     ],
-    symbol: [...leads(32), { t: 'line', x1: 0, y1: 20, x2: 0, y2: 40 }, { t: 'rect', x: -32, y: -20, w: 64, h: 40, fill: '#f8fafc' }],
+    symbol: [...leads(32), { t: 'line', x1: 0, y1: 20, x2: 0, y2: 40 }, { t: 'rect', x: -32, y: -20, w: 64, h: 40, fill: 'var(--sch-part-soft)' }],
     props: [
       { key: 'model', label: 'Modello', type: 'model', default: '', modelType: 'REGULATOR' },
       { key: 'imax', label: 'Corrente massima (A)', type: 'text', default: imax },
@@ -70,7 +70,7 @@ const leads = (inner: number): Prim[] => [
 
 const SOURCE_BODY: Prim[] = [
   ...leads(18),
-  { t: 'circle', cx: 0, cy: 0, r: 18, fill: '#ffffff' },
+  { t: 'circle', cx: 0, cy: 0, r: 18, fill: 'var(--sch-part)' },
   { t: 'line', x1: -14, y1: 0, x2: -8, y2: 0 },
   { t: 'line', x1: -11, y1: -3, x2: -11, y2: 3 },
   { t: 'line', x1: 8, y1: 0, x2: 14, y2: 0 },
@@ -100,11 +100,11 @@ function meterSymbol(mode: unknown): Prim[] {
     { t: 'circle', cx, cy: 50, r: 4, fill: center },
   ];
   return [
-    { t: 'path', d: 'M -42 -80 H 42 A 8 8 0 0 1 50 -72 V 58 A 8 8 0 0 1 42 66 H -42 A 8 8 0 0 1 -50 58 V -72 A 8 8 0 0 1 -42 -80 Z', fill: '#ffffff' },
+    { t: 'path', d: 'M -42 -80 H 42 A 8 8 0 0 1 50 -72 V 58 A 8 8 0 0 1 42 66 H -42 A 8 8 0 0 1 -50 58 V -72 A 8 8 0 0 1 -42 -80 Z', fill: 'var(--sch-part)' },
     { t: 'rect', x: -41, y: -71, w: 82, h: 32, fill: '#e2e8e0' },
     ...ticks,
-    { t: 'circle', cx: 0, cy: 0, r: 16, fill: '#ffffff' },
-    { t: 'path', d: `M ${at(14, 0)} L ${at(7, 4)} L ${at(7, -4)} Z`, fill: '#0f172a' },
+    { t: 'circle', cx: 0, cy: 0, r: 16, fill: 'var(--sch-part)' },
+    { t: 'path', d: `M ${at(14, 0)} L ${at(7, 4)} L ${at(7, -4)} Z`, fill: 'var(--sch-ink)' },
     ...socket(-20, '#dc2626', '#7f1d1d'),
     ...socket(20, '#475569', '#1e293b'),
   ];
@@ -169,7 +169,7 @@ export const DEVICES: ComponentDef[] = [
     name: 'Resistore',
     tagPrefix: 'R',
     terminals: twoPin('a', 'b'),
-    symbol: [...leads(20), { t: 'rect', x: -20, y: -8, w: 40, h: 16, fill: '#ffffff' }],
+    symbol: [...leads(20), { t: 'rect', x: -20, y: -8, w: 40, h: 16, fill: 'var(--sch-part)' }],
     props: [{ key: 'value', label: 'Resistenza', type: 'text', default: '1k' }],
     spice: { kind: 'passive', prefix: 'R', a: 'a', b: 'b', valueProp: 'value' },
   },
@@ -241,7 +241,7 @@ export const DEVICES: ComponentDef[] = [
     terminals: twoPin('anode', 'cathode'),
     symbol: [
       ...leads(10),
-      { t: 'path', d: 'M -10 -12 L 10 0 L -10 12 Z', fill: '#0f172a' },
+      { t: 'path', d: 'M -10 -12 L 10 0 L -10 12 Z', fill: 'var(--sch-ink)' },
       { t: 'line', x1: 10, y1: -12, x2: 10, y2: 12, w: 2 },
     ],
     props: [{ key: 'model', label: 'Modello', type: 'model', default: 'D1N4148', modelType: 'D' }],
@@ -255,7 +255,7 @@ export const DEVICES: ComponentDef[] = [
     terminals: twoPin('anode', 'cathode'),
     symbol: [
       ...leads(10),
-      { t: 'path', d: 'M -10 -12 L 10 0 L -10 12 Z', fill: '#0f172a' },
+      { t: 'path', d: 'M -10 -12 L 10 0 L -10 12 Z', fill: 'var(--sch-ink)' },
       { t: 'path', d: 'M 15 -15 L 10 -12 L 10 12 L 5 15', w: 2 },
     ],
     props: [{ key: 'model', label: 'Modello', type: 'model', default: 'DZ5V1', modelType: 'D' }],
@@ -267,7 +267,7 @@ export const DEVICES: ComponentDef[] = [
     name: 'NPN',
     tagPrefix: 'Q',
     terminals: BJT_TERMINALS,
-    symbol: [...BJT_BODY, { t: 'path', d: 'M 20 20 L 13 9 L 7 18 Z', fill: '#0f172a' }],
+    symbol: [...BJT_BODY, { t: 'path', d: 'M 20 20 L 13 9 L 7 18 Z', fill: 'var(--sch-ink)' }],
     props: [{ key: 'model', label: 'Modello', type: 'model', default: '2N3904', modelType: 'NPN' }],
     spice: { kind: 'bjt', collector: 'collector', base: 'base', emitter: 'emitter', modelProp: 'model', modelType: 'NPN' },
   },
@@ -282,7 +282,7 @@ export const DEVICES: ComponentDef[] = [
       { id: 'base', x: -40, y: 0 },
       { id: 'emitter', x: 20, y: -40 },
     ],
-    symbol: [...BJT_BODY, { t: 'path', d: 'M -6 -6 L 7 -8 L 2 -16 Z', fill: '#0f172a' }],
+    symbol: [...BJT_BODY, { t: 'path', d: 'M -6 -6 L 7 -8 L 2 -16 Z', fill: 'var(--sch-ink)' }],
     props: [{ key: 'model', label: 'Modello', type: 'model', default: '2N3906', modelType: 'PNP' }],
     spice: { kind: 'bjt', collector: 'collector', base: 'base', emitter: 'emitter', modelProp: 'model', modelType: 'PNP' },
   },
@@ -293,7 +293,7 @@ export const DEVICES: ComponentDef[] = [
     tagPrefix: 'M',
     terminals: MOS_TERMINALS,
     // The middle line is the bulk, tied to the source
-    symbol: [...MOS_BODY, { t: 'line', x1: 20, y1: 0, x2: 20, y2: 12 }, { t: 'path', d: 'M -6 0 L 4 -5 L 4 5 Z', fill: '#0f172a' }],
+    symbol: [...MOS_BODY, { t: 'line', x1: 20, y1: 0, x2: 20, y2: 12 }, { t: 'path', d: 'M -6 0 L 4 -5 L 4 5 Z', fill: 'var(--sch-ink)' }],
     props: [{ key: 'model', label: 'Modello', type: 'model', default: 'MN1', modelType: 'NMOS' }],
     spice: { kind: 'mos', drain: 'drain', gate: 'gate', source: 'source', modelProp: 'model', modelType: 'NMOS' },
   },
@@ -308,7 +308,7 @@ export const DEVICES: ComponentDef[] = [
       { id: 'gate', x: -40, y: 0 },
       { id: 'source', x: 20, y: -40 },
     ],
-    symbol: [...MOS_BODY, { t: 'line', x1: 20, y1: 0, x2: 20, y2: -12 }, { t: 'path', d: 'M 6 0 L -4 -5 L -4 5 Z', fill: '#0f172a' }],
+    symbol: [...MOS_BODY, { t: 'line', x1: 20, y1: 0, x2: 20, y2: -12 }, { t: 'path', d: 'M 6 0 L -4 -5 L -4 5 Z', fill: 'var(--sch-ink)' }],
     props: [{ key: 'model', label: 'Modello', type: 'model', default: 'MP1', modelType: 'PMOS' }],
     spice: { kind: 'mos', drain: 'drain', gate: 'gate', source: 'source', modelProp: 'model', modelType: 'PMOS' },
   },
@@ -326,7 +326,7 @@ export const DEVICES: ComponentDef[] = [
       { t: 'line', x1: -40, y1: -10, x2: -24, y2: -10 },
       { t: 'line', x1: -40, y1: 10, x2: -24, y2: 10 },
       { t: 'line', x1: 28, y1: 0, x2: 40, y2: 0 },
-      { t: 'path', d: 'M -24 -30 L 28 0 L -24 30 Z', fill: '#ffffff' },
+      { t: 'path', d: 'M -24 -30 L 28 0 L -24 30 Z', fill: 'var(--sch-part)' },
       { t: 'line', x1: -20, y1: -10, x2: -15, y2: -10, w: 1.2 },
       { t: 'line', x1: -20, y1: 10, x2: -15, y2: 10, w: 1.2 },
       { t: 'line', x1: -17.5, y1: 7.5, x2: -17.5, y2: 12.5, w: 1.2 },
@@ -363,7 +363,7 @@ export const DEVICES: ComponentDef[] = [
     terminals: twoPin('a', 'b'),
     symbol: [
       ...leads(28),
-      { t: 'rect', x: -28, y: -28, w: 56, h: 56, fill: '#f1f5f9' },
+      { t: 'rect', x: -28, y: -28, w: 56, h: 56, fill: 'var(--sch-part-soft)' },
       { t: 'line', x1: -38, y1: -8, x2: -32, y2: -8, w: 1.2 },
       { t: 'line', x1: -35, y1: -11, x2: -35, y2: -5, w: 1.2 },
       { t: 'line', x1: 32, y1: -8, x2: 38, y2: -8, w: 1.2 },
@@ -380,7 +380,7 @@ export const DEVICES: ComponentDef[] = [
     terminals: twoPin('a', 'b'),
     symbol: [
       ...leads(18),
-      { t: 'circle', cx: 0, cy: 0, r: 18, fill: '#ffffff' },
+      { t: 'circle', cx: 0, cy: 0, r: 18, fill: 'var(--sch-part)' },
       { t: 'line', x1: -11, y1: 0, x2: 10, y2: 0 },
       { t: 'path', d: 'M 4 -5 L 11 0 L 4 5' },
     ],
@@ -408,8 +408,8 @@ export const DEVICES: ComponentDef[] = [
       { t: 'path', d: 'M 14 -20 A 5 5 0 0 0 14 -10 A 5 5 0 0 0 14 0 A 5 5 0 0 0 14 10 A 5 5 0 0 0 14 20' },
       { t: 'line', x1: -3, y1: -22, x2: -3, y2: 22 },
       { t: 'line', x1: 3, y1: -22, x2: 3, y2: 22 },
-      { t: 'circle', cx: -19, cy: -25, r: 2, fill: '#0f172a' },
-      { t: 'circle', cx: 19, cy: -25, r: 2, fill: '#0f172a' },
+      { t: 'circle', cx: -19, cy: -25, r: 2, fill: 'var(--sch-ink)' },
+      { t: 'circle', cx: 19, cy: -25, r: 2, fill: 'var(--sch-ink)' },
     ],
     props: [
       { key: 'ratio', label: 'Rapporto spire N1/N2', type: 'text', default: '10' },

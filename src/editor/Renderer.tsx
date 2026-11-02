@@ -54,7 +54,7 @@ export const Renderer: React.FC<Props> = ({
   <g className="schematic-root">
     <defs>
       <pattern id="grid" width={10} height={10} patternUnits="userSpaceOnUse">
-        <circle cx={0} cy={0} r={0.7} fill="#94a3b8" />
+        <circle cx={0} cy={0} r={0.7} fill="var(--sch-grid)" />
       </pattern>
     </defs>
     <rect x={-5000} y={-5000} width={10000} height={10000} fill="url(#grid)" pointerEvents="none" />
@@ -65,8 +65,8 @@ export const Renderer: React.FC<Props> = ({
         const d = toPath(wire.pts);
         return (
           <g key={wire.id}>
-            {isSelected && <path d={d} fill="none" stroke="#3b82f6" strokeWidth={6} strokeOpacity={0.35} strokeLinecap="round" />}
-            <path d={d} fill="none" stroke={isSelected ? '#2563eb' : '#334155'} strokeWidth={isSelected ? 3 : 1.8} strokeLinecap="round" />
+            {isSelected && <path d={d} fill="none" stroke="var(--sch-select-glow)" strokeWidth={6} strokeOpacity={0.35} strokeLinecap="round" />}
+            <path d={d} fill="none" stroke={isSelected ? 'var(--sch-select)' : 'var(--sch-wire)'} strokeWidth={isSelected ? 3 : 1.8} strokeLinecap="round" />
             {/* Invisible wide hit-box for effortless wire selection and dragging */}
             <path
               d={d}
@@ -85,8 +85,8 @@ export const Renderer: React.FC<Props> = ({
                   cx={p.x}
                   cy={p.y}
                   r={7}
-                  fill="#ffffff"
-                  stroke="#2563eb"
+                  fill="var(--sch-part)"
+                  stroke="var(--sch-select)"
                   strokeWidth={2}
                   style={{ cursor: 'crosshair' }}
                   onPointerDown={(e) => {
@@ -98,7 +98,7 @@ export const Renderer: React.FC<Props> = ({
           </g>
         );
       })}
-      {wireDraft.length > 0 && <path d={toPath(wireDraft)} fill="none" stroke="#2563eb" strokeWidth={2} strokeDasharray="4 4" />}
+      {wireDraft.length > 0 && <path d={toPath(wireDraft)} fill="none" stroke="var(--sch-select)" strokeWidth={2} strokeDasharray="4 4" />}
     </g>
 
     {overlay}
@@ -130,9 +130,9 @@ export const Renderer: React.FC<Props> = ({
 
     {hoveredTerminal && (
       <g transform={`translate(${hoveredTerminal.x}, ${hoveredTerminal.y})`} pointerEvents="none">
-        <circle r={7} fill="rgba(37, 99, 235, 0.14)" stroke="#2563eb" strokeWidth={1.8} />
+        <circle r={7} fill="rgba(37, 99, 235, 0.14)" stroke="var(--sch-select)" strokeWidth={1.8} />
         {hoveredTerminal.label && (
-          <text y={-11} fontSize={9} fontWeight={700} fill="#0f172a" textAnchor="middle">
+          <text y={-11} fontSize={9} fontWeight={700} fill="var(--sch-ink)" textAnchor="middle">
             {hoveredTerminal.label}
           </text>
         )}
@@ -147,7 +147,7 @@ export const Renderer: React.FC<Props> = ({
         width={groupBounds.x2 - groupBounds.x1}
         height={groupBounds.y2 - groupBounds.y1}
         fill="rgba(37, 99, 235, 0.1)"
-        stroke="#2563eb"
+        stroke="var(--sch-select)"
         strokeWidth={1.5}
         strokeDasharray="6 4"
         rx={6}
@@ -157,7 +157,7 @@ export const Renderer: React.FC<Props> = ({
 
     {/* A marker under the finger, until the area has a size of its own */}
     {selectionBox && selectionBox.x1 === selectionBox.x2 && selectionBox.y1 === selectionBox.y2 && (
-      <circle cx={selectionBox.x1} cy={selectionBox.y1} r={14} fill="rgba(37, 99, 235, 0.2)" stroke="#2563eb" strokeWidth={1.5} pointerEvents="none" />
+      <circle cx={selectionBox.x1} cy={selectionBox.y1} r={14} fill="rgba(37, 99, 235, 0.2)" stroke="var(--sch-select)" strokeWidth={1.5} pointerEvents="none" />
     )}
 
     {selectionBox && (
@@ -167,7 +167,7 @@ export const Renderer: React.FC<Props> = ({
         width={Math.abs(selectionBox.x2 - selectionBox.x1)}
         height={Math.abs(selectionBox.y2 - selectionBox.y1)}
         fill="rgba(37, 99, 235, 0.12)"
-        stroke="#2563eb"
+        stroke="var(--sch-select)"
         strokeWidth={1.2}
         strokeDasharray="4 3"
         pointerEvents="none"
@@ -240,7 +240,7 @@ const ElementItem: React.FC<{
           width={bounds.w + 4}
           height={bounds.h + 4}
           fill="rgba(59, 130, 246, 0.08)"
-          stroke="#3b82f6"
+          stroke="var(--sch-select-glow)"
           strokeWidth={1.5}
           strokeDasharray="3 3"
           rx={4}
@@ -259,7 +259,7 @@ const ElementItem: React.FC<{
             if (e.button === 0) onMeterMode(value);
           }}>
             <rect x={dial.x - 15} y={dial.y - 10} width={30} height={20} fill="transparent" pointerEvents="all" />
-            <text x={dial.x} y={dial.y + 4} textAnchor="middle" fontSize={11} fontWeight={elem.props.mode === value ? 700 : 400} fill={elem.props.mode === value ? '#0f172a' : '#475569'} pointerEvents="none">
+            <text x={dial.x} y={dial.y + 4} textAnchor="middle" fontSize={11} fontWeight={elem.props.mode === value ? 700 : 400} fill={elem.props.mode === value ? 'var(--sch-ink)' : 'var(--sch-muted)'} pointerEvents="none">
               {symbol}
             </text>
           </g>
@@ -267,7 +267,7 @@ const ElementItem: React.FC<{
 
       {/* Its name and pins on the box, upright whatever the rotation */}
       {isRegulator && (
-        <g transform={`rotate(${-elem.rot})`} pointerEvents="none" textAnchor="middle" fill="#0f172a">
+        <g transform={`rotate(${-elem.rot})`} pointerEvents="none" textAnchor="middle" fill="var(--sch-ink)">
           {/* Standing, the box is narrow: the name makes room for the pin on its side */}
           <text x={elem.rot === 90 ? 4 : elem.rot === 270 ? -4 : 0} y={4} fontSize={isBesideLabel ? 10 : 11} fontWeight={700}>
             {def.name}
@@ -278,7 +278,7 @@ const ElementItem: React.FC<{
         def.terminals.map((t) => {
           const [x, y] = t.id === 'in' ? [-21, -11] : t.id === 'out' ? [20, -11] : [0, 13];
           return (
-            <text key={t.id} transform={`translate(${x} ${y})${t.id === 'ref' && isBesideLabel ? '' : ` rotate(${-elem.rot})`}`} y={3} textAnchor="middle" fontSize={8} fill="#475569" pointerEvents="none">
+            <text key={t.id} transform={`translate(${x} ${y})${t.id === 'ref' && isBesideLabel ? '' : ` rotate(${-elem.rot})`}`} y={3} textAnchor="middle" fontSize={8} fill="var(--sch-muted)" pointerEvents="none">
               {t.id === 'ref' ? (def.name.startsWith('LM') ? 'ADJ' : 'GND') : t.id.toUpperCase()}
             </text>
           );
@@ -290,7 +290,7 @@ const ElementItem: React.FC<{
           const isOnStart = (t.x < 0) === (elem.rot === 0);
           const anchor = elem.rot === 90 || elem.rot === 270 ? 'middle' : isOnStart ? 'start' : 'end';
           return (
-            <text key={t.id} transform={`translate(${Math.sign(t.x) * 31} ${t.y}) rotate(${-elem.rot})`} y={3} textAnchor={anchor} fontSize={9} fill="#475569" pointerEvents="none">
+            <text key={t.id} transform={`translate(${Math.sign(t.x) * 31} ${t.y}) rotate(${-elem.rot})`} y={3} textAnchor={anchor} fontSize={9} fill="var(--sch-muted)" pointerEvents="none">
               {blockPinNames[k]?.slice(0, 7)}
             </text>
           );
@@ -299,10 +299,10 @@ const ElementItem: React.FC<{
       {/* Labels are counter-rotated so they stay upright and keep their world position */}
       {def.tagPrefix && (
         <g transform={`${elem.flip ? 'scale(1, -1) ' : ''}rotate(${-elem.rot})`} pointerEvents="none" fontSize={11}>
-          <text y={isBesideLabel ? -4 : def.id === 'multimeter' ? -85 : def.spice.kind === 'meter' ? -33 : isBlock ? -blockReach - 4 : isRegulator ? -25 : -24} fontWeight={700} fill="#0f172a" {...labelProps}>
+          <text y={isBesideLabel ? -4 : def.id === 'multimeter' ? -85 : def.spice.kind === 'meter' ? -33 : isBlock ? -blockReach - 4 : isRegulator ? -25 : -24} fontWeight={700} fill="var(--sch-ink)" {...labelProps}>
             {elem.tag}
           </text>
-          <text y={isBesideLabel ? 10 : isBlock ? blockReach + 13 : 34} fill="#475569" {...labelProps}>
+          <text y={isBesideLabel ? 10 : isBlock ? blockReach + 13 : 34} fill="var(--sch-muted)" {...labelProps}>
             {value}
           </text>
         </g>
@@ -323,7 +323,7 @@ const ElementItem: React.FC<{
             onPointerUp={(e) => onTerminalUp(worldPos, e)}
           >
             <circle r={10} fill="transparent" pointerEvents="all" />
-            <circle r={3} fill="#ffffff" stroke="#0f172a" strokeWidth={1.2} />
+            <circle r={3} fill="var(--sch-part)" stroke="var(--sch-ink)" strokeWidth={1.2} />
           </g>
         );
       })}
@@ -332,7 +332,7 @@ const ElementItem: React.FC<{
 };
 
 export const PrimitiveItem: React.FC<{ prim: Prim }> = ({ prim }) => {
-  const stroke = prim.stroke || '#0f172a';
+  const stroke = prim.stroke || 'var(--sch-ink)';
   switch (prim.t) {
     case 'line':
       return (
@@ -380,7 +380,7 @@ const WireJunctions: React.FC<{ wires: Wire[] }> = ({ wires }) => {
   return (
     <g pointerEvents="none">
       {[...junctions.entries()].map(([key, pt]) => (
-        <circle key={key} cx={pt.x} cy={pt.y} r={3.5} fill="#0f172a" />
+        <circle key={key} cx={pt.x} cy={pt.y} r={3.5} fill="var(--sch-ink)" />
       ))}
     </g>
   );
