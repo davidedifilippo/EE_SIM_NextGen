@@ -21,11 +21,13 @@ export interface TerminalDef {
 export interface PropDef {
   key: string;
   label: string;
-  /** "model" lists the SPICE models defined in the circuit. */
-  type: 'text' | 'model';
+  /** "model" lists the SPICE models defined in the circuit; "choice" lists the options. */
+  type: 'text' | 'model' | 'choice';
   default: string;
   /** For type "model": the kind of SPICE model it accepts. */
   modelType?: ModelType;
+  /** For type "choice". */
+  options?: { value: string; label: string }[];
 }
 
 /** OPAMP is a subcircuit with its five pins, in place of the ideal part. */
@@ -40,6 +42,7 @@ export type SpiceDef =
   | { kind: 'bjt'; collector: string; base: string; emitter: string; modelProp: string; modelType: 'NPN' | 'PNP' }
   | { kind: 'mos'; drain: string; gate: string; source: string; modelProp: string; modelType: 'NMOS' | 'PMOS' }
   | { kind: 'opamp'; plus: string; minus: string; out: string; highProp: string; lowProp: string; gbwProp: string; modelProp: string; pinsProp: string }
+  | { kind: 'meter'; a: string; b: string; modeProp: string }
   | { kind: 'transformer'; p1: string; p2: string; s1: string; s2: string; ratioProp: string; inductanceProp: string; couplingProp: string };
 
 export interface ComponentDef {

@@ -3,6 +3,7 @@ import { getDevice } from '../library/devices';
 import { computeConnectivity } from '../netlist/connectivity';
 import { localToWorld, ptKey } from '../utils/geometry';
 import { CompiledCircuit, compileCircuit } from './compile';
+import { METER_MODES, MeterWindow, readingWindow, slowestPeriod } from './meter';
 import { RealtimeEngine, SolverError } from './engine';
 import { buildWireGraph, solveWireCurrents, WireGraph } from './wireGraph';
 
@@ -39,6 +40,9 @@ export interface LiveFrame {
   /** Base minus emitter or gate minus source of a transistor, voltage of the secondary of a transformer, 0 for the rest. */
   deviceVbe: Float64Array;
   dotCurrent: Float64Array;
+  /** Reading of each device that is a multimeter, NaN for the rest and before the first step. */
+  meterMean: Float64Array;
+  meterAc: Float64Array;
   /** Samples of the probes since the last frame. */
   scope: ScopeSamples | null;
 }
@@ -67,6 +71,7 @@ export function drawingSign(el: Element): 1 | -1 {
 const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
   switch (s.kind) {
     case 'passive':
+    case 'meter':
       return [s.a, s.b];
     case 'vsource':
       return [s.pos, s.neg];
@@ -147,6 +152,8 @@ export class LiveSimulation {
   private sampleTimes: number[] = [];
   private sampleValues: number[][] = [];
   private lastCircuit: Circuit | null = null;
+  private meters = new Map<string, { index: number; mode: unknown; window: MeterWindow; read: () => number }>();
+  private period: number | null = null;
 
   /** Probes are sampled at every solver step: at frame rate, fast signals would show up as corners. */
   setProbes(probes: ScopeProbe[], revision: number) {
@@ -187,6 +194,26 @@ export class LiveSimulation {
     });
   }
 
+  /** The display goes on showing its value through a change of the circuit, unless the instrument itself changed. */
+  private resolveMeters() {
+    const { engine, lastCircuit } = this;
+    const previous = this.meters;
+    this.meters = new Map();
+    if (!engine || !lastCircuit) return;
+    this.period = slowestPeriod(lastCircuit);
+    engine.compiled.elementIds.forEach((id, index) => {
+      const el = lastCircuit.elements.find((other) => other.id === id);
+      const mode = METER_MODES.find((m) => m.value === el?.props.mode);
+      if (!el || !mode || getDevice(el.def)?.spice.kind !== 'meter') return;
+      const device = engine.compiled.devices[index];
+      const read = mode.unit === 'V' ? () => engine.nodeVoltage(device.a) - engine.nodeVoltage(device.b) : () => engine.deviceCurrent(index);
+      const kept = previous.get(id);
+      const window = kept && kept.mode === mode.value ? kept.window : new MeterWindow();
+      window.restart();
+      this.meters.set(id, { index, mode: mode.value, window, read });
+    });
+  }
+
   private takeSamples(): ScopeSamples | null {
     if (this.probes.length === 0) return null;
     const samples = {
@@ -204,6 +231,7 @@ export class LiveSimulation {
     if (!result.ok) {
       this.engine = null;
       this.resolveProbes();
+      this.resolveMeters();
       return result;
     }
     const { compiled } = result;
@@ -228,11 +256,13 @@ export class LiveSimulation {
     } catch (err) {
       this.engine = null;
       this.resolveProbes();
+      this.resolveMeters();
       if (err instanceof SolverError) return { ok: false, errors: [err.message] };
       throw err;
     }
     this.engine = next;
     this.resolveProbes();
+    this.resolveMeters();
     return { ok: true };
   }
 
@@ -241,9 +271,11 @@ export class LiveSimulation {
     if (!this.engine || this.failed) return 0;
     const start = performance.now();
     let done = 0;
+    const window = readingWindow(this.period, h);
     while (done < steps) {
       this.engine.step(h);
       done++;
+      this.meters.forEach((meter) => meter.window.add(meter.read(), h, window));
       if (this.readers.length > 0) {
         this.sampleTimes.push(this.engine.time);
         this.readers.forEach((read, i) => this.sampleValues[i].push(read()));
@@ -291,6 +323,13 @@ export class LiveSimulation {
     const edgeCurrent = new Float64Array(layout.graph.edges.length);
     solveWireCurrents(layout.graph, injected, edgeCurrent);
     const edgeVoltage = Float64Array.from(layout.edgeNode, (node) => engine.nodeVoltage(node));
-    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, scope: this.takeSamples() };
+    const meterMean = new Float64Array(devices.length).fill(NaN);
+    const meterAc = new Float64Array(devices.length).fill(NaN);
+    this.meters.forEach(({ index, window }) => {
+      if (!window.reading) return;
+      meterMean[index] = window.reading.mean;
+      meterAc[index] = window.reading.ac;
+    });
+    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, scope: this.takeSamples() };
   }
 }

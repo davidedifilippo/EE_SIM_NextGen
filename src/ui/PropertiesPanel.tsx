@@ -115,7 +115,15 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
             <React.Fragment key={p.key}>
               <label>
                 {p.label}
-                {p.type === 'model' ? (
+                {p.type === 'choice' ? (
+                  <select value={value} onChange={(e) => setValue(e.target.value)}>
+                    {p.options?.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : p.type === 'model' ? (
                   <select value={value} onChange={(e) => setValue(e.target.value)}>
                     {isOpAmpModel && <option value="">Ideale</option>}
                     {options.map((m) => (
@@ -139,6 +147,11 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
             </React.Fragment>
           );
         })}
+      {single && def?.spice.kind === 'meter' && (
+        <p className="hint">
+          {String(single.props.mode).startsWith('v') ? 'Collega i due puntali in parallelo ai punti da misurare.' : 'Apri il ramo e collega il multimetro in serie.'} Legge il puntale + rispetto al −. Con RMS esclude la componente continua. Vale per l'animazione.
+        </p>
+      )}
       {single && def?.tagPrefix && (
         <label>
           Nome

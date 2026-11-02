@@ -3,6 +3,7 @@ import { getDevice } from '../library/devices';
 import { findModel, isVdmos, modelType } from '../library/models';
 import { computeConnectivity, terminalKey } from '../netlist/connectivity';
 import { OPAMP_GAIN, transformerWindings } from '../netlist/generate';
+import { meterResistance } from './meter';
 import { sourceSpec } from '../netlist/source';
 import { parseSpiceValue } from '../netlist/values';
 import { parseWaveform, Waveform } from './waveform';
@@ -257,6 +258,16 @@ export function compileCircuit(circuit: Circuit): CompileResult {
         if (s.prefix === 'R') pending.push({ element, needsBranch: false, build: () => ({ kind: 'resistor', element, a, b, g: 1 / value }) });
         else if (s.prefix === 'C') pending.push({ element, needsBranch: false, build: () => ({ kind: 'capacitor', element, a, b, c: value }) });
         else pending.push({ element, needsBranch: true, build: (branch) => ({ kind: 'inductor', element, a, b, l: value, branch }) });
+        break;
+      }
+      case 'meter': {
+        const resistance = meterResistance(el.props[s.modeProp]);
+        if (resistance === null) {
+          errors.push(`${el.tag}: misura non valida "${el.props[s.modeProp] ?? ''}"`);
+          break;
+        }
+        const [a, b] = [node(s.a), node(s.b)];
+        pending.push({ element, needsBranch: false, build: () => ({ kind: 'resistor', element, a, b, g: 1 / resistance }) });
         break;
       }
       case 'vsource': {

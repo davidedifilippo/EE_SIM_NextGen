@@ -5,6 +5,7 @@ import { normalizeSubcircuitCard, OpAmpRole, readOpAmpRoles, subcircuitPins } fr
 import { computeConnectivity, terminalKey } from './connectivity';
 import { sourceAcSpec, sourceDcSpec, sourceSpec } from './source';
 import { parseSpiceValue } from './values';
+import { meterResistance } from '../realtime/meter';
 
 export interface TranAnalysis {
   type: 'tran';
@@ -177,6 +178,16 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         }
         const name = uniqueName(s.prefix, el.tag);
         if (name) lines.push(`${name} ${node(s.a)} ${node(s.b)} ${value}`);
+        break;
+      }
+      case 'meter': {
+        const resistance = meterResistance(el.props[s.modeProp]);
+        if (resistance === null) {
+          errors.push(`${el.tag}: misura non valida "${el.props[s.modeProp] ?? ''}"`);
+          break;
+        }
+        const name = uniqueName('R', el.tag);
+        if (name) lines.push(`${name} ${node(s.a)} ${node(s.b)} ${resistance}`);
         break;
       }
       case 'vsource': {

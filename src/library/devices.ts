@@ -1,3 +1,4 @@
+import { METER_MODES } from '../realtime/meterModes';
 import { ComponentDef, Prim, Rotation, Circuit, Element, Pt } from '../model/types';
 import { SourceShape, sourceShape } from '../netlist/source';
 
@@ -208,6 +209,22 @@ export const DEVICES: ComponentDef[] = [
       { key: 'gbw', label: 'GBW (Hz), vuoto se ideale', type: 'text', default: '' },
     ],
     spice: { kind: 'opamp', plus: 'plus', minus: 'minus', out: 'out', highProp: 'high', lowProp: 'low', gbwProp: 'gbw', modelProp: 'model', pinsProp: 'pins' },
+  },
+  {
+    id: 'multimeter',
+    name: 'Multimetro',
+    tagPrefix: 'MM',
+    // The display is drawn over it, upright whatever the rotation: a square leaves room for it
+    terminals: twoPin('a', 'b'),
+    symbol: [
+      ...leads(28),
+      { t: 'rect', x: -28, y: -28, w: 56, h: 56, fill: '#f1f5f9' },
+      { t: 'line', x1: -38, y1: -8, x2: -32, y2: -8, w: 1.2 },
+      { t: 'line', x1: -35, y1: -11, x2: -35, y2: -5, w: 1.2 },
+      { t: 'line', x1: 32, y1: -8, x2: 38, y2: -8, w: 1.2 },
+    ],
+    props: [{ key: 'mode', label: 'Misura', type: 'choice', default: 'vdc', options: METER_MODES.map(({ value, label }) => ({ value, label })) }],
+    spice: { kind: 'meter', a: 'a', b: 'b', modeProp: 'mode' },
   },
   {
     id: 'transformer',

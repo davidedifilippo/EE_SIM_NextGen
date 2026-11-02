@@ -19,6 +19,7 @@ import { hasSignal } from './ui/bode';
 import { DcFamily, DcSeries, DcSweepChart } from './ui/DcSweepChart';
 import { DcValues } from './ui/DcValues';
 import { LiveOverlay } from './ui/LiveOverlay';
+import { MeterReadings } from './ui/MeterReadings';
 import { LiveLegend, LiveLegendHandle, SourceStats, SPEEDS } from './ui/LiveControls';
 import { ScopePanel } from './ui/ScopePanel';
 import { liveTraces, MAX_TRACES, nextSlot, ScopeTrace, traceLabel } from './ui/scopeTraces';
@@ -97,9 +98,17 @@ export const App: React.FC = () => {
     const sources = circuit.elements.filter((el) => el.def === 'vsource');
     return sources.length > 0 && sources.every((el) => isDcSource(el.props));
   }, [circuit]);
+  const hasMeter = useMemo(() => resolved.elements.some((el) => el.def === 'multimeter'), [resolved]);
   const labels = useMemo(
-    () => showValues && isDc && live.errors.length === 0 && live.layout && <DcValues circuit={resolved} layout={live.layout} frameRef={live.frameRef} />,
-    [showValues, isDc, live.errors.length, resolved, live.layout, live.frameRef],
+    () =>
+      live.errors.length === 0 &&
+      live.layout && (
+        <>
+          {showValues && isDc && <DcValues circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
+          {hasMeter && <MeterReadings circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
+        </>
+      ),
+    [showValues, isDc, hasMeter, live.errors.length, resolved, live.layout, live.frameRef],
   );
 
   const latestCircuitForKeys = useRef(circuit);
