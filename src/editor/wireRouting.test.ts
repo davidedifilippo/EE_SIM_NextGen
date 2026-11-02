@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Pt } from '../model/types';
 import { isPointOnSegment } from '../utils/geometry';
-import { followMove, wireFollowers } from './wireRouting';
+import { anchoredWires, followMove, isShortWire, selectionBounds, wireEndingAt, wireFollowers, wireLength } from './wireRouting';
 
 const pt = (x: number, y: number): Pt => ({ x, y });
 const isOrthogonal = (pts: Pt[]) => pts.slice(1).every((p, i) => p.x === pts[i].x || p.y === pts[i].y);
@@ -82,3 +82,58 @@ describe('wireFollowers', () => {
     expect(followers[0].pins).toContainEqual(pt(200, 200));
   });
 });
+
+describe('anchoredWires', () => {
+  const wire = (id: string, a: Pt, b: Pt) => ({ id, pts: [a, b] });
+
+  it('leaves free the wires between what moves', () => {
+    expect(anchoredWires([wire('a', pt(0, 0), pt(100, 0))], [pt(0, 0), pt(100, 0)], [pt(500, 500)]).size).toBe(0);
+  });
+
+  it('holds a wire ending on something that stays, and what goes on from it', () => {
+    const wires = [wire('a', pt(0, 0), pt(100, 0)), wire('b', pt(100, 0), pt(100, 100)), wire('c', pt(300, 0), pt(400, 0))];
+    expect([...anchoredWires(wires, [], [pt(0, 0)])].sort()).toEqual(['a', 'b']);
+  });
+
+  it('does not pass the hold through a terminal that moves', () => {
+    const wires = [wire('a', pt(0, 0), pt(100, 0)), wire('b', pt(100, 0), pt(200, 0))];
+    expect([...anchoredWires(wires, [pt(100, 0)], [pt(0, 0)])]).toEqual(['a']);
+  });
+});
+
+describe('selectionBounds', () => {
+  it('surrounds the points with a margin', () => {
+    expect(selectionBounds([pt(0, 0), pt(100, 50), pt(20, -10)])).toEqual({ x1: -14, y1: -24, x2: 114, y2: 64 });
+  });
+
+  it('has nothing to surround without points', () => {
+    expect(selectionBounds([])).toBeNull();
+  });
+});
+
+describe('short wires', () => {
+  const short = { id: 's', pts: [pt(0, 0), pt(10, 0)] };
+  const long = { id: 'l', pts: [pt(0, 0), pt(0, 100), pt(50, 100)] };
+
+  it('measures along all the segments', () => {
+    expect(wireLength(long.pts)).toBe(150);
+  });
+
+  it('calls short what fits between the reach of its two ends', () => {
+    expect(isShortWire(short.pts, 20)).toBe(true);
+    expect(isShortWire(pt2(40), 20)).toBe(true);
+    expect(isShortWire(pt2(50), 20)).toBe(false);
+    expect(isShortWire(short.pts, 12)).toBe(true);
+    expect(isShortWire(pt2(30), 12)).toBe(false);
+  });
+
+  it('finds the wire ending at a point, the shortest of several', () => {
+    expect(wireEndingAt([long, short], pt(0, 0))?.id).toBe('s');
+    expect(wireEndingAt([long, short], pt(50, 100))?.id).toBe('l');
+    expect(wireEndingAt([long, short], pt(0, 50))).toBeUndefined();
+  });
+});
+
+function pt2(length: number) {
+  return [pt(0, 0), pt(length, 0)];
+}

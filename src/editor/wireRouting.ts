@@ -1,5 +1,5 @@
 import { Pt, Wire } from '../model/types';
-import { dist, isPointOnSegment } from '../utils/geometry';
+import { Box, dist, isPointOnSegment } from '../utils/geometry';
 
 /** A wire attached to a part being moved, as it was when the drag started. */
 export interface WireFollower {
@@ -68,4 +68,53 @@ export function wireFollowers(wires: Wire[], terminals: Pt[], otherPoints: Pt[])
     followers.push({ wireId: wire.id, pts: wire.pts, moving, pins: [...otherPoints, ...otherTips] });
   }
   return followers;
+}
+
+/**
+ * The selected wires held by something that stays: moved whole, they would come off it. A wire
+ * only partly held passes the hold on through its free tip, to the wires it goes on with.
+ */
+export function anchoredWires(selected: Wire[], movingTerminals: Pt[], staying: Pt[]): Set<string> {
+  const isOn = (p: Pt, points: Pt[]) => points.some((q) => dist(p, q) < 2);
+  const holds = [...staying];
+  const anchored = new Set<string>();
+  for (let found = true; found; ) {
+    found = false;
+    for (const wire of selected) {
+      if (anchored.has(wire.id)) continue;
+      const tips = [wire.pts[0], wire.pts[wire.pts.length - 1]].filter((tip) => !isOn(tip, movingTerminals));
+      if (!tips.some((tip) => isOn(tip, holds))) continue;
+      anchored.add(wire.id);
+      holds.push(...tips);
+      found = true;
+    }
+  }
+  return anchored;
+}
+
+/** Margin of the blue area around what is selected, so that it is easy to grab with a finger. */
+const SELECTION_MARGIN = 14;
+
+/** The rectangle around selected parts and wires, or null with nothing to surround. */
+export function selectionBounds(points: Pt[]): Box | null {
+  if (points.length === 0) return null;
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  return {
+    x1: Math.min(...xs) - SELECTION_MARGIN,
+    y1: Math.min(...ys) - SELECTION_MARGIN,
+    x2: Math.max(...xs) + SELECTION_MARGIN,
+    y2: Math.max(...ys) + SELECTION_MARGIN,
+  };
+}
+
+export const wireLength = (pts: Pt[]) => pts.slice(1).reduce((sum, p, i) => sum + dist(pts[i], p), 0);
+
+/** So short that a press anywhere on it is also a press near its ends, as always with a finger on a piece of one grid step. */
+export const isShortWire = (pts: Pt[], reach: number) => wireLength(pts) <= 2 * reach;
+
+/** The wire ending at a point, the shortest if there are several: the hardest to reach any other way. */
+export function wireEndingAt(wires: Wire[], point: Pt): Wire | undefined {
+  const ending = wires.filter((w) => dist(w.pts[0], point) < 2 || dist(w.pts[w.pts.length - 1], point) < 2);
+  return ending.sort((a, b) => wireLength(a.pts) - wireLength(b.pts))[0];
 }

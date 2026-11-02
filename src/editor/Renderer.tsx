@@ -11,6 +11,8 @@ interface Props {
   circuit: Circuit;
   selectedIds: Set<string>;
   selectionBox: Box | null;
+  /** The area around a selection of several things. */
+  groupBounds: Box | null;
   onElementDown: (elem: Element, e: Press) => void;
   onWireDown: (wire: Wire, e: Press) => void;
   onWireHandleDown: (wire: Wire, pointIndex: number, e: Press) => void;
@@ -31,6 +33,7 @@ export const Renderer: React.FC<Props> = ({
   circuit,
   selectedIds,
   selectionBox,
+  groupBounds,
   onElementDown,
   onWireDown,
   onWireHandleDown,
@@ -69,6 +72,7 @@ export const Renderer: React.FC<Props> = ({
               onPointerDown={(e) => onWireDown(wire, e)}
             />
             {isSelected &&
+              !groupBounds &&
               wire.pts.map((p, idx) => (
                 <circle
                   key={idx}
@@ -126,6 +130,27 @@ export const Renderer: React.FC<Props> = ({
           </text>
         )}
       </g>
+    )}
+
+    {groupBounds && (
+      <rect
+        data-testid="selection-area"
+        x={groupBounds.x1}
+        y={groupBounds.y1}
+        width={groupBounds.x2 - groupBounds.x1}
+        height={groupBounds.y2 - groupBounds.y1}
+        fill="rgba(37, 99, 235, 0.1)"
+        stroke="#2563eb"
+        strokeWidth={1.5}
+        strokeDasharray="6 4"
+        rx={6}
+        pointerEvents="none"
+      />
+    )}
+
+    {/* A marker under the finger, until the area has a size of its own */}
+    {selectionBox && selectionBox.x1 === selectionBox.x2 && selectionBox.y1 === selectionBox.y2 && (
+      <circle cx={selectionBox.x1} cy={selectionBox.y1} r={14} fill="rgba(37, 99, 235, 0.2)" stroke="#2563eb" strokeWidth={1.5} pointerEvents="none" />
     )}
 
     {selectionBox && (

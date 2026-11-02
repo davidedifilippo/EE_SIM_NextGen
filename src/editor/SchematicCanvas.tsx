@@ -1,10 +1,10 @@
 // Adapted from PowerCad_NextGen (see THIRD_PARTY_NOTICES.md).
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Circuit, ComponentDef, Element, Pt, Rotation, Wire } from '../model/types';
 import { createElement, getDevice } from '../library/devices';
-import { Box, dist, isElementInBox, isPointOnSegment, isWireInBox, localToWorld, snap, snapPt } from '../utils/geometry';
+import { Box, dist, isElementInBox, isPointInBox, isPointOnSegment, isWireInBox, localToWorld, snap, snapPt } from '../utils/geometry';
 import { Renderer } from './Renderer';
-import { followMove, WireFollower, wireFollowers } from './wireRouting';
+import { anchoredWires, followMove, isShortWire, selectionBounds, wireEndingAt, WireFollower, wireFollowers } from './wireRouting';
 
 interface Props {
   circuit: Circuit;
@@ -39,6 +39,8 @@ type DragState =
       origPts: Pt[];
       slideMode: 'horizontal-slide' | 'vertical-slide' | 'free';
       connectedEnds: ConnectedEnd[];
+      /** On a short wire a tap selects it: a new wire starts from this end only when the press drags away. */
+      tipToDrawFrom?: Pt;
       wasSelectedAtStart: boolean;
       isDragging: boolean;
       hasRecordedHistory: boolean;
@@ -57,6 +59,8 @@ type DragState =
       startScreen: Pt;
       origElemPositions: Map<string, Pt>;
       origWirePts: Map<string, Pt[]>;
+      /** Wires outside the selection, attached to what moves. */
+      followers: WireFollower[];
       isDragging: boolean;
       hasRecordedHistory: boolean;
     }
@@ -64,6 +68,12 @@ type DragState =
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 4;
+
+/** Screen pixels a press must travel to count as a drag and not as a tap. */
+const DRAG_THRESHOLD = 4;
+
+/** A finger held still this long on the empty sheet starts a selection area instead of moving the view. */
+const LONG_PRESS_MS = 400;
 
 const hitRadius = (e: React.PointerEvent) => (e.pointerType === 'touch' ? 20 : 12);
 
@@ -98,6 +108,9 @@ export const SchematicCanvas: React.FC<Props> = ({
   const dragRef = useRef<DragState | null>(null);
   const pointersRef = useRef(new Map<number, Pt>());
   const pinchRef = useRef<{ distance: number; center: Pt } | null>(null);
+  /** Where the current press began: without a move from there it is a tap, and cannot end a wire. */
+  const pressRef = useRef<Pt>({ x: 0, y: 0 });
+  const longPressRef = useRef<number | null>(null);
 
   useEffect(() => setPlacementRot(0), [activeDefToPlace]);
 
@@ -141,6 +154,16 @@ export const SchematicCanvas: React.FC<Props> = ({
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The blue area stays around a selection of several things, for a finger to grab it
+  const groupBounds = useMemo(() => {
+    if (selectedIds.size < 2) return null;
+    const points = [
+      ...circuit.elements.filter((el) => selectedIds.has(el.id)).flatMap((el) => [{ x: el.x, y: el.y }, ...(getDevice(el.def)?.terminals ?? []).map((t) => localToWorld(el.x, el.y, t, el.rot, el.flip))]),
+      ...circuit.wires.filter((w) => selectedIds.has(w.id)).flatMap((w) => w.pts),
+    ];
+    return selectionBounds(points);
+  }, [circuit, selectedIds]);
 
   const screenToWorld = (screenX: number, screenY: number): Pt => {
     if (!containerRef.current) return { x: 0, y: 0 };
@@ -202,7 +225,13 @@ export const SchematicCanvas: React.FC<Props> = ({
     const start = wireDraft[wireDraft.length - 1];
     const target = snapPt(rawTarget);
     resetDraft();
-    if (dist(start, target) < 2) return;
+    if (dist(start, target) < 2) {
+      // A second tap in the same place selects the wire that ends there: under a finger the terminals
+      // can cover all of a short piece, and there would be no other way to reach it
+      const wire = wireEndingAt(circuit.wires, start);
+      if (wire) onSelectIds(new Set([wire.id]));
+      return;
+    }
     const corner = computeOrthogonalCorner(start, target);
     const hasCorner = dist(start, corner) > 2 && dist(corner, target) > 2;
     const ts = Date.now();
@@ -285,7 +314,14 @@ export const SchematicCanvas: React.FC<Props> = ({
   };
 
   // Runs before any child handler, so a second finger always means pinch
+  const cancelLongPress = () => {
+    if (longPressRef.current !== null) window.clearTimeout(longPressRef.current);
+    longPressRef.current = null;
+  };
+
   const handlePointerDownCapture = (e: React.PointerEvent) => {
+    pressRef.current = { x: e.clientX, y: e.clientY };
+    cancelLongPress();
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointersRef.current.size === 2) {
       e.stopPropagation();
@@ -294,6 +330,14 @@ export const SchematicCanvas: React.FC<Props> = ({
       setSelectionBox(null);
       resetDraft();
       pinchRef.current = measurePinch();
+      return;
+    }
+
+    // Everything inside a selection area grabs the area, terminals included: a finger cannot aim
+    // between them, and a wire started by mistake would be the worst outcome of a move
+    if (e.button === 0 && !activeDefToPlace && wireDraft.length === 0 && groupBounds && isPointInBox(screenToWorld(e.clientX, e.clientY), groupBounds)) {
+      e.stopPropagation();
+      startSelectionMove(e);
     }
   };
 
@@ -326,11 +370,18 @@ export const SchematicCanvas: React.FC<Props> = ({
       return;
     }
 
-    // Empty canvas: one finger pans, the mouse draws a selection box
+    // Empty canvas: one finger pans or, held still, draws a selection box; the mouse always draws one
     if (e.pointerType === 'touch') {
       onSelectIds(new Set());
       setIsPanning(true);
       setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+      longPressRef.current = window.setTimeout(() => {
+        longPressRef.current = null;
+        setIsPanning(false);
+        dragRef.current = { type: 'box-select', startWorld: world };
+        setSelectionBox({ x1: world.x, y1: world.y, x2: world.x, y2: world.y });
+        navigator.vibrate?.(20);
+      }, LONG_PRESS_MS);
       return;
     }
     dragRef.current = { type: 'box-select', startWorld: world };
@@ -338,6 +389,7 @@ export const SchematicCanvas: React.FC<Props> = ({
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
+    if (longPressRef.current !== null && hasDragged(e)) cancelLongPress();
     if (pointersRef.current.has(e.pointerId)) {
       pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
@@ -392,6 +444,12 @@ export const SchematicCanvas: React.FC<Props> = ({
       return;
     }
 
+    if (drag.type === 'wire' && drag.tipToDrawFrom && Math.hypot(e.clientX - drag.startScreen.x, e.clientY - drag.startScreen.y) > DRAG_THRESHOLD) {
+      startWire(drag.tipToDrawFrom);
+      dragRef.current = null;
+      return;
+    }
+
     // A wire moves only if it was already selected before the press
     if (drag.type === 'wire' && !drag.wasSelectedAtStart) return;
 
@@ -416,7 +474,9 @@ export const SchematicCanvas: React.FC<Props> = ({
           }),
           wires: circuit.wires.map((w) => {
             const orig = drag.origWirePts.get(w.id);
-            return orig ? { ...w, pts: orig.map((p) => ({ x: p.x + snapDx, y: p.y + snapDy })) } : w;
+            if (orig) return { ...w, pts: orig.map((p) => ({ x: p.x + snapDx, y: p.y + snapDy })) };
+            const follower = drag.followers.find((f) => f.wireId === w.id);
+            return follower ? { ...w, pts: followMove(follower, snapDx, snapDy) } : w;
           }),
         },
         record,
@@ -466,11 +526,14 @@ export const SchematicCanvas: React.FC<Props> = ({
     }
   };
 
+  const hasDragged = (e: React.PointerEvent) => Math.hypot(e.clientX - pressRef.current.x, e.clientY - pressRef.current.y) > DRAG_THRESHOLD;
+
   const handlePointerUp = (e: React.PointerEvent) => {
     setIsPanning(false);
+    cancelLongPress();
 
     // Drag-to-wire: releasing away from the start completes the wire
-    if (wireDraft.length > 0 && e.button === 0) {
+    if (wireDraft.length > 0 && e.button === 0 && hasDragged(e)) {
       const world = screenToWorld(e.clientX, e.clientY);
       const target = findNearestTerminal(world, hitRadius(e))?.worldPos ?? snapPt(world);
       if (dist(target, wireDraft[0]) >= 10) {
@@ -496,13 +559,24 @@ export const SchematicCanvas: React.FC<Props> = ({
   const startSelectionMove = (e: React.PointerEvent) => {
     const origElemPositions = new Map<string, Pt>();
     for (const el of circuit.elements) if (selectedIds.has(el.id)) origElemPositions.set(el.id, { x: el.x, y: el.y });
-    const origWirePts = new Map<string, Pt[]>();
-    for (const w of circuit.wires) if (selectedIds.has(w.id)) origWirePts.set(w.id, w.pts.map((p) => ({ ...p })));
+    const terminalsOf = (el: Element) => (getDevice(el.def)?.terminals ?? []).map((t) => localToWorld(el.x, el.y, t, el.rot, el.flip));
+    const selectedWires = circuit.wires.filter((w) => selectedIds.has(w.id));
+    const otherWires = circuit.wires.filter((w) => !selectedIds.has(w.id));
+    const movingTerminals = circuit.elements.filter((el) => selectedIds.has(el.id)).flatMap(terminalsOf);
+    const stayingTerminals = circuit.elements.filter((el) => !selectedIds.has(el.id)).flatMap(terminalsOf);
+    const otherTips = otherWires.flatMap((w) => [w.pts[0], w.pts[w.pts.length - 1]]);
+    const anchored = anchoredWires(selectedWires, movingTerminals, [...stayingTerminals, ...otherTips]);
+
+    const wholeWires = selectedWires.filter((w) => !anchored.has(w.id));
+    const origWirePts = new Map<string, Pt[]>(wholeWires.map((w) => [w.id, w.pts.map((p) => ({ ...p }))]));
+    const followers = wireFollowers([...otherWires, ...selectedWires.filter((w) => anchored.has(w.id))], movingTerminals, stayingTerminals);
+
     dragRef.current = {
       type: 'selection-move',
       startScreen: { x: e.clientX, y: e.clientY },
       origElemPositions,
       origWirePts,
+      followers,
       isDragging: false,
       hasRecordedHistory: false,
     };
@@ -562,9 +636,11 @@ export const SchematicCanvas: React.FC<Props> = ({
 
     const isAlreadySelected = selectedIds.has(wire.id);
     // Pressing near the tip of an unselected wire starts a new wire from that tip
+    let tipToDrawFrom: Pt | undefined;
     if (!isAlreadySelected) {
       const nearTerm = findNearestTerminal(world, hitRadius(e));
-      if (nearTerm) {
+      if (nearTerm && isShortWire(wire.pts, hitRadius(e))) tipToDrawFrom = nearTerm.worldPos;
+      else if (nearTerm) {
         startWire(nearTerm.worldPos);
         return;
       }
@@ -603,6 +679,7 @@ export const SchematicCanvas: React.FC<Props> = ({
       origPts: wire.pts.map((p) => ({ ...p })),
       slideMode,
       connectedEnds,
+      tipToDrawFrom,
       wasSelectedAtStart: isAlreadySelected,
       isDragging: false,
       hasRecordedHistory: false,
@@ -628,12 +705,14 @@ export const SchematicCanvas: React.FC<Props> = ({
       handlePointerDown(e);
       return;
     }
-    if (wireDraft.length === 0) startWire(snapPt(worldPos));
-    else completeWire(worldPos);
+    // Terminals can overlap under a finger: the nearest counts, not the one drawn on top
+    const pressed = findNearestTerminal(screenToWorld(e.clientX, e.clientY), hitRadius(e))?.worldPos ?? worldPos;
+    if (wireDraft.length === 0) startWire(snapPt(pressed));
+    else completeWire(pressed);
   };
 
   const handleTerminalUp = (worldPos: Pt, e: React.PointerEvent) => {
-    if (wireDraft.length === 0) return;
+    if (wireDraft.length === 0 || !hasDragged(e)) return;
     if (dist(snapPt(worldPos), wireDraft[0]) >= 5) {
       e.stopPropagation();
       completeWire(worldPos);
@@ -663,6 +742,7 @@ export const SchematicCanvas: React.FC<Props> = ({
             circuit={circuit}
             selectedIds={selectedIds}
             selectionBox={selectionBox}
+            groupBounds={groupBounds}
             onElementDown={handleElementDown}
             onWireDown={handleWireDown}
             onWireHandleDown={handleWireHandleDown}

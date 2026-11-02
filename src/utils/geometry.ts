@@ -86,12 +86,5 @@ export function isElementInBox(elem: Pt, box: Box, radius = 22): boolean {
 
 /** Bounding-box overlap: exact for the orthogonal segments the editor draws. */
 export function isWireInBox(pts: Pt[], box: Box): boolean {
-  const { minX, minY, maxX, maxY } = normalizeBox(box);
-  for (let i = 0; i + 1 < pts.length; i++) {
-    const [a, b] = [pts[i], pts[i + 1]];
-    const overlaps =
-      Math.max(a.x, b.x) >= minX && Math.min(a.x, b.x) <= maxX && Math.max(a.y, b.y) >= minY && Math.min(a.y, b.y) <= maxY;
-    if (overlaps) return true;
-  }
-  return false;
+  return pts.every((p) => isPointInBox(p, box));
 }

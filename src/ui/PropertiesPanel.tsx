@@ -16,6 +16,7 @@ interface Props {
   onChange: (next: Circuit, record?: boolean) => void;
   onRotateSelected: () => void;
   onMirrorSelected: () => void;
+  onSelectAll: () => void;
   onDeleteSelected: () => void;
   layout: LiveLayout | null;
   frameRef: React.MutableRefObject<LiveFrame | null>;
@@ -27,9 +28,14 @@ interface Props {
   onToggleProbe: (probe: ScopeProbe) => void;
 }
 
-export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onRotateSelected, onMirrorSelected, onDeleteSelected, layout, frameRef, library, onImportModels, onRemoveModel, scopeIds, isScopeFull, onToggleProbe }) => {
+export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onRotateSelected, onMirrorSelected, onSelectAll, onDeleteSelected, layout, frameRef, library, onImportModels, onRemoveModel, scopeIds, isScopeFull, onToggleProbe }) => {
   if (selectedIds.size === 0) {
-    return <p className="hint">Seleziona un componente per modificarne i valori. Per collegare, parti da un terminale.</p>;
+    return (
+      <div className="properties">
+        <p className="hint">Seleziona un componente per modificarne i valori. Per collegare, parti da un terminale. Per un'area, tieni fermo un dito sul foglio e poi trascina, oppure trascina con il mouse.</p>
+        {circuit.elements.length + circuit.wires.length > 0 && <button onClick={onSelectAll}>Seleziona tutto</button>}
+      </div>
+    );
   }
 
   const selected = circuit.elements.filter((el) => selectedIds.has(el.id));

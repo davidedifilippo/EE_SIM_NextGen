@@ -102,6 +102,9 @@ export const App: React.FC = () => {
     [showValues, isDc, live.errors.length, resolved, live.layout, live.frameRef],
   );
 
+  const latestCircuitForKeys = useRef(circuit);
+  latestCircuitForKeys.current = circuit;
+
   const handleChange = useCallback(
     (next: Circuit, recordHistory = true) => {
       if (recordHistory) {
@@ -188,6 +191,10 @@ export const App: React.FC = () => {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        setSelectedIds(new Set([...latestCircuitForKeys.current.elements, ...latestCircuitForKeys.current.wires].map((item) => item.id)));
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -206,6 +213,8 @@ export const App: React.FC = () => {
     });
     setSelectedIds(new Set());
   }, [circuit, selectedIds, handleChange]);
+
+  const selectAll = useCallback(() => setSelectedIds(new Set([...circuit.elements, ...circuit.wires].map((item) => item.id))), [circuit]);
 
   const mirrorSelected = useCallback(() => {
     handleChange({
@@ -468,6 +477,7 @@ export const App: React.FC = () => {
             onChange={handleChange}
             onRotateSelected={rotateSelected}
             onMirrorSelected={mirrorSelected}
+            onSelectAll={selectAll}
             onDeleteSelected={deleteSelected}
             layout={live.layout}
             frameRef={live.frameRef}
