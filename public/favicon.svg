@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="EE_SIM_NextGen app icon">
+<defs><linearGradient id="edge" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#087BFF"/><stop offset="1" stop-color="#00D9E8"/></linearGradient></defs>
+<rect width="512" height="512" rx="112" fill="#06152F"/>
+<g transform="translate(85 85)" stroke-linecap="round" stroke-linejoin="round"><rect x="36" y="36" width="264" height="264" rx="48" fill="#0A2143" stroke="url(#edge)" stroke-width="12"/>
+<g stroke="#087BFF" stroke-width="10"><path d="M88 7v29M148 7v29M208 7v29M268 7v29M88 300v29M148 300v29M208 300v29M268 300v29M7 88h29M7 148h29M7 208h29M7 268h29M300 88h29M300 148h29M300 208h29M300 268h29"/></g>
+<path d="M75 170h42l27-68 42 136 32-96 26 28h39" fill="none" stroke="url(#edge)" stroke-width="15"/></g></svg>
