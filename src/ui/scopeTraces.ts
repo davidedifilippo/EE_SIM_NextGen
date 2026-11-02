@@ -20,7 +20,7 @@ export const unitOf = (probe: ScopeProbe): ScopeUnit => (probe.kind === 'current
 /** What can be measured on a part. */
 export function elementProbes(el: Element): ProbeChoice[] {
   const spice = getDevice(el.def)?.spice;
-  if (!spice || spice.kind === 'ground') return [];
+  if (!spice || spice.kind === 'ground' || spice.kind === 'block') return [];
   const choice = (label: string, kind: Exclude<ScopeProbe['kind'], 'node'>): ProbeChoice => ({
     label,
     probe: { id: `${kind}:${el.id}`, kind, elementId: el.id },

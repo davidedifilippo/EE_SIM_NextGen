@@ -30,8 +30,8 @@ export interface PropDef {
   options?: { value: string; label: string }[];
 }
 
-/** OPAMP is a subcircuit with its five pins, in place of the ideal part. */
-export type ModelType = 'D' | 'NPN' | 'PNP' | 'NMOS' | 'PMOS' | 'OPAMP';
+/** OPAMP is a subcircuit with five pins, in place of the ideal part; SUBCKT is any subcircuit, as a block of its own. */
+export type ModelType = 'D' | 'NPN' | 'PNP' | 'NMOS' | 'PMOS' | 'OPAMP' | 'SUBCKT';
 
 /** How a component maps to SPICE. Terminal order follows the SPICE card. */
 export type SpiceDef =
@@ -42,6 +42,7 @@ export type SpiceDef =
   | { kind: 'bjt'; collector: string; base: string; emitter: string; modelProp: string; modelType: 'NPN' | 'PNP' }
   | { kind: 'mos'; drain: string; gate: string; source: string; modelProp: string; modelType: 'NMOS' | 'PMOS' }
   | { kind: 'opamp'; plus: string; minus: string; out: string; highProp: string; lowProp: string; gbwProp: string; modelProp: string; pinsProp: string }
+  | { kind: 'block'; pins: string[]; modelProp: string }
   | { kind: 'meter'; a: string; b: string; modeProp: string }
   | { kind: 'transformer'; p1: string; p2: string; s1: string; s2: string; ratioProp: string; inductanceProp: string; couplingProp: string };
 
@@ -54,6 +55,8 @@ export interface ComponentDef {
   symbol: Prim[];
   props: PropDef[];
   spice: SpiceDef;
+  /** Not in the list of parts: reached from another, as a block changes with the pins of its model. */
+  isHidden?: boolean;
 }
 
 export interface Element {

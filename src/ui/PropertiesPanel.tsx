@@ -1,6 +1,6 @@
 import React from 'react';
 import { Circuit, Element, SpiceModel } from '../model/types';
-import { canMirror, getDevice } from '../library/devices';
+import { blockId, canMirror, getDevice } from '../library/devices';
 import { ImportedModel } from '../library/modelImport';
 import { modelsOfType } from '../library/models';
 import { OPAMP_ROLES, OpAmpRole, readOpAmpRoles, subcircuitPins } from '../library/subcircuit';
@@ -91,13 +91,19 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
           if (p.key === 'gbw' && single.props.model) return null;
           const value = String(single.props[p.key] ?? '');
           const isOpAmpModel = p.modelType === 'OPAMP';
-          const setValue = (next: string, record = true) => update({ props: { ...single.props, [p.key]: next, ...(isOpAmpModel ? { pins: '' } : {}) } }, record);
+          const isBlock = p.modelType === 'SUBCKT';
           const options = p.type === 'model' ? modelsOfType(circuit, p.modelType ?? 'D', library) : [];
           const chosenCard = options.find((m) => m.name === value)?.card;
+          // A block takes the shape of its model: the pins are part of the kind of part
+          const chosen = (next: string, card: string | undefined): Partial<Element> => ({
+            props: { ...single.props, [p.key]: next, ...(isOpAmpModel ? { pins: '' } : {}), ...(isBlock && card ? { pinNames: subcircuitPins(card).join(' ') } : {}) },
+            ...(isBlock && card ? { def: blockId(subcircuitPins(card).length) } : {}),
+          });
+          const setValue = (next: string, record = true) => update(chosen(next, options.find((m) => m.name === next)?.card), record);
           const addModels = (models: ImportedModel[]) => {
             const isKept = onImportModels(models);
             // The part takes a model imported for it; out of a whole library, the choice is the user's
-            const fitting = models.filter((m) => m.type === p.modelType);
+            const fitting = models.filter((m) => m.type === p.modelType || (isBlock && m.type === 'OPAMP'));
             const usable = fitting.length === 1 ? fitting[0] : undefined;
             // A copy the circuit already has must follow, or the new version would never be used
             const imported = new Map(models.map((m) => [m.name, m.card]));
@@ -106,7 +112,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
               onChange({
                 ...circuit,
                 models: circuit.models.map((m) => ({ name: m.name, card: imported.get(m.name) ?? m.card })),
-                elements: circuit.elements.map((el) => (el.id === single.id && usable ? { ...el, props: { ...el.props, [p.key]: usable.name, ...(isOpAmpModel ? { pins: '' } : {}) } } : el)),
+                elements: circuit.elements.map((el) => (el.id === single.id && usable ? { ...el, ...chosen(usable.name, usable.card) } : el)),
               });
             }
             return isKept;
@@ -126,6 +132,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
                 ) : p.type === 'model' ? (
                   <select value={value} onChange={(e) => setValue(e.target.value)}>
                     {isOpAmpModel && <option value="">Ideale</option>}
+                    {isBlock && !chosenCard && <option value="">Scegli…</option>}
                     {options.map((m) => (
                       <option key={m.name} value={m.name}>
                         {m.name}
@@ -138,6 +145,9 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
                 {def.spice.kind === 'passive' && <ValueSlider value={value} label={p.label} onChange={setValue} />}
               </label>
               {p.type === 'model' && <ModelImporter library={library} onImport={addModels} onRemove={onRemoveModel} />}
+              {isBlock && chosenCard && (
+                <p className="hint">Piedini, da sinistra in alto e poi a destra: {subcircuitPins(chosenCard).join(', ')}. Vale per l'Analisi precisa: con un sottocircuito l'animazione non parte.</p>
+              )}
               {isOpAmpModel && chosenCard && (
                 <>
                   <OpAmpPins pins={subcircuitPins(chosenCard)} chosen={single.props.pins} onChange={(pins) => update({ props: { ...single.props, pins } })} />

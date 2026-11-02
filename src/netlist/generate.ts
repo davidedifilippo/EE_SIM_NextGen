@@ -70,11 +70,14 @@ export function describeNodes(circuit: Circuit, nodeOf: Map<string, string>): Ma
   const terminals = new Map<string, string[]>();
   for (const el of circuit.elements) {
     if (!el.tag) continue;
-    for (const t of getDevice(el.def)?.terminals ?? []) {
+    // A block calls its pins as its model does
+    const pinNames = String(el.props.pinNames ?? '').split(' ');
+    (getDevice(el.def)?.terminals ?? []).forEach((t, k) => {
       const node = nodeOf.get(terminalKey(el.id, t.id));
-      if (!node || node === '0') continue;
-      terminals.set(node, [...(terminals.get(node) ?? []), `${el.tag}.${t.id}`]);
-    }
+      if (!node || node === '0') return;
+      const pin = getDevice(el.def)?.spice.kind === 'block' ? pinNames[k] || t.id : t.id;
+      terminals.set(node, [...(terminals.get(node) ?? []), `${el.tag}.${pin}`]);
+    });
   }
   return new Map([...terminals].map(([node, names]) => [node, names.join(', ')]));
 }
@@ -156,7 +159,7 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
       errors.push(`${tag}: modello non definito "${name}"`);
       return null;
     }
-    if (modelType(model.card) !== type) {
+    if (type === 'SUBCKT' ? !isSubcircuitCard(model.card) : modelType(model.card) !== type) {
       errors.push(`${tag}: il modello "${name}" non è di tipo ${type}`);
       return null;
     }
@@ -178,6 +181,22 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         }
         const name = uniqueName(s.prefix, el.tag);
         if (name) lines.push(`${name} ${node(s.a)} ${node(s.b)} ${value}`);
+        break;
+      }
+      case 'block': {
+        const modelName = String(el.props[s.modelProp] ?? '').trim();
+        if (!modelName) {
+          errors.push(`${el.tag}: scegli o importa un modello`);
+          break;
+        }
+        const model = useModel(el.tag, modelName, 'SUBCKT');
+        if (model === null) break;
+        if (subcircuitPins(usedModels.get(model)!.card).length !== s.pins.length) {
+          errors.push(`${el.tag}: il modello "${model}" ha un altro numero di piedini`);
+          break;
+        }
+        const name = uniqueName('X', el.tag);
+        if (name) lines.push(`${name} ${s.pins.map(node).join(' ')} ${model}`);
         break;
       }
       case 'meter': {

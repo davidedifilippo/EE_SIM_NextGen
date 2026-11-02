@@ -260,6 +260,9 @@ export function compileCircuit(circuit: Circuit): CompileResult {
         else pending.push({ element, needsBranch: true, build: (branch) => ({ kind: 'inductor', element, a, b, l: value, branch }) });
         break;
       }
+      case 'block':
+        errors.push(`${el.tag}: un sottocircuito non si può animare. Usa l'Analisi precisa`);
+        break;
       case 'meter': {
         const resistance = meterResistance(el.props[s.modeProp]);
         if (resistance === null) {

@@ -6,7 +6,10 @@ import { circuitFromNets, Part } from '../realtime/testCircuits';
 import { parseCircuitFile, serializeCircuit } from '../storage/circuitFile';
 import { loadLibrary } from '../storage/modelLibrary';
 import { bodeCurve, bodeSummary } from '../ui/bode';
+import { compileCircuit } from '../realtime/compile';
+import { blockId, DEVICES, getDevice } from './devices';
 import { describeImport, parseModelText } from './modelImport';
+import { modelsOfType } from './models';
 import { guessOpAmpRoles, normalizeSubcircuitCard, readOpAmpRoles, subcircuitPins } from './subcircuit';
 
 /** The structure of the classic macromodels, with round values of its own: gain about 200 V/mV, GBW about 3 MHz. */
@@ -109,7 +112,7 @@ describe('reading a subcircuit', () => {
     expect(skipped('A1 1 2 foo').skipped).toEqual(['P: contiene un componente non supportato (A1)']);
     expect(skipped('.control\nshell rm\n.endc').skipped).toEqual(['P: contiene .control, che non è supportato']);
     expect(skipped('.include other.lib').skipped).toEqual(['P: contiene .include, che non è supportato']);
-    expect(parseModelText('.subckt P 1 2 3 4\nR1 1 2 1k\n.ends').skipped).toEqual(['P: ha 4 piedini, per ora si importano solo gli operazionali a 5']);
+    expect(parseModelText('.subckt P 1\nR1 1 0 1k\n.ends').skipped).toEqual(['P: ha 1 piedini, se ne possono usare da 2 a 12']);
     expect(parseModelText('.subckt P 1 2 3 4 5\n$CDNENCSTART\n.ends').skipped).toEqual(['P: dentro non ci sono componenti leggibili: forse è cifrato']);
   });
 
@@ -179,6 +182,61 @@ describe('the pins', () => {
   it('are an error when the model is not there', () => {
     const circuit = circuitFromNets('t', [SINE('1'), R('R1', 'out', '0', '1k'), opAmp('out', 'in', 'out', 'NOPE')]);
     expect(generateNetlist(circuit, { type: 'tran', step: '1u', stop: '1m' }).errors).toEqual(['U1: modello non definito "NOPE"']);
+  });
+});
+
+describe('a block', () => {
+  const REGULATOR = '.subckt REG IN OUT GND\nB1 OUT GND V=min(5,max(0,v(IN,GND)-1))\nR1 IN GND 10k\n.ends';
+  const block = (nets: string[], model: string): Part => ({ def: blockId(nets.length) as Part['def'], tag: 'X1', nets, props: { model } });
+  const circuit = (input: string, text = REGULATOR, model = 'REG') => {
+    const { name, card } = importOne(text);
+    return { ...circuitFromNets('t', [{ ...SINE('0'), props: { ...SINE('0').props, shape: 'dc', amplitude: input } }, block(['in', 'out', '0'], model), R('RL', 'out', '0', '1k')]), models: [{ name, card }] };
+  };
+
+  it('has a part for each number of pins, with only one in the list', () => {
+    expect(getDevice(blockId(3))?.terminals.map((t) => t.id)).toEqual(['p1', 'p2', 'p3']);
+    expect(getDevice(blockId(12))?.terminals).toHaveLength(12);
+    expect(getDevice(blockId(13))).toBeUndefined();
+    expect(DEVICES.filter((d) => d.spice.kind === 'block' && !d.isHidden)).toHaveLength(1);
+  });
+
+  it('lists every subcircuit, and an op amp only those with five pins', () => {
+    const five = importOne(MACROMODEL);
+    const three = importOne(REGULATOR);
+    const list = [five, three].map(({ name, card }) => ({ name, card }));
+    const names = (type: 'SUBCKT' | 'OPAMP') => modelsOfType({ title: '', elements: [], wires: [], models: list }, type).map((m) => m.name);
+    expect(names('SUBCKT')).toEqual(['DEMO072', 'REG']);
+    expect(names('OPAMP')).toEqual(['DEMO072']);
+  });
+
+  it('becomes an instance with the nodes in the order of its pins', () => {
+    const c = circuit('12');
+    const netlist = generateNetlist(c, { type: 'tran', step: '1u', stop: '10u' });
+    const node = (id: string) => netlist.nodeOf.get(terminalKey('x1', id));
+    expect(netlist.errors).toEqual([]);
+    expect(netlist.text).toContain(`X1 ${node('p1')} ${node('p2')} ${node('p3')} REG`);
+  });
+
+  it('asks for a model, and refuses one with other pins', () => {
+    const none = circuit('12', REGULATOR, '');
+    expect(generateNetlist(none, { type: 'tran', step: '1u', stop: '10u' }).errors).toEqual(['X1: scegli o importa un modello']);
+    const other = { ...circuit('12'), models: [{ name: 'REG', card: '.subckt REG a b\nR1 a b 1k\n.ends' }] };
+    expect(generateNetlist(other, { type: 'tran', step: '1u', stop: '10u' }).errors).toEqual(['X1: il modello "REG" ha un altro numero di piedini']);
+  });
+
+  it('stops the animation with a reason, and not the precise analysis', () => {
+    const compiled = compileCircuit(circuit('12'));
+    expect(compiled).toEqual({ ok: false, errors: ["X1: un sottocircuito non si può animare. Usa l'Analisi precisa"] });
+  });
+
+  it.each([
+    ['12', 5],
+    ['4', 3],
+  ])('runs in ngspice: with %s V at the input, %s V at the output', async (input, expected) => {
+    const c = circuit(input);
+    const netlist = generateNetlist(c, { type: 'tran', step: '1u', stop: '10u' });
+    const result = await runTransient(netlist.text);
+    expect(result.voltages.get(netlist.nodeOf.get(terminalKey('rl', 'a'))!)![result.time.length - 1]).toBeCloseTo(expected, 3);
   });
 });
 

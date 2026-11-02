@@ -26,8 +26,8 @@ describe('parseModelText', () => {
   const { models, skipped } = parseModelText(VENDOR_STYLE);
   const byName = new Map(models.map((m) => [m.name, m]));
 
-  it('finds the models, not what is in comments or subcircuits', () => {
-    expect(models.map((m) => m.name)).toEqual(['BC547X', 'DX5V6', 'QP']);
+  it('finds the models, and the subcircuits as such, not what is in comments', () => {
+    expect(models.map((m) => m.name)).toEqual(['BC547X', 'DX5V6', 'QP', 'OPA']);
   });
 
   it('joins continuation lines and drops comments', () => {
@@ -52,7 +52,7 @@ describe('parseModelText', () => {
   });
 
   it('explains what it cannot use', () => {
-    expect(skipped).toEqual(['J1: modello NJF non ancora supportato', 'OPA: ha 3 piedini, per ora si importano solo gli operazionali a 5']);
+    expect(skipped).toEqual(['J1: modello NJF non ancora supportato']);
   });
 
   it('finds nothing in text without models', () => {
@@ -112,13 +112,20 @@ describe('a subcircuit that only wraps one part', () => {
     ['another device too', '.subckt X C B E\nQ C B E M\nR1 C B 1k\n.model M NPN(IS=1f)\n.ends'],
     ['pins in another order', '.subckt X B C E\nQ C B E M\n.model M NPN(IS=1f)\n.ends'],
     ['a fourth pin on the transistor', '.subckt X C B E S\nQ C B E S M\n.model M NPN(IS=1f)\n.ends'],
-    ['a model defined elsewhere', '.subckt X C B E\nQ C B E M\n.ends'],
-    ['a diode with a transistor model', '.subckt X A K\nD A K M\n.model M NPN(IS=1f)\n.ends'],
     ['a device option', '.subckt X C B E\nQ C B E M area=2\n.model M NPN(IS=1f)\n.ends'],
   ])('stays a subcircuit with %s', (_, text) => {
     const read = parseModelText(text);
+    expect(read.skipped).toEqual([]);
+    expect(read.models[0]).toMatchObject({ name: 'X', type: 'SUBCKT' });
+  });
+
+  it.each([
+    ['a model defined elsewhere', '.subckt X C B E\nQ C B E M\n.ends', 'X: manca il modello m, che non è nel testo'],
+    ['a diode with a transistor model', '.subckt X A K\nD A K M\n.model M NPN(IS=1f)\n.ends', 'X: D usa un modello del tipo sbagliato'],
+  ])('is refused with %s', (_, text, reason) => {
+    const read = parseModelText(text);
     expect(read.models).toEqual([]);
-    expect(read.skipped).toEqual([expect.stringMatching(/^X: ha \d piedini, per ora si importano solo gli operazionali a 5$/)]);
+    expect(read.skipped).toEqual([reason]);
   });
 
   it('also unwraps a diode, with parameters from a .param line', () => {

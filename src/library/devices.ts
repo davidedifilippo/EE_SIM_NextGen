@@ -1,6 +1,33 @@
 import { METER_MODES } from '../realtime/meterModes';
+import { MAX_BLOCK_PINS, MIN_BLOCK_PINS } from './blockPins';
 import { ComponentDef, Prim, Rotation, Circuit, Element, Pt } from '../model/types';
 import { SourceShape, sourceShape } from '../netlist/source';
+
+
+/** One part for each number of pins, as terminals belong to the kind of part: half on the left, the rest on the right. */
+function blockDevice(count: number): ComponentDef {
+  const left = Math.ceil(count / 2);
+  const rows = (side: number, index: number) => (index - (side - 1) / 2) * 20;
+  const terminals = Array.from({ length: count }, (_, k) => (k < left ? { id: `p${k + 1}`, x: -50, y: rows(left, k) } : { id: `p${k + 1}`, x: 50, y: rows(count - left, k - left) }));
+  const halfHeight = (left * 20) / 2 + 6;
+  return {
+    id: blockId(count),
+    name: 'Sottocircuito',
+    tagPrefix: 'X',
+    terminals,
+    symbol: [
+      ...terminals.map((t): Prim => ({ t: 'line', x1: t.x, y1: t.y, x2: Math.sign(t.x) * 34, y2: t.y })),
+      { t: 'rect', x: -34, y: -halfHeight, w: 68, h: 2 * halfHeight, fill: '#f8fafc' },
+    ],
+    props: [{ key: 'model', label: 'Modello', type: 'model', default: '', modelType: 'SUBCKT' }],
+    spice: { kind: 'block', pins: terminals.map((t) => t.id), modelProp: 'model' },
+    isHidden: count !== DEFAULT_BLOCK_PINS,
+  };
+}
+
+/** The part for a model with so many pins. */
+export const blockId = (count: number) => `block${count}`;
+const DEFAULT_BLOCK_PINS = 3;
 
 const twoPin = (a: string, b: string) => [
   { id: a, x: -40, y: 0 },
@@ -270,6 +297,8 @@ export const DEVICES: ComponentDef[] = [
     spice: { kind: 'ground', terminal: 'g' },
   },
 ];
+
+for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));
 

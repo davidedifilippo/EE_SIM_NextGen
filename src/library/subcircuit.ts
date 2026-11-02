@@ -1,9 +1,13 @@
 import { parseSpiceValue } from '../netlist/values';
+import { MAX_BLOCK_PINS, MIN_BLOCK_PINS } from './blockPins';
 import { logicalLines, MODEL_NAME, normalizeModelCard } from './modelCard';
-import { isSubcircuitCard, isVdmos } from './models';
+import { isSubcircuitCard, isVdmos, OPAMP_PINS, splitSubcircuitHead as splitHead, subcircuitPins } from './models';
 import { ParamScope, readParams } from './spiceExpression';
 
-export const OPAMP_PINS = 5;
+export { OPAMP_PINS, subcircuitPins };
+
+export { MAX_BLOCK_PINS, MIN_BLOCK_PINS };
+
 export type OpAmpRole = 'plus' | 'minus' | 'high' | 'low' | 'out';
 /** The order nearly all manufacturers follow. */
 export const OPAMP_ROLES: OpAmpRole[] = ['plus', 'minus', 'high', 'low', 'out'];
@@ -27,14 +31,6 @@ export function endOfBlock(lines: string[], start: number): number {
   }
   return lines.length;
 }
-
-const splitHead = (head: string) => {
-  const [, name = '', ...rest] = head.split(/\s+/);
-  const paramsAt = rest.findIndex((token) => token.toLowerCase() === 'params:' || token.includes('='));
-  return { name, pins: paramsAt < 0 ? rest : rest.slice(0, paramsAt), params: paramsAt < 0 ? '' : rest.slice(paramsAt).join(' ').replace(/^params:\s*/i, '') };
-};
-
-export const subcircuitPins = (card: string) => splitHead(logicalLines(card)[0] ?? '').pins;
 
 /** Who does what, from the names of the pins when all of them tell, otherwise in the usual order. */
 export function guessOpAmpRoles(pins: string[]): OpAmpRole[] {
@@ -212,6 +208,24 @@ function definedNames(lines: string[], directive: string): Set<string> {
 /** Words on a device line that can be its model: the nodes come first, and parameters have an equal sign. */
 const modelCandidates = (line: string) => line.split(/\s+/).slice(3).filter((token) => !token.includes('=')).map((token) => token.toLowerCase());
 
+/** A device with a model of another kind stops ngspice for good, without a word to show. */
+function checkModelKinds(lines: string[]) {
+  const kinds = new Map(lines.filter((line) => isDirective(line, '.model')).map((line) => {
+    const [, name = '', keyword = ''] = line.split(/[\s(]+/);
+    return [name.toLowerCase(), keyword.toUpperCase()] as const;
+  }));
+  const accepted: Record<string, string[]> = { d: ['D'], q: ['NPN', 'PNP'], j: ['NJF', 'PJF'], m: ['NMOS', 'PMOS', 'VDMOS'] };
+  for (const line of lines) {
+    const allowed = accepted[line[0].toLowerCase()];
+    if (!allowed || line.startsWith('.')) continue;
+    const words = modelCandidates(line).filter((word) => kinds.has(word));
+    if (words.length > 0 && !words.some((word) => allowed.includes(kinds.get(word)!))) throw new Unusable(`${line.split(/\s+/)[0]} usa un modello del tipo sbagliato`);
+    // Only a VDMOS has three terminals: this one would take its model for the fourth node
+    const fourth = line.split(/\s+/)[4]?.toLowerCase();
+    if (/^m/i.test(line) && fourth && ['NMOS', 'PMOS'].includes(kinds.get(fourth) ?? '')) throw new Unusable(`${line.split(/\s+/)[0]} non ha il terminale di bulk`);
+  }
+}
+
 /** Brings in what the lines call and the file defines outside them, until nothing is missing. */
 function bringInDependencies(lines: string[], parts: FileParts, ignored: string[]): string[] {
   const all = [...lines];
@@ -240,6 +254,7 @@ export function buildSubcircuit(head: string, body: string[], parts: FileParts):
     const ignored: string[] = [];
     const lines = bringInDependencies(cleanBlock(head, body, parts.globals, ignored), parts, ignored);
     if (!lines.some((line) => !line.startsWith('.'))) throw new Unusable('dentro non ci sono componenti leggibili: forse è cifrato');
+    checkModelKinds(lines);
     const text = lines.slice(1).join('\n');
     const extras = [
       ...[...parts.globals].filter(([param]) => new RegExp(`\\b${param}\\b`, 'i').test(text)).map(([param, value]) => `.param ${param}=${value}`),

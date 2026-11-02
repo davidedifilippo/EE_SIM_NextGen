@@ -29,7 +29,7 @@ export function findModel(circuit: Circuit, name: string): SpiceModel | undefine
 
 /** A VDMOS counts as the N or P channel part it is: only the netlist and the engine see the difference. */
 export function modelType(card: string): string | null {
-  if (isSubcircuitCard(card)) return 'OPAMP';
+  if (isSubcircuitCard(card)) return subcircuitPins(card).length === OPAMP_PINS ? 'OPAMP' : 'SUBCKT';
   const type = /^\s*\.model\s+\S+\s+([a-z]+)/i.exec(card)?.[1].toUpperCase() ?? null;
   if (type !== 'VDMOS') return type;
   return /[\s(]pchan\b/i.test(card) ? 'PMOS' : 'NMOS';
@@ -37,13 +37,27 @@ export function modelType(card: string): string | null {
 
 export const isSubcircuitCard = (card: string) => /^\s*\.subckt\s/i.test(card);
 
+export const OPAMP_PINS = 5;
+
+/** Name, pins and parameters of a .subckt line. */
+export function splitSubcircuitHead(head: string) {
+  const [, name = '', ...rest] = head.trim().split(/\s+/);
+  const paramsAt = rest.findIndex((token) => token.toLowerCase() === 'params:' || token.includes('='));
+  return { name, pins: paramsAt < 0 ? rest : rest.slice(0, paramsAt), params: paramsAt < 0 ? '' : rest.slice(paramsAt).join(' ').replace(/^params:\s*/i, '') };
+}
+
+/** The pins of a subcircuit card, or of its first line. */
+export const subcircuitPins = (card: string) => splitSubcircuitHead(card.split('\n')[0]).pins;
+
 export const isVdmos = (card: string) => /^\s*\.model\s+\S+\s+vdmos\b/i.test(card);
 
 /** Circuit first, then the personal library, then the built-in models, each name once. */
 export function modelsOfType(circuit: Circuit, type: ModelType, library: SpiceModel[] = []): SpiceModel[] {
   const seen = new Set<string>();
   return [...circuit.models, ...library, ...LIBRARY].filter((m) => {
-    if (seen.has(m.name) || modelType(m.card) !== type) return false;
+    // A block takes any subcircuit, those with five pins too: not all of them are op amps
+    const fits = type === 'SUBCKT' ? isSubcircuitCard(m.card) : modelType(m.card) === type;
+    if (seen.has(m.name) || !fits) return false;
     seen.add(m.name);
     return true;
   });
@@ -55,7 +69,7 @@ export const isBuiltInModel = (model: SpiceModel) => LIBRARY.some((m) => m.name 
 function usedModelNames(circuit: Circuit): string[] {
   const names = circuit.elements.flatMap((el) => {
     const spice = getDevice(el.def)?.spice;
-    return spice && (spice.kind === 'diode' || spice.kind === 'bjt' || spice.kind === 'mos' || spice.kind === 'opamp') ? [String(el.props[spice.modelProp] ?? '')] : [];
+    return spice && (spice.kind === 'diode' || spice.kind === 'bjt' || spice.kind === 'mos' || spice.kind === 'opamp' || spice.kind === 'block') ? [String(el.props[spice.modelProp] ?? '')] : [];
   });
   return [...new Set(names)].filter(Boolean);
 }

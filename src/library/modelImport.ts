@@ -3,7 +3,7 @@ import { isSubcircuitCard, isVdmos } from './models';
 import { parseSpiceValue } from '../netlist/values';
 import { ImportedModel, logicalLines, ModelImport, normalizeModelCard } from './modelCard';
 import { ParamScope, readParams } from './spiceExpression';
-import { buildSubcircuit, endOfBlock, normalizeSubcircuitCard, OPAMP_PINS, readFileParts, referencedSubcircuits, subcircuitPins } from './subcircuit';
+import { buildSubcircuit, endOfBlock, MAX_BLOCK_PINS, MIN_BLOCK_PINS, normalizeSubcircuitCard, OPAMP_PINS, readFileParts, referencedSubcircuits, subcircuitPins } from './subcircuit';
 
 export { normalizeModelCard } from './modelCard';
 export type { ImportedModel, ModelImport } from './modelCard';
@@ -112,10 +112,11 @@ export function parseModelText(text: string): ModelImport {
       if (model) add(model);
       else if (!helpers.has(name.toLowerCase())) {
         const pins = subcircuitPins(line);
-        const built = pins.length === OPAMP_PINS ? buildSubcircuit(line, body, parts) : null;
-        if (pins.length !== OPAMP_PINS) skipped.push(`${name}: ha ${pins.length} piedini, per ora si importano solo gli operazionali a ${OPAMP_PINS}`);
+        const fits = pins.length >= MIN_BLOCK_PINS && pins.length <= MAX_BLOCK_PINS;
+        const built = fits ? buildSubcircuit(line, body, parts) : null;
+        if (!fits) skipped.push(`${name}: ha ${pins.length} piedini, se ne possono usare da ${MIN_BLOCK_PINS} a ${MAX_BLOCK_PINS}`);
         else if (built && 'reason' in built) skipped.push(`${name}: ${built.reason}`);
-        else if (built) models.set(built.name, { ...built, type: 'OPAMP', unresolved: [] });
+        else if (built) models.set(built.name, { ...built, type: pins.length === OPAMP_PINS ? 'OPAMP' : 'SUBCKT', unresolved: [] });
       }
       i = end;
     } else if (AKO.test(line)) {

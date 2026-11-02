@@ -70,6 +70,8 @@ export function drawingSign(el: Element): 1 | -1 {
 
 const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
   switch (s.kind) {
+    case 'block':
+      return s.pins;
     case 'passive':
     case 'meter':
       return [s.a, s.b];

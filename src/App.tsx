@@ -446,7 +446,7 @@ export const App: React.FC = () => {
 
       <div className="workspace">
         <nav className="palette" aria-label="Componenti">
-          {DEVICES.map((def) => (
+          {DEVICES.filter((def) => !def.isHidden).map((def) => (
             <button
               key={def.id}
               className={activeDef?.id === def.id ? 'active' : ''}
