@@ -3,7 +3,7 @@ import { getDevice } from '../library/devices';
 import { findModel, fitsModelType, isSubcircuitCard, isVdmos } from '../library/models';
 import { normalizeSubcircuitCard, OpAmpRole, readOpAmpRoles, readRegulatorRoles, RegulatorRole, subcircuitPins } from '../library/subcircuit';
 import { computeConnectivity, terminalKey } from './connectivity';
-import { sourceAcSpec, sourceDcSpec, sourceSpec } from './source';
+import { internalResistance, sourceAcSpec, sourceDcSpec, sourceSpec } from './source';
 import { parseSpiceValue } from './values';
 import { METER_TEST_CURRENT, meterResistance } from '../realtime/meter';
 import { gateExpression, levelExpression, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicParams } from '../realtime/logic';
@@ -284,8 +284,14 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
           errors.push(`${el.tag}: sorgente non valida`);
           break;
         }
+        const r = internalResistance(el.props);
+        if (r === null) {
+          errors.push(`${el.tag}: resistenza interna non valida`);
+          break;
+        }
         const name = uniqueName('V', el.tag);
-        if (name) lines.push(`${name} ${node(s.pos)} ${node(s.neg)} ${spec}`);
+        if (name && r > 0) lines.push(`RI${name} ${node(s.pos)} xr${name} ${r}`, `${name} xr${name} ${node(s.neg)} ${spec}`);
+        else if (name) lines.push(`${name} ${node(s.pos)} ${node(s.neg)} ${spec}`);
         if (spec.includes(' AC ')) hasAcSource = true;
         break;
       }

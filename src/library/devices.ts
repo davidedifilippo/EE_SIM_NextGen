@@ -112,7 +112,7 @@ function meterSymbol(mode: unknown): Prim[] {
 }
 
 /** A source that only gives a fixed voltage. To the engines it is a generator like the others. */
-function dcSource(id: string, name: string, voltage: string, symbol: Prim[], searchTerms: string): ComponentDef {
+function dcSource(id: string, name: string, voltage: string, resistance: string, symbol: Prim[], searchTerms: string): ComponentDef {
   return {
     id,
     category: 'Sorgenti',
@@ -124,6 +124,7 @@ function dcSource(id: string, name: string, voltage: string, symbol: Prim[], sea
     props: [
       { key: 'shape', label: 'Tipo di segnale', type: 'text', default: 'dc' },
       { key: 'amplitude', label: 'Tensione', type: 'text', default: voltage },
+      { key: 'rint', label: 'Resistenza interna', type: 'text', default: resistance },
     ],
     spice: { kind: 'vsource', pos: 'pos', neg: 'neg' },
   };
@@ -198,11 +199,13 @@ export const DEVICES: ComponentDef[] = [
     props: [{ key: 'value', label: 'Induttanza', type: 'text', default: '10m' }],
     spice: { kind: 'passive', prefix: 'L', a: 'a', b: 'b', valueProp: 'value' },
   },
-  dcSource('dcsupply', 'Alimentazione continua', '12', SOURCE_BODY, 'dc alimentatore'),
+  // A bench supply is close to ideal; a battery is not, and gives its current only through its own resistance
+  dcSource('dcsupply', 'Alimentazione continua', '12', '0', SOURCE_BODY, 'dc alimentatore'),
   dcSource(
     'battery',
     'Batteria',
     '9',
+    '1',
     [
       ...leads(9),
       // Two cells: the long plate is the positive one
@@ -231,6 +234,7 @@ export const DEVICES: ComponentDef[] = [
       { key: 'phase', label: 'Fase iniziale', type: 'text', default: '0' },
       { key: 'duty', label: 'Duty cycle', type: 'text', default: '50' },
       { key: 'spec', label: 'Stringa ngspice', type: 'text', default: '' },
+      { key: 'rint', label: 'Resistenza interna', type: 'text', default: '0' },
     ],
     spice: { kind: 'vsource', pos: 'pos', neg: 'neg' },
   },

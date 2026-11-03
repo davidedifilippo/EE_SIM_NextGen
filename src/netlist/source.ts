@@ -22,6 +22,12 @@ const field = (props: SourceProps, key: string) => parseSpiceValue(String(props[
 const optionalField = (props: SourceProps, key: string) => (String(props[key] ?? '').trim() === '' ? 0 : field(props, key));
 
 /** Duty cycle in percent, 50 if left empty, or null if out of range. */
+/** In series with the source: empty or 0 for an ideal one. Null if it cannot be read or is negative. */
+export function internalResistance(props: SourceProps): number | null {
+  const value = optionalField(props, 'rint');
+  return value === null || value < 0 ? null : value;
+}
+
 export function dutyCycle(props: SourceProps): number | null {
   if (String(props.duty ?? '').trim() === '') return 50;
   const duty = field(props, 'duty');

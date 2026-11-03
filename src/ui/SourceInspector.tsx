@@ -101,6 +101,8 @@ export const SourceInspector: React.FC<Props> = ({ props, isDcOnly = false, onCh
           )}
         </>
       )}
+
+      {field('rint', 'Resistenza interna (Ω), 0 se ideale', { optional: true })}
     </>
   );
 };

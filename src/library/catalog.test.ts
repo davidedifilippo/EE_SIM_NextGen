@@ -25,7 +25,7 @@ describe('the sources of continuous voltage', () => {
   });
 
   it('are made to give continuous voltage from the start', () => {
-    expect(createElement(getDevice('battery')!, { x: 0, y: 0 }, 0, { title: '', elements: [], wires: [], models: [] }, 'b').props).toEqual({ shape: 'dc', amplitude: '9' });
+    expect(createElement(getDevice('battery')!, { x: 0, y: 0 }, 0, { title: '', elements: [], wires: [], models: [] }, 'b').props).toEqual({ shape: 'dc', amplitude: '9', rint: '1' });
     expect(isDcSource(createElement(getDevice('dcsupply')!, { x: 0, y: 0 }, 0, { title: '', elements: [], wires: [], models: [] }, 'd').props)).toBe(true);
     expect(createElement(getDevice('vsource')!, { x: 0, y: 0 }, 0, { title: '', elements: [], wires: [], models: [] }, 'v').props.shape).toBe('sin');
   });

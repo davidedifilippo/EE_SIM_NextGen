@@ -6,7 +6,7 @@ import { OPAMP_GAIN, transformerWindings } from '../netlist/generate';
 import { METER_TEST_CURRENT, meterResistance } from './meter';
 import { GateKind, logicParams } from './logic';
 import { RegulatorParams, regulatorParams } from './regulator';
-import { sourceSpec } from '../netlist/source';
+import { internalResistance, sourceSpec } from '../netlist/source';
 import { parseSpiceValue } from '../netlist/values';
 import { parseWaveform, Waveform } from './waveform';
 
@@ -73,7 +73,8 @@ export type CompiledDevice =
   | { kind: 'resistor'; element: number; a: NodeIndex; b: NodeIndex; g: number }
   | { kind: 'capacitor'; element: number; a: NodeIndex; b: NodeIndex; c: number }
   | { kind: 'inductor'; element: number; a: NodeIndex; b: NodeIndex; l: number; branch: number }
-  | { kind: 'vsource'; element: number; a: NodeIndex; b: NodeIndex; wave: Waveform; branch: number }
+  /** r is the internal resistance, in the branch equation: 0 for an ideal source. */
+  | { kind: 'vsource'; element: number; a: NodeIndex; b: NodeIndex; wave: Waveform; r: number; branch: number }
   | { kind: 'isource'; element: number; a: NodeIndex; b: NodeIndex; current: number }
   /** a is the external anode, junction the node after the series resistance (a itself if rs is 0). */
   | { kind: 'diode'; element: number; a: NodeIndex; junction: NodeIndex; b: NodeIndex; params: DiodeParams }
@@ -318,8 +319,13 @@ export function compileCircuit(circuit: Circuit): CompileResult {
           errors.push(`${el.tag}: sorgente non valida${spec ? ` "${spec}"` : ''}`);
           break;
         }
+        const r = internalResistance(el.props);
+        if (r === null) {
+          errors.push(`${el.tag}: resistenza interna non valida "${el.props.rint ?? ''}"`);
+          break;
+        }
         const [a, b] = [node(s.pos), node(s.neg)];
-        pending.push({ element, needsBranch: true, build: (branch) => ({ kind: 'vsource', element, a, b, wave, branch }) });
+        pending.push({ element, needsBranch: true, build: (branch) => ({ kind: 'vsource', element, a, b, wave, r, branch }) });
         break;
       }
       case 'diode': {

@@ -15,6 +15,8 @@ const MAX_ITERATIONS = 60;
 const OPAMP_MARGIN = 1e-6;
 /** Changes of state within one solution before calling it a failure, and trying a shorter step. */
 const MAX_OPAMP_CHANGES = 24;
+/** A short across an ideal source, or two of them in parallel, leaves the equations without a solution. */
+const UNSOLVABLE = 'Circuito non risolvibile: un generatore ideale o un induttore è in cortocircuito, o in parallelo a un altro. Dai al generatore una resistenza interna';
 /** Rounds of the logic at the operating point: more than the longest chain of gates in a lesson. */
 const LOGIC_SETTLE_ROUNDS = 64;
 const TRANSFORMER_LEAK_CONDUCTANCE = 1e-9;
@@ -304,6 +306,10 @@ export class RealtimeEngine {
           base[d.branch * n + d.branch] = h > 0 ? (-2 * d.l) / h : 0;
           break;
         case 'vsource':
+          this.addBranchColumns(d.a, d.b, d.branch);
+          // V(a) - V(b) - r*i = e, with i the current entering a: a battery sinks as it delivers
+          base[d.branch * n + d.branch] = -d.r;
+          break;
         case 'opamp':
           this.addBranchColumns(d.a, d.b, d.branch);
           break;
@@ -661,7 +667,7 @@ export class RealtimeEngine {
       this.stampRhs(t, h, sourceScale);
       if (!this.luValid) {
         lu.set(base);
-        if (!luFactor(lu, n, pivots)) throw new SolverError('Circuito non risolvibile: controlla generatori e induttori in parallelo o in cortocircuito');
+        if (!luFactor(lu, n, pivots)) throw new SolverError(UNSOLVABLE);
         this.luValid = true;
       }
       luSolve(lu, n, pivots, rhs);
@@ -675,7 +681,7 @@ export class RealtimeEngine {
       this.stampRhs(t, h, sourceScale);
       lu.set(base);
       const limited = this.stampNonlinear();
-      if (!luFactor(lu, n, pivots)) throw new SolverError('Circuito non risolvibile: controlla generatori e induttori in parallelo o in cortocircuito');
+      if (!luFactor(lu, n, pivots)) throw new SolverError(UNSOLVABLE);
       luSolve(lu, n, pivots, rhs);
       // At the operating point time does not pass, so nothing can run away: the transient decides
       const hasLeft = h > 0 && this.leaveUnstableOpAmps();
