@@ -29,6 +29,7 @@ import { regulatorSummaries, RegulatorSummary } from '../ui/regulatorPower';
 import { LiveLegendHandle } from '../ui/LiveControls';
 import { liveTraces, nextSlot, ScopeTrace, traceLabel } from '../ui/scopeTraces';
 import { useLiveSimulation } from '../ui/useLiveSimulation';
+import { automaticSpeed, fastestPeriod } from '../realtime/liveRate';
 
 export type Run =
   | { kind: 'tran'; result: TranResult; series: Series[]; regulators: RegulatorSummary[]; netlist: string }
@@ -76,7 +77,8 @@ export function useWorkbench() {
   const [errors, setErrors] = useState<string[]>([]);
   const [run, setRun] = useState<Run | null>(null);
   const [liveRunning, setLiveRunning] = useState(true);
-  const [speed, setSpeed] = useState(20e-3);
+  /** A speed of the list, or 'auto' to follow the fastest generator. */
+  const [speedChoice, setSpeedChoice] = useState<number | 'auto'>('auto');
   const [showValues, setShowValues] = useState(true);
   /** What to look at in the example just opened. */
   const [exampleHint, setExampleHint] = useState<string | null>(null);
@@ -98,6 +100,8 @@ export function useWorkbench() {
   const toggleProbe = (probe: ScopeProbe) =>
     setTraces(scopeIds.has(probe.id) ? traces.filter((t) => t.id !== probe.id) : [...traces, { ...probe, slot: nextSlot(traces) }]);
 
+  const signalPeriod = useMemo(() => fastestPeriod(resolved), [resolved]);
+  const speed = speedChoice === 'auto' ? automaticSpeed(signalPeriod) : speedChoice;
   const live = useLiveSimulation(resolved, liveRunning, speed, traces);
   const legendRef = useRef<LiveLegendHandle>(null);
   const { keptUpRef } = live;
@@ -435,7 +439,7 @@ export function useWorkbench() {
     setErrors([]);
   };
 
-  return { isSharing, setIsSharing, forSaving, openCircuit, newCircuit, fileInputRef, openExample, openFile, undo, redo, history, redoStack, theme, setTheme, liveRunning, setLiveRunning, speed, setSpeed, showValues, setShowValues, isDc, analysisKind, setAnalysisKind, stop, setStop, step, setStep, sweptId, setDcSource, generators, dcFrom, setDcFrom, dcTo, setDcTo, dcStep, setDcStep, familyId, setDcFamilySource, dcFamilyFrom, setDcFamilyFrom, dcFamilyTo, setDcFamilyTo, dcFamilyStep, setDcFamilyStep, acFrom, setAcFrom, acTo, setAcTo, runSimulation, running, activeDef, setActiveDef, selectedIds, setSelectedIds, exampleHint, setExampleHint, resolved, documentId, circuit, handleChange, deleteSelected, rotateSelected, mirrorSelected, selectAll, copySelected, cutSelected, duplicateSelected, clipboard, paste, viewRef, overlay, labels, legendRef, live, library, importModels, removeModel, scopeIds, traces, setTraces, toggleProbe, traceLabels, errors, setErrors, run, setRun, isStale, closeResults };
+  return { isSharing, setIsSharing, forSaving, openCircuit, newCircuit, fileInputRef, openExample, openFile, undo, redo, history, redoStack, theme, setTheme, liveRunning, setLiveRunning, speed, speedChoice, setSpeedChoice, signalPeriod, showValues, setShowValues, isDc, analysisKind, setAnalysisKind, stop, setStop, step, setStep, sweptId, setDcSource, generators, dcFrom, setDcFrom, dcTo, setDcTo, dcStep, setDcStep, familyId, setDcFamilySource, dcFamilyFrom, setDcFamilyFrom, dcFamilyTo, setDcFamilyTo, dcFamilyStep, setDcFamilyStep, acFrom, setAcFrom, acTo, setAcTo, runSimulation, running, activeDef, setActiveDef, selectedIds, setSelectedIds, exampleHint, setExampleHint, resolved, documentId, circuit, handleChange, deleteSelected, rotateSelected, mirrorSelected, selectAll, copySelected, cutSelected, duplicateSelected, clipboard, paste, viewRef, overlay, labels, legendRef, live, library, importModels, removeModel, scopeIds, traces, setTraces, toggleProbe, traceLabels, errors, setErrors, run, setRun, isStale, closeResults };
 }
 
 export type Workbench = ReturnType<typeof useWorkbench>;

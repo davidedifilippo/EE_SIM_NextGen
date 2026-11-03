@@ -119,6 +119,7 @@ export const MobileApp: React.FC<{ wb: Workbench; onFullLayout: () => void }> = 
                 labels={wb.traceLabels}
                 bufferRef={wb.live.scopeRef}
                 speed={wb.speed}
+                signalPeriod={wb.signalPeriod}
                 onRemove={(id) => wb.setTraces(wb.traces.filter((t) => t.id !== id))}
                 onClose={() => wb.setTraces([])}
               />

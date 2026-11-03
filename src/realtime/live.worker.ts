@@ -1,6 +1,7 @@
 import { Circuit } from '../model/types';
 import { LiveFrame, LiveSimulation, ScopeProbe } from './liveSimulation';
 import { SolverError } from './engine';
+import { LIVE_STEPS_PER_SECOND as STEPS_PER_SECOND } from './liveRate';
 
 export type LiveRequest =
   | { type: 'load'; revision: number; circuit: Circuit }
@@ -11,8 +12,6 @@ export type LiveResponse =
   | { type: 'frame'; revision: number; frame: LiveFrame; /** Fraction of the requested steps that fit in real time. */ keptUp: number }
   | { type: 'status'; revision: number; errors: string[] };
 
-/** Solver steps per second of real time: the step size follows from the chosen speed. */
-const STEPS_PER_SECOND = 2400;
 const TICK_MS = 16;
 const FRAME_MS = 33;
 /** Leaves time to receive messages and for the browser to breathe. */

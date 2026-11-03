@@ -55,6 +55,7 @@ export const App: React.FC<{ wb: Workbench; onPhoneLayout: () => void }> = ({ wb
         labels={wb.traceLabels}
         bufferRef={wb.live.scopeRef}
         speed={wb.speed}
+        signalPeriod={wb.signalPeriod}
         onRemove={(id) => wb.setTraces(wb.traces.filter((t) => t.id !== id))}
         onClose={() => wb.setTraces([])}
       />

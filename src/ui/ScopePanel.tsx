@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { MIN_SAMPLES_PER_PERIOD, samplesPerPeriod, speedLabel } from '../realtime/liveRate';
 import { formatEngineering, formatSi, niceTicks, pickTimeUnit } from './chartMath';
 import { ScopeBuffer } from './scopeBuffer';
 import { ScopeUnit, unitOf, ScopeTrace } from './scopeTraces';
@@ -9,6 +10,8 @@ interface Props {
   bufferRef: React.MutableRefObject<ScopeBuffer>;
   /** Simulated seconds per real second. */
   speed: number;
+  /** Period of the fastest generator, to say when the speed is too high to draw it. */
+  signalPeriod: number | null;
   onRemove: (id: string) => void;
   onClose: () => void;
 }
@@ -17,7 +20,20 @@ interface Props {
 const plotHeightFor = (plots: number) => (plots > 1 ? 104 : 140);
 const MARGIN = { top: 8, right: 12, bottom: 22, left: 58 };
 /** How long a sweep lasts on screen, as the time menu offers it. */
-const SWEEPS_SECONDS = [1, 2, 4, 10];
+/** Seconds of real time across the screen. The short ones show a few periods of a fast signal, kept still by the trigger. */
+const SWEEPS_SECONDS = [0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 4, 10];
+const DEFAULT_SWEEP_SECONDS = 2;
+/** Periods of the fastest signal the window shows until the viewer picks one: enough to see its shape. */
+const PERIODS_IN_VIEW = 4;
+
+/** How many points fall in a period, in words: below one there is not even a point for each period. */
+const pointsText = (samples: number) => (samples < 1 ? 'meno di un punto' : Math.round(samples) === 1 ? 'un solo punto' : `solo ${Math.round(samples)} punti`);
+
+/** The shortest window that holds a few periods, or the usual one with no signal to follow. */
+function sweepFor(period: number | null, speed: number): number {
+  if (period === null) return DEFAULT_SWEEP_SECONDS;
+  return SWEEPS_SECONDS.find((seconds) => speed * seconds >= PERIODS_IN_VIEW * period) ?? SWEEPS_SECONDS[SWEEPS_SECONDS.length - 1];
+}
 const STATS_EVERY_MS = 250;
 const UNIT_NAMES: Record<ScopeUnit, string> = { V: 'Tensione (V)', A: 'Corrente (A)' };
 
@@ -35,10 +51,12 @@ const buildPath = (columns: Float64Array, width: number, toY: (v: number) => num
 };
 
 /** Live traces of the running circuit, on one plot per unit: volts and amperes never share an axis. */
-export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, onRemove, onClose }) => {
+export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, signalPeriod, onRemove, onClose }) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
-  const [sweepSeconds, setSweepSeconds] = useState(2);
+  const [pickedSweep, setPickedSweep] = useState<number | null>(null);
+  // Follows the signal until the viewer chooses a window: then it stays where it was put
+  const sweepSeconds = pickedSweep ?? Math.min(DEFAULT_SWEEP_SECONDS, sweepFor(signalPeriod, speed));
   const [isTriggered, setIsTriggered] = useState(true);
   const [axes, setAxes] = useState<Partial<Record<ScopeUnit, number[]>>>({});
   const [measures, setMeasures] = useState<Map<string, string>>(new Map());
@@ -152,11 +170,17 @@ export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, 
 
   return (
     <section className="scope-panel viz-root" ref={rootRef} aria-label="Oscilloscopio">
+      {signalPeriod !== null && samplesPerPeriod(signalPeriod, speed) < MIN_SAMPLES_PER_PERIOD && (
+        <p className="scope-warning" role="status">
+          Segnale da {formatEngineering(1 / signalPeriod, 'Hz')} troppo veloce per {speedLabel(speed)}: {pointsText(samplesPerPeriod(signalPeriod, speed))} per periodo, la traccia non è fedele.
+          Scegli una velocità più lenta, o Automatica, oppure usa l'Analisi precisa.
+        </p>
+      )}
       <div className="scope-header">
         <strong>Oscilloscopio</strong>
         <label>
           Finestra
-          <select value={sweepSeconds} onChange={(e) => setSweepSeconds(Number(e.target.value))}>
+          <select value={sweepSeconds} onChange={(e) => setPickedSweep(Number(e.target.value))}>
             {SWEEPS_SECONDS.map((seconds) => {
               const unit = pickTimeUnit(speed * seconds);
               return (

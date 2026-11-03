@@ -5,13 +5,7 @@ import { LiveFrame } from '../realtime/liveSimulation';
 import { waveformStats } from '../realtime/waveform';
 import { formatEngineering, pickTimeUnit } from './chartMath';
 
-export const SPEEDS: { label: string; simSecondsPerSecond: number }[] = [
-  { label: '1 ms/s', simSecondsPerSecond: 1e-3 },
-  { label: '5 ms/s', simSecondsPerSecond: 5e-3 },
-  { label: '20 ms/s', simSecondsPerSecond: 20e-3 },
-  { label: '100 ms/s', simSecondsPerSecond: 100e-3 },
-  { label: '1 s/s', simSecondsPerSecond: 1 },
-];
+export { SPEEDS } from '../realtime/liveRate';
 
 export interface LiveLegendHandle {
   update: (maxVoltage: number, frame: LiveFrame | null, keptUp: number) => void;

@@ -5,6 +5,7 @@ import { EXAMPLES } from '../samples/examples';
 import { SchematicCanvas } from '../editor/SchematicCanvas';
 import { ComponentLibrary } from '../ui/ComponentLibrary';
 import { LiveLegend, SourceStats, SPEEDS } from '../ui/LiveControls';
+import { speedLabel } from '../realtime/liveRate';
 import { PropertiesPanel } from '../ui/PropertiesPanel';
 import { MAX_TRACES } from '../ui/scopeTraces';
 import { THEME_CHOICES } from '../ui/theme';
@@ -80,9 +81,10 @@ export const ThemeSelect: React.FC<{ wb: Workbench }> = ({ wb }) => (
 );
 
 export const SpeedSelect: React.FC<{ wb: Workbench }> = ({ wb }) => (
-  <label>
+  <label title="Tempo simulato per ogni secondo reale. Automatica rallenta per i segnali veloci, così l'oscilloscopio li disegna bene">
     Velocità
-    <select value={wb.speed} onChange={(e) => wb.setSpeed(Number(e.target.value))}>
+    <select value={String(wb.speedChoice)} onChange={(e) => wb.setSpeedChoice(e.target.value === 'auto' ? 'auto' : Number(e.target.value))}>
+      <option value="auto">Automatica ({speedLabel(wb.speed)})</option>
       {SPEEDS.map((s) => (
         <option key={s.label} value={s.simSecondsPerSecond}>
           {s.label}

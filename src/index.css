@@ -693,6 +693,15 @@ button.close-results {
   }
 }
 
+.scope-warning {
+  margin: 0 0 6px;
+  padding: 4px 8px;
+  color: var(--warning-text);
+  background: var(--accent-soft);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
 .example-hint {
   position: absolute;
   top: 8px;
