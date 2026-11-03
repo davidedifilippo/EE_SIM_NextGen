@@ -17,7 +17,7 @@ export const App: React.FC<{ wb: Workbench; onPhoneLayout: () => void }> = ({ wb
         <Logo />
       </h1>
       <div className="button-row">
-        <button onClick={() => wb.openCircuit({ title: 'Circuito', elements: [], wires: [], models: [] })}>Nuovo</button>
+        <button onClick={wb.newCircuit}>Nuovo</button>
         <button onClick={() => wb.fileInputRef.current?.click()}>Apri</button>
         <ExamplesSelect wb={wb} />
         <button className="primary" onClick={() => downloadCircuit(wb.forSaving)}>

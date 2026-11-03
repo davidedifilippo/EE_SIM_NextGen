@@ -149,6 +149,9 @@ const regulator = (): Circuit => ({
   models: [],
 });
 
+/** What Nuovo opens: an empty sheet, but with the ground that every circuit needs. */
+export const emptyCircuit = (): Circuit => ({ title: 'Circuito', elements: [ground(0, 0)], wires: [], models: [] });
+
 export const EXAMPLES: Example[] = [
   { id: 'divider', title: 'Partitore di tensione', hint: 'Il multimetro legge 12 V × 4,7k / 14,7k, circa 3,84 V', build: divider },
   { id: 'rectifier', title: 'Raddrizzatore a semionda', hint: 'Con l’Analisi precisa si vede il ripple sul condensatore', build: () => halfWaveRectifier({ capacitor: '100u' }) },

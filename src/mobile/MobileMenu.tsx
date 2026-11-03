@@ -18,7 +18,7 @@ export const MobileMenu: React.FC<Props> = ({ wb, onFullLayout, onClose }) => {
   return (
     <div className="dialog-backdrop mobile-menu-backdrop" onPointerDown={onClose}>
       <div className="mobile-menu" role="menu" onPointerDown={(e) => e.stopPropagation()}>
-        <button onClick={act(() => wb.openCircuit({ title: 'Circuito', elements: [], wires: [], models: [] }))}>Nuovo</button>
+        <button onClick={act(wb.newCircuit)}>Nuovo</button>
         <button onClick={act(() => wb.fileInputRef.current?.click())}>Apri…</button>
         <ExamplesSelect wb={wb} onOpened={onClose} />
         <button onClick={act(() => downloadCircuit(wb.forSaving))}>Salva</button>

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateNetlist } from '../netlist/generate';
 import { compileCircuit } from '../realtime/compile';
 import { RealtimeEngine } from '../realtime/engine';
-import { EXAMPLES } from './examples';
+import { emptyCircuit, EXAMPLES } from './examples';
 
 const example = (id: string) => EXAMPLES.find((e) => e.id === id)!.build();
 
@@ -68,5 +68,13 @@ describe('the examples', () => {
     const off = collector();
     expect(on).toBeGreaterThan(10e-3);
     expect(off).toBeLessThan(1e-6);
+  });
+});
+
+describe('a new circuit', () => {
+  it('starts with a ground, so that a first part can already run', () => {
+    const circuit = emptyCircuit();
+    expect(circuit.elements.map((el) => el.def)).toEqual(['ground']);
+    expect(compileCircuit(circuit)).toMatchObject({ ok: true });
   });
 });

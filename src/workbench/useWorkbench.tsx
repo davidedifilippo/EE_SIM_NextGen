@@ -6,7 +6,7 @@ import { Analysis, describeNodes, generateNetlist, sweepCount } from '../netlist
 import { parseSpiceValue } from '../netlist/values';
 import { isDcSource } from '../netlist/source';
 import { halfWaveRectifier } from '../samples/halfWaveRectifier';
-import { EXAMPLES } from '../samples/examples';
+import { emptyCircuit, EXAMPLES } from '../samples/examples';
 import { circuitFromFragment, isCircuitFragment } from '../storage/shareLink';
 import { clearOfCircuit, Clip, copySelection, moveInView, moveToCenter, PASTE_STEP, pasteClipboard } from '../editor/clipboard';
 import { Box } from '../utils/geometry';
@@ -170,6 +170,8 @@ export function useWorkbench() {
     setDocumentId((id) => id + 1);
     setExampleHint(null);
   };
+
+  const newCircuit = () => openCircuit(emptyCircuit());
 
   const openExample = (id: string) => {
     const example = EXAMPLES.find((e) => e.id === id);
@@ -433,7 +435,7 @@ export function useWorkbench() {
     setErrors([]);
   };
 
-  return { isSharing, setIsSharing, forSaving, openCircuit, fileInputRef, openExample, openFile, undo, redo, history, redoStack, theme, setTheme, liveRunning, setLiveRunning, speed, setSpeed, showValues, setShowValues, isDc, analysisKind, setAnalysisKind, stop, setStop, step, setStep, sweptId, setDcSource, generators, dcFrom, setDcFrom, dcTo, setDcTo, dcStep, setDcStep, familyId, setDcFamilySource, dcFamilyFrom, setDcFamilyFrom, dcFamilyTo, setDcFamilyTo, dcFamilyStep, setDcFamilyStep, acFrom, setAcFrom, acTo, setAcTo, runSimulation, running, activeDef, setActiveDef, selectedIds, setSelectedIds, exampleHint, setExampleHint, resolved, documentId, circuit, handleChange, deleteSelected, rotateSelected, mirrorSelected, selectAll, copySelected, cutSelected, duplicateSelected, clipboard, paste, viewRef, overlay, labels, legendRef, live, library, importModels, removeModel, scopeIds, traces, setTraces, toggleProbe, traceLabels, errors, setErrors, run, setRun, isStale, closeResults };
+  return { isSharing, setIsSharing, forSaving, openCircuit, newCircuit, fileInputRef, openExample, openFile, undo, redo, history, redoStack, theme, setTheme, liveRunning, setLiveRunning, speed, setSpeed, showValues, setShowValues, isDc, analysisKind, setAnalysisKind, stop, setStop, step, setStep, sweptId, setDcSource, generators, dcFrom, setDcFrom, dcTo, setDcTo, dcStep, setDcStep, familyId, setDcFamilySource, dcFamilyFrom, setDcFamilyFrom, dcFamilyTo, setDcFamilyTo, dcFamilyStep, setDcFamilyStep, acFrom, setAcFrom, acTo, setAcTo, runSimulation, running, activeDef, setActiveDef, selectedIds, setSelectedIds, exampleHint, setExampleHint, resolved, documentId, circuit, handleChange, deleteSelected, rotateSelected, mirrorSelected, selectAll, copySelected, cutSelected, duplicateSelected, clipboard, paste, viewRef, overlay, labels, legendRef, live, library, importModels, removeModel, scopeIds, traces, setTraces, toggleProbe, traceLabels, errors, setErrors, run, setRun, isStale, closeResults };
 }
 
 export type Workbench = ReturnType<typeof useWorkbench>;
