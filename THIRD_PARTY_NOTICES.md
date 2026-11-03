@@ -33,3 +33,24 @@ SOFTWARE.
 ## eecircuit-engine
 
 Dipendenza npm: build di ngspice in WebAssembly. Licenza MIT, Copyright (c) 2024 EElab.dev. Fonte: https://github.com/eelab-dev/EEcircuit-engine
+
+Il pacchetto, e quindi il sito pubblicato, contiene anche:
+
+- **ngspice** (https://ngspice.sourceforge.io), il simulatore compilato in WebAssembly. È distribuito per la maggior parte con licenza BSD modificata (3 clausole); il testo completo e le eccezioni sono nel file `COPYING` del progetto ngspice.
+- **Modelli SkyWater SKY130**: Copyright 2020 The SkyWater PDK Authors, licenza Apache 2.0 (https://www.apache.org/licenses/LICENSE-2.0).
+- **Modelli GlobalFoundries GF180MCU**: Copyright 2022 GlobalFoundries PDK Authors, licenza Apache 2.0.
+- **Modelli FreePDK15**: Copyright (c) 2013-2016 North Carolina State University, licenza BSD a 3 clausole.
+
+Gli avvisi di copyright e di licenza dei modelli restano nel testo dei modelli stessi, dentro `assets/ngspice.worker-*.js`.
+
+## React e React DOM
+
+Licenza MIT, Copyright (c) Facebook, Inc. and its affiliates. Fonte: https://github.com/facebook/react
+
+## Workbox
+
+Usato dal service worker che rende l'app disponibile offline (`sw.js`, `workbox-*.js`). Licenza MIT, Copyright 2018 Google LLC. Fonte: https://github.com/GoogleChrome/workbox
+
+## vite-plugin-pwa
+
+Usato solo per costruire il service worker e il manifest. Licenza MIT. Fonte: https://github.com/vite-pwa/vite-plugin-pwa
