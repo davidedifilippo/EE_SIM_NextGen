@@ -1,8 +1,59 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
+
+/**
+ * The ngspice worker carries its WASM inside, 20 MB. It is not downloaded on install, which would cost
+ * that much data to whoever only looks: it is kept the first time the page loads it, so the precise
+ * analysis works offline from then on.
+ */
+const NGSPICE_WORKER = /\/assets\/ngspice\.worker-[\w-]+\.js$/;
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Installable and usable offline. Only on a secure page (HTTPS or localhost): on a plain address in
+    // the local network the browser does not run the service worker, and the app works as before.
+    VitePWA({
+      registerType: 'autoUpdate',
+      injectRegister: 'script-defer',
+      includeAssets: ['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png'],
+      manifest: {
+        name: 'EE_SIM_NextGen',
+        short_name: 'EE_SIM',
+        description: 'Simulatore di circuiti elettronici nel browser',
+        lang: 'it',
+        start_url: './',
+        scope: './',
+        display: 'standalone',
+        background_color: '#06152f',
+        theme_color: '#06152f',
+        icons: [
+          { src: 'pwa-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'pwa-512.png', sizes: '512x512', type: 'image/png' },
+        ],
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,svg,png}'],
+        globIgnores: ['**/ngspice.worker-*.js'],
+        runtimeCaching: [
+          {
+            // A pattern, not a function: the service worker is a separate file, and a function would lose what it refers to
+            urlPattern: NGSPICE_WORKER,
+            handler: 'CacheFirst',
+            // One version only: a new build has a new name, and the old one would stay for nothing
+            options: { cacheName: 'ngspice', expiration: { maxEntries: 1 } },
+          },
+        ],
+        // A new version takes over at the next opening, without waiting for every tab to close
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
+        // A shared circuit travels after #, which never reaches the server: the cached page opens it
+        navigateFallback: 'index.html',
+      },
+    }),
+  ],
   base: './',
   server: { port: 5173, open: false },
   worker: { format: 'es' },
