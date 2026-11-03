@@ -17,8 +17,8 @@ interface Props {
   /** The area around a selection of several things. */
   groupBounds: Box | null;
   onElementDown: (elem: Element, e: Press) => void;
-  /** A mark around the dial of a multimeter was pressed. */
-  onMeterMode: (elem: Element, mode: string) => void;
+  /** A control drawn on a part was pressed: a mark around the dial of a multimeter, the lever of a logic input. */
+  onSetProp: (elem: Element, key: string, value: string) => void;
   onWireDown: (wire: Wire, e: Press) => void;
   onWireHandleDown: (wire: Wire, pointIndex: number, e: Press) => void;
   onTerminalDown: (worldPos: Pt, e: Press) => void;
@@ -40,7 +40,7 @@ export const Renderer: React.FC<Props> = ({
   selectionBox,
   groupBounds,
   onElementDown,
-  onMeterMode,
+  onSetProp,
   onWireDown,
   onWireHandleDown,
   onTerminalDown,
@@ -112,7 +112,7 @@ export const Renderer: React.FC<Props> = ({
           elem={elem}
           isSelected={selectedIds.has(elem.id)}
           onDown={(e) => onElementDown(elem, e)}
-          onMeterMode={(mode) => onMeterMode(elem, mode)}
+          onSetProp={(key, value) => onSetProp(elem, key, value)}
           onTerminalDown={onTerminalDown}
           onTerminalUp={onTerminalUp}
         />
@@ -199,10 +199,10 @@ const ElementItem: React.FC<{
   elem: Element;
   isSelected: boolean;
   onDown: (e: Press) => void;
-  onMeterMode: (mode: string) => void;
+  onSetProp: (key: string, value: string) => void;
   onTerminalDown: (worldPos: Pt, e: Press) => void;
   onTerminalUp: (worldPos: Pt, e: Press) => void;
-}> = ({ elem, isSelected, onDown, onMeterMode, onTerminalDown, onTerminalUp }) => {
+}> = ({ elem, isSelected, onDown, onSetProp, onTerminalDown, onTerminalUp }) => {
   const def = getDevice(elem.def);
   if (!def) return null;
   const bounds = getBounds(def);
@@ -214,7 +214,10 @@ const ElementItem: React.FC<{
   // The box is as tall as its pins: its labels go beyond it
   const blockReach = Math.max(...def.terminals.map((t) => Math.abs(t.y))) + 16;
   const blockPinNames = isBlock ? String(elem.props.pinNames ?? '').split(' ') : [];
-  const value = def.spice.kind === 'vsource' ? sourceLabel(elem.props) : def.spice.kind === 'isource' ? currentLabel(elem.props.value) : def.spice.kind === 'opamp' || def.spice.kind === 'meter' || isRegulator ? '' : def.spice.kind === 'transformer' ? `${elem.props.ratio}:1` : def.props[0] ? String(elem.props[def.props[0].key] ?? '') : '';
+  const firstProp = def.props[0];
+  // A choice shows its name, as the LED its colour; a logic part shows its level on itself already
+  const firstValue = !firstProp ? '' : firstProp.type === 'choice' ? (firstProp.options?.find((o) => o.value === String(elem.props[firstProp.key]))?.label ?? '') : String(elem.props[firstProp.key] ?? '');
+  const value = def.spice.kind === 'vsource' ? sourceLabel(elem.props) : def.spice.kind === 'isource' ? currentLabel(elem.props.value) : def.spice.kind === 'opamp' || def.spice.kind === 'meter' || def.spice.kind === 'logic' || isRegulator ? '' : def.spice.kind === 'transformer' ? `${elem.props.ratio}:1` : firstValue;
   const labelProps = isRegulator && elem.rot === 180
     ? { x: 8, textAnchor: 'start' as const } // Clear of the lead that now goes up
     : def.spice.kind === 'opamp' && !isBesideLabel
@@ -256,7 +259,7 @@ const ElementItem: React.FC<{
         METER_MODES.map(({ value, label, symbol, dial }) => (
           <g key={value} role="button" aria-label={label} style={{ cursor: 'pointer' }} onPointerDown={(e) => {
             e.stopPropagation();
-            if (e.button === 0) onMeterMode(value);
+            if (e.button === 0) onSetProp('mode', value);
           }}>
             <rect x={dial.x - 15} y={dial.y - 10} width={30} height={20} fill="transparent" pointerEvents="all" />
             <text x={dial.x} y={dial.y + 4} textAnchor="middle" fontSize={11} fontWeight={elem.props.mode === value ? 700 : 400} fill={elem.props.mode === value ? 'var(--sch-ink)' : 'var(--sch-muted)'} pointerEvents="none">
@@ -264,6 +267,19 @@ const ElementItem: React.FC<{
             </text>
           </g>
         ))}
+
+      {/* The level of a logic input, and the press that switches it: the rest of the box moves it */}
+      {def.spice.kind === 'logic' && def.spice.gate === 'input' && (
+        <g role="switch" aria-checked={elem.props.state === '1'} aria-label={`${elem.tag}: livello ${elem.props.state === '1' ? '1' : '0'}`} style={{ cursor: 'pointer' }} onPointerDown={(e) => {
+          e.stopPropagation();
+          if (e.button === 0) onSetProp('state', elem.props.state === '1' ? '0' : '1');
+        }}>
+          <rect x={-22} y={-12} width={30} height={24} rx={4} className={elem.props.state === '1' ? 'logic-high' : 'logic-low'} />
+          <text transform={`translate(-7 0) rotate(${-elem.rot})`} y={5} textAnchor="middle" fontSize={15} fontWeight={700} fill="#ffffff" pointerEvents="none">
+            {elem.props.state === '1' ? '1' : '0'}
+          </text>
+        </g>
+      )}
 
       {/* Its name and pins on the box, upright whatever the rotation */}
       {isRegulator && (

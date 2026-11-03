@@ -46,6 +46,8 @@ export interface LiveFrame {
   meterAc: Float64Array;
   /** For each device that is a regulator: heat, junction temperature and what it is doing. */
   regulators: (RegulatorDisplay | null)[];
+  /** For each logic part: the level of its output, then of each input. */
+  logic: (number[] | null)[];
   /** Samples of the probes since the last frame. */
   scope: ScopeSamples | null;
 }
@@ -99,6 +101,8 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
       return [s.out, s.plus, s.minus];
     case 'transformer':
       return [s.p1, s.p2, s.s1, s.s2];
+    case 'logic':
+      return [s.output, ...s.inputs];
   }
 };
 
@@ -122,8 +126,11 @@ export function buildLiveLayout(circuit: Circuit, compiled: CompiledCircuit): Li
     const at = (terminal: string) => localToWorld(el.x, el.y, def.terminals.find((t) => t.id === terminal)!, el.rot, el.flip);
     const points = terminalsOf(def.spice as Exclude<SpiceDef, { kind: 'ground' }>).map(at);
     const firstDot = dots.length;
-    // Through a two-terminal device in one run; a transformer has one per winding; in a transistor, each lead meets at the center
-    if (points.length === 2) dots.push({ a: points[0], b: points[1] });
+    // Through a two-terminal device in one run; a transformer has one per winding; in a transistor or a
+    // gate, each lead meets at the center, where a gate takes its supply
+    const isPerLead = def.spice.kind === 'logic';
+    if (isPerLead) points.forEach((p) => dots.push({ a: p, b: { x: el.x, y: el.y } }));
+    else if (points.length === 2) dots.push({ a: points[0], b: points[1] });
     else if (points.length === 4) dots.push({ a: points[0], b: points[1] }, { a: points[2], b: points[3] });
     else points.forEach((p) => dots.push({ a: p, b: { x: el.x, y: el.y } }));
     return { elementId: id, terminals: points, firstDot };
@@ -327,7 +334,8 @@ export class LiveSimulation {
       if (d.kind === 'bjt' || d.kind === 'mos') deviceVbe[i] = engine.nodeVoltage(d.base) - engine.nodeVoltage(d.b);
       if (d.kind === 'regulator') deviceVbe[i] = engine.nodeVoltage(d.b) - engine.nodeVoltage(d.base);
       const { firstDot } = layout.devices[i];
-      if (currents.length === 2) dotCurrent[firstDot] = currents[0];
+      if (d.kind === 'logic') currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
+      else if (currents.length === 2) dotCurrent[firstDot] = currents[0];
       else if (currents.length === 4) [dotCurrent[firstDot], dotCurrent[firstDot + 1]] = [currents[0], currents[2]];
       else currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
       // The wires give each terminal the current that enters it
@@ -348,6 +356,7 @@ export class LiveSimulation {
       meterAc[index] = window.reading.ac;
     });
     const regulators = devices.map((d, i) => (d.kind === 'regulator' ? engine.regulatorStatus(i) : null));
-    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, scope: this.takeSamples() };
+    const logic = devices.map((d, i) => (d.kind === 'logic' ? engine.logicLevels(i) : null));
+    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, logic, scope: this.takeSamples() };
   }
 }

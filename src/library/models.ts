@@ -20,7 +20,19 @@ const Q2N3906: SpiceModel = {
 const MN1: SpiceModel = { name: 'MN1', card: '.model MN1 NMOS(VTO=2 KP=0.2 LAMBDA=0.01)' };
 const MP1: SpiceModel = { name: 'MP1', card: '.model MP1 PMOS(VTO=-2 KP=0.1 LAMBDA=0.01)' };
 
-const LIBRARY: SpiceModel[] = [D1N4148, DZ5V1, Q2N3904, Q2N3906, MN1, MP1];
+/**
+ * LEDs by colour, sized for their usual forward voltage at 10 mA: about 1.9 V for red, 2 V yellow,
+ * 2.1 V green, 3 V blue and 3.1 V white. Generic, not the parts of a maker.
+ */
+export const LED_MODELS: SpiceModel[] = [
+  { name: 'LED_ROSSO', card: '.model LED_ROSSO D(IS=2.94e-18 N=2 RS=5)' },
+  { name: 'LED_GIALLO', card: '.model LED_GIALLO D(IS=4.26e-19 N=2 RS=5)' },
+  { name: 'LED_VERDE', card: '.model LED_VERDE D(IS=6.16e-20 N=2 RS=5)' },
+  { name: 'LED_BLU', card: '.model LED_BLU D(IS=1.71e-27 N=2 RS=5)' },
+  { name: 'LED_BIANCO', card: '.model LED_BIANCO D(IS=2.48e-28 N=2 RS=5)' },
+];
+
+const LIBRARY: SpiceModel[] = [D1N4148, DZ5V1, Q2N3904, Q2N3906, MN1, MP1, ...LED_MODELS];
 
 /** A model of the circuit, or of the library. The circuit's own take precedence. */
 export function findModel(circuit: Circuit, name: string): SpiceModel | undefined {

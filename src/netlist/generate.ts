@@ -6,6 +6,7 @@ import { computeConnectivity, terminalKey } from './connectivity';
 import { sourceAcSpec, sourceDcSpec, sourceSpec } from './source';
 import { parseSpiceValue } from './values';
 import { METER_TEST_CURRENT, meterResistance } from '../realtime/meter';
+import { gateExpression, levelExpression, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicParams } from '../realtime/logic';
 import { REGULATOR_GAIN, REGULATOR_LEAK, REGULATOR_STIFFNESS, regulatorParams } from '../realtime/regulator';
 
 export interface TranAnalysis {
@@ -237,6 +238,22 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         }
         const name = uniqueName('X', el.tag);
         if (name) lines.push(`${name} ${s.pins.map(node).join(' ')} ${model}`);
+        break;
+      }
+      case 'logic': {
+        const params = logicParams(el, s);
+        if (!params) {
+          errors.push(`${el.tag}: alimentazione non valida "${el.props[s.vddProp] ?? ''}"`);
+          break;
+        }
+        const name = uniqueName('X', el.tag);
+        if (!name) break;
+        // The same parts as in the real-time engine: inputs to ground, the output behind its resistance
+        s.inputs.forEach((input, k) => lines.push(`RI${k}${name} ${node(input)} 0 ${LOGIC_INPUT_RESISTANCE}`));
+        const levels = s.inputs.map((input) => levelExpression(`v(${node(input)})`, params.vdd));
+        const inner = `xl${name}`;
+        lines.push(`BL${name} ${inner} 0 V=${params.vdd}*${gateExpression(s.gate, levels, params.state)}`);
+        lines.push(`RL${name} ${inner} ${node(s.output)} ${LOGIC_OUTPUT_RESISTANCE}`);
         break;
       }
       case 'meter': {

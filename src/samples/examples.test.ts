@@ -53,6 +53,12 @@ describe('the examples', () => {
     expect(low).toBeCloseTo(-5, 1);
   });
 
+  it('gates: with 1 and 0 the XOR lights its LED, the AND does not', () => {
+    const { current } = start('gates');
+    expect(Math.abs(current('d1'))).toBeLessThan(1e-6);
+    expect(current('d2')).toBeGreaterThan(5e-3);
+  });
+
   it('transistor switch: the collector conducts only while the base is driven', () => {
     const { engine, current } = start('switch');
     const collector = () => Math.abs(current('rc'));

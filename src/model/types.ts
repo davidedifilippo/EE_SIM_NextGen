@@ -1,5 +1,6 @@
 // Core data model. Everything here is plain JSON-serializable.
 // Pt, Rotation, Prim, TerminalDef, PropDef, Element and Wire are adapted from PowerCad_NextGen (see THIRD_PARTY_NOTICES.md).
+import type { GateKind } from '../realtime/logic';
 
 export interface Pt { x: number; y: number }
 
@@ -48,6 +49,8 @@ export type SpiceDef =
   | { kind: 'regulator'; input: string; output: string; ref: string; vNominal: number; polarity: 1 | -1; iq: number }
   | { kind: 'block'; pins: string[]; modelProp: string }
   | { kind: 'meter'; a: string; b: string; modeProp: string }
+  /** A gate or a logic input: supply in a property, inputs read against half of it, one output behind a resistance to ground. */
+  | { kind: 'logic'; gate: GateKind; inputs: string[]; output: string; vddProp: string; stateProp?: string }
   | { kind: 'transformer'; p1: string; p2: string; s1: string; s2: string; ratioProp: string; inductanceProp: string; couplingProp: string };
 
 export interface ComponentDef {

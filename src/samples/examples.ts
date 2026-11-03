@@ -112,6 +112,31 @@ const transistorSwitch = (): Circuit => ({
   models: [],
 });
 
+const gates = (): Circuit => ({
+  title: 'Porte logiche e LED',
+  elements: [
+    part('in1', 'logicinput', 0, -40, 0, 'IN1', { state: '1' }),
+    part('in2', 'logicinput', 0, 40, 0, 'IN2'),
+    part('u1', 'gate_and', 120, -40, 0, 'U1'),
+    part('u2', 'gate_xor', 120, 80, 0, 'U2'),
+    part('r1', 'resistor', 200, -40, 0, 'R1', { value: '220' }),
+    part('r2', 'resistor', 200, 80, 0, 'R2', { value: '220' }),
+    part('d1', 'led', 280, 0, 90, 'D1', { model: 'LED_ROSSO' }),
+    part('d2', 'led', 280, 120, 90, 'D2', { model: 'LED_VERDE' }),
+    ground(280, 160),
+  ],
+  wires: [
+    wire('w1', [40, -40], [60, -40], [60, -50], [80, -50]),
+    wire('w2', [60, -40], [60, 70], [80, 70]),
+    wire('w3', [40, 40], [50, 40], [50, -30], [80, -30]),
+    wire('w4', [50, 40], [50, 90], [80, 90]),
+    wire('w5', [240, -40], [280, -40]),
+    wire('w6', [240, 80], [280, 80]),
+    wire('w7', [280, 40], [300, 40], [300, 160], [280, 160]),
+  ],
+  models: [],
+});
+
 const regulator = (): Circuit => ({
   title: 'Regolatore 7805',
   elements: [
@@ -131,5 +156,6 @@ export const EXAMPLES: Example[] = [
   { id: 'zener', title: 'Stabilizzatore con zener', hint: 'Il carico resta a circa 5,1 V: lo zener prende la corrente in più', build: zener },
   { id: 'inverting', title: 'Amplificatore invertente', hint: 'Guadagno −RF/R1 = −10: 0,5 V in ingresso, 5 V in uscita, in opposizione', build: inverting },
   { id: 'switch', title: 'Transistor come interruttore', hint: 'Un’onda quadra tra 0 e 5 V, a 1 Hz, accende e spegne la corrente nel collettore', build: transistorSwitch },
+  { id: 'gates', title: 'Porte logiche e LED', hint: 'Tocca 0 e 1 sugli ingressi: il LED rosso si accende con AND, il verde con XOR', build: gates },
   { id: 'regulator', title: 'Regolatore 7805', hint: '5 V sul carico da 100 Ω: guarda la potenza e la temperatura del regolatore', build: regulator },
 ];

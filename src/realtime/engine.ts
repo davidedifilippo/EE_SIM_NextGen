@@ -1,3 +1,4 @@
+import { gateOutput, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, readLevel } from './logic';
 import { REGULATOR_GAIN, REGULATOR_LEAK, RegulatorRegion, regulatorPoint, regulatorPower, THERMAL_RESTART, THERMAL_SHUTDOWN, THERMAL_STEPS } from './regulator';
 import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams, MosParams } from './compile';
 import { luFactor, luSolve } from './linear';
@@ -14,6 +15,8 @@ const MAX_ITERATIONS = 60;
 const OPAMP_MARGIN = 1e-6;
 /** Changes of state within one solution before calling it a failure, and trying a shorter step. */
 const MAX_OPAMP_CHANGES = 24;
+/** Rounds of the logic at the operating point: more than the longest chain of gates in a lesson. */
+const LOGIC_SETTLE_ROUNDS = 64;
 const TRANSFORMER_LEAK_CONDUCTANCE = 1e-9;
 /** A step short enough for any capacitor in a circuit to act as a short. */
 const FIRST_INSTANT = 1e-9;
@@ -205,6 +208,9 @@ export class RealtimeEngine {
   private readonly regulatorTj: Float64Array;
   private readonly regulatorIsOff: Uint8Array;
   private readonly regulatorState: Int8Array;
+  /** Per logic part: its output level, and the level each input last read, one bit per input. */
+  private readonly logicOut: Uint8Array;
+  private readonly logicIn: Int32Array;
   private readonly unitRhs: Float64Array;
   private readonly opAmps: { index: number; device: Extract<CompiledDevice, { kind: 'opamp' }> }[] = [];
   private opAmpChanges = 0;
@@ -238,6 +244,9 @@ export class RealtimeEngine {
     this.regulatorTj = Float64Array.from(devices, (d) => (d.kind === 'regulator' ? d.params.ambient : 0));
     this.regulatorIsOff = new Uint8Array(devices.length);
     this.regulatorState = new Int8Array(devices.length);
+    this.logicOut = new Uint8Array(devices.length);
+    this.logicIn = new Int32Array(devices.length);
+    this.resetLogic();
     this.unitRhs = new Float64Array(size);
     this.vCrit = new Float64Array(devices.length);
     devices.forEach((d, i) => {
@@ -324,6 +333,10 @@ export class RealtimeEngine {
         case 'diode':
           if (d.params.rs > 0) this.addG(d.a, d.junction, 1 / d.params.rs);
           break;
+        case 'logic':
+          this.addG(d.a, -1, 1 / LOGIC_OUTPUT_RESISTANCE);
+          for (const input of d.inputs) this.addG(input, -1, 1 / LOGIC_INPUT_RESISTANCE);
+          break;
         case 'bjt':
           if (d.params.rc > 0) this.addG(d.a, d.cp, 1 / d.params.rc);
           if (d.params.rb > 0) this.addG(d.base, d.bp, 1 / d.params.rb);
@@ -372,6 +385,10 @@ export class RealtimeEngine {
         case 'isource':
           if (d.a >= 0) rhs[d.a] -= d.current * sourceScale;
           if (d.b >= 0) rhs[d.b] += d.current * sourceScale;
+          break;
+        case 'logic':
+          // The output as the current source of its Norton equivalent
+          if (d.a >= 0 && this.logicOut[i]) rhs[d.a] += (d.vdd / LOGIC_OUTPUT_RESISTANCE) * sourceScale;
           break;
         case 'transformer':
           if (h > 0) {
@@ -704,6 +721,46 @@ export class RealtimeEngine {
     });
   }
 
+  /** Outputs as the parts would give them with every input at 0. */
+  private resetLogic() {
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind !== 'logic') return;
+      this.logicIn[i] = 0;
+      this.logicOut[i] = gateOutput(d.gate, d.inputs.map(() => false), d.state) ? 1 : 0;
+    });
+  }
+
+  /**
+   * Reads the inputs of the logic parts at the accepted point, and sets their outputs for the next
+   * step: a delay of one step, which keeps every step linear. True if an output changed.
+   */
+  private updateLogic(): boolean {
+    let hasChanged = false;
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind !== 'logic') return;
+      let bits = 0;
+      const levels = d.inputs.map((node, k) => {
+        const level = readLevel(this.voltage(node), d.vdd, (this.logicIn[i] & (1 << k)) !== 0);
+        if (level) bits |= 1 << k;
+        return level;
+      });
+      this.logicIn[i] = bits;
+      const out = gateOutput(d.gate, levels, d.state) ? 1 : 0;
+      if (out !== this.logicOut[i]) {
+        this.logicOut[i] = out;
+        hasChanged = true;
+      }
+    });
+    return hasChanged;
+  }
+
+  /** Level of the output, then of each input, of a logic part. */
+  logicLevels(index: number): number[] {
+    const d = this.compiled.devices[index];
+    if (d.kind !== 'logic') return [];
+    return [this.logicOut[index], ...d.inputs.map((_, k) => (this.logicIn[index] >> k) & 1)];
+  }
+
   /** DC operating point at the current time, with capacitors open and inductors shorted. */
   initialize() {
     this.x.fill(0);
@@ -713,6 +770,7 @@ export class RealtimeEngine {
     this.opAmpState.fill(LINEAR);
     this.regulatorIsOff.fill(0);
     this.regulatorState.fill(REGULATOR_ACTIVE);
+    this.resetLogic();
     if (!this.solve(this.time, 0, 1)) {
       // Source stepping: bring the sources up gradually, each solution seeding the next
       this.x.fill(0);
@@ -724,6 +782,11 @@ export class RealtimeEngine {
       for (let scale = 0.1; scale < 1.05; scale += 0.1) {
         if (!this.solve(this.time, 0, Math.min(scale, 1))) throw new SolverError('Punto di lavoro non trovato');
       }
+    }
+    // Gates feeding gates settle in as many rounds as the longest chain. A loop that never settles,
+    // as a ring of inverters, is left as it is: the animation then shows it running
+    for (let round = 0; round < LOGIC_SETTLE_ROUNDS && this.updateLogic(); round++) {
+      if (!this.solve(this.time, 0, 1)) throw new SolverError('Punto di lavoro non trovato');
     }
     this.commit(0);
     // With a pole, a loop that cannot rest would still rest on an exact zero, since nothing moves it:
@@ -751,6 +814,12 @@ export class RealtimeEngine {
     this.regulatorTj.set(previous.regulatorTj);
     this.regulatorIsOff.set(previous.regulatorIsOff);
     this.regulatorState.set(previous.regulatorState);
+    this.logicOut.set(previous.logicOut);
+    this.logicIn.set(previous.logicIn);
+    // An input switched by hand gives its new level at once
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind === 'logic' && d.gate === 'input') this.logicOut[i] = d.state ? 1 : 0;
+    });
     // With another model the old junction voltage can sit far up the new exponential, where
     // Newton has nothing to hold on to: from zero, the limiter walks there safely
     this.compiled.devices.forEach((d, i) => {
@@ -773,6 +842,7 @@ export class RealtimeEngine {
     const startRegulatorState = this.regulatorState.slice();
     if (this.solve(this.time + h, h, 1)) {
       this.commit(h);
+      this.updateLogic();
       this.time += h;
       return;
     }
@@ -813,6 +883,7 @@ export class RealtimeEngine {
       case 'bjt':
       case 'mos':
       case 'regulator':
+      case 'logic':
         return this.terminalCurrents(index)[0];
     }
   }
@@ -844,6 +915,10 @@ export class RealtimeEngine {
       return [polarity * (i + iq), -polarity * i, -polarity * iq];
     }
     if (d.kind === 'opamp') return [this.x[d.branch], 0, 0];
+    if (d.kind === 'logic') {
+      const out = (this.voltage(d.a) - (this.logicOut[index] ? d.vdd : 0)) / LOGIC_OUTPUT_RESISTANCE;
+      return [out, ...d.inputs.map((node) => this.voltage(node) / LOGIC_INPUT_RESISTANCE)];
+    }
     if (d.kind === 'transformer') return [this.x[d.branch], -this.x[d.branch], this.x[d.branch2], -this.x[d.branch2]];
     if (d.kind !== 'bjt') {
       const current = this.deviceCurrent(index);

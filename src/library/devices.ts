@@ -1,6 +1,7 @@
 import { METER_MODES } from '../realtime/meterModes';
 import { MAX_BLOCK_PINS, MIN_BLOCK_PINS } from './blockPins';
 import { ComponentDef, Prim, Rotation, Circuit, Element, Pt } from '../model/types';
+import { GateKind } from '../realtime/logic';
 import { SourceShape, sourceShape } from '../netlist/source';
 
 
@@ -248,6 +249,37 @@ export const DEVICES: ComponentDef[] = [
     spice: { kind: 'diode', anode: 'anode', cathode: 'cathode', modelProp: 'model' },
   },
   {
+    id: 'led',
+    category: 'Semiconduttori',
+    name: 'LED',
+    tagPrefix: 'D',
+    searchTerms: 'led luce diodo luminoso',
+    terminals: twoPin('anode', 'cathode'),
+    symbol: [
+      ...leads(10),
+      { t: 'path', d: 'M -10 -12 L 10 0 L -10 12 Z', fill: 'var(--sch-part)' },
+      { t: 'line', x1: 10, y1: -12, x2: 10, y2: 12, w: 2 },
+      { t: 'path', d: 'M 0 -15 L 7 -24 M 3 -24 L 7 -24 L 7 -20', w: 1.2 },
+      { t: 'path', d: 'M 7 -13 L 14 -22 M 10 -22 L 14 -22 L 14 -18', w: 1.2 },
+    ],
+    props: [
+      {
+        key: 'model',
+        label: 'Colore',
+        type: 'choice',
+        default: 'LED_ROSSO',
+        options: [
+          { value: 'LED_ROSSO', label: 'Rosso' },
+          { value: 'LED_GIALLO', label: 'Giallo' },
+          { value: 'LED_VERDE', label: 'Verde' },
+          { value: 'LED_BLU', label: 'Blu' },
+          { value: 'LED_BIANCO', label: 'Bianco' },
+        ],
+      },
+    ],
+    spice: { kind: 'diode', anode: 'anode', cathode: 'cathode', modelProp: 'model' },
+  },
+  {
     id: 'zener',
     category: 'Semiconduttori',
     name: 'Zener',
@@ -435,6 +467,62 @@ export const DEVICES: ComponentDef[] = [
   },
 ];
 
+/** Inputs on the left, the output on the right: the usual drawing of a gate in a schematic. */
+const GATE_INPUTS = [
+  { id: 'a', x: -40, y: -10 },
+  { id: 'b', x: -40, y: 10 },
+];
+const GATE_LEADS: Prim[] = [
+  { t: 'line', x1: -40, y1: -10, x2: -20, y2: -10 },
+  { t: 'line', x1: -40, y1: 10, x2: -20, y2: 10 },
+];
+const AND_BODY = 'M -20 -18 H 0 A 18 18 0 0 1 0 18 H -20 Z';
+const OR_BODY = 'M -24 -18 Q -14 0 -24 18 Q 4 18 18 0 Q 4 -18 -24 -18 Z';
+const bubble = (x: number): Prim => ({ t: 'circle', cx: x + 4, cy: 0, r: 4, fill: 'var(--sch-part)' });
+const output = (from: number): Prim => ({ t: 'line', x1: from, y1: 0, x2: 40, y2: 0 });
+const SUPPLY_PROP = { key: 'vdd', label: 'Alimentazione (V)', type: 'text' as const, default: '5' };
+
+function gateDevice(gate: GateKind, name: string, body: Prim[], searchTerms: string): ComponentDef {
+  const isNot = gate === 'not';
+  return {
+    id: `gate_${gate}`,
+    category: 'Logica',
+    name,
+    tagPrefix: 'U',
+    searchTerms: `porta logica ${searchTerms}`,
+    terminals: [...(isNot ? [{ id: 'a', x: -40, y: 0 }] : GATE_INPUTS), { id: 'y', x: 40, y: 0 }],
+    symbol: body,
+    props: [SUPPLY_PROP],
+    spice: { kind: 'logic', gate, inputs: isNot ? ['a'] : ['a', 'b'], output: 'y', vddProp: 'vdd' },
+  };
+}
+
+const LOGIC: ComponentDef[] = [
+  {
+    id: 'logicinput',
+    category: 'Logica',
+    name: 'Ingresso logico',
+    tagPrefix: 'IN',
+    searchTerms: 'interruttore livello logico 0 1 switch',
+    terminals: [{ id: 'y', x: 40, y: 0 }],
+    symbol: [
+      { t: 'rect', x: -24, y: -14, w: 34, h: 28, fill: 'var(--sch-part)' },
+      { t: 'line', x1: 10, y1: 0, x2: 40, y2: 0 },
+    ],
+    props: [
+      { key: 'state', label: 'Livello', type: 'choice', default: '0', options: [{ value: '0', label: '0' }, { value: '1', label: '1' }] },
+      SUPPLY_PROP,
+    ],
+    spice: { kind: 'logic', gate: 'input', inputs: [], output: 'y', vddProp: 'vdd', stateProp: 'state' },
+  },
+  gateDevice('and', 'AND', [...GATE_LEADS, { t: 'path', d: AND_BODY, fill: 'var(--sch-part)' }, output(18)], 'and e'),
+  gateDevice('or', 'OR', [...GATE_LEADS, { t: 'path', d: OR_BODY, fill: 'var(--sch-part)' }, output(18)], 'or o'),
+  gateDevice('not', 'NOT', [{ t: 'line', x1: -40, y1: 0, x2: -18, y2: 0 }, { t: 'path', d: 'M -18 -15 L 12 0 L -18 15 Z', fill: 'var(--sch-part)' }, bubble(12), output(20)], 'not inverter invertitore'),
+  gateDevice('nand', 'NAND', [...GATE_LEADS, { t: 'path', d: AND_BODY, fill: 'var(--sch-part)' }, bubble(18), output(26)], 'nand'),
+  gateDevice('nor', 'NOR', [...GATE_LEADS, { t: 'path', d: OR_BODY, fill: 'var(--sch-part)' }, bubble(18), output(26)], 'nor'),
+  gateDevice('xor', 'XOR', [...GATE_LEADS, { t: 'path', d: 'M -30 -18 Q -20 0 -30 18' }, { t: 'path', d: OR_BODY, fill: 'var(--sch-part)' }, output(18)], 'xor or esclusivo'),
+];
+
 const REGULATORS = [
   ...[5, 6, 8, 9, 12, 15, 24].map((v) => regulatorDevice(`78${String(v).padStart(2, '0')}`, v, 1)),
   ...[5, 12, 15].map((v) => regulatorDevice(`79${String(v).padStart(2, '0')}`, v, -1)),
@@ -442,7 +530,7 @@ const REGULATORS = [
   regulatorDevice('LM337', 1.25, -1, true),
 ];
 
-DEVICES.push(...REGULATORS);
+DEVICES.push(...REGULATORS, ...LOGIC);
 for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));

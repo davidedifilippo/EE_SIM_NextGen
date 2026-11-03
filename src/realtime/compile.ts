@@ -4,6 +4,7 @@ import { findModel, isVdmos, modelType } from '../library/models';
 import { computeConnectivity, terminalKey } from '../netlist/connectivity';
 import { OPAMP_GAIN, transformerWindings } from '../netlist/generate';
 import { METER_TEST_CURRENT, meterResistance } from './meter';
+import { GateKind, logicParams } from './logic';
 import { RegulatorParams, regulatorParams } from './regulator';
 import { sourceSpec } from '../netlist/source';
 import { parseSpiceValue } from '../netlist/values';
@@ -84,6 +85,8 @@ export type CompiledDevice =
   | { kind: 'opamp'; element: number; a: NodeIndex; b: NodeIndex; plus: NodeIndex; minus: NodeIndex; high: number; low: number; /** Time constant of the open loop pole; 0 for no limit. */ tau: number; branch: number }
   /** a is the input, b the output and base the reference. */
   | { kind: 'regulator'; element: number; a: NodeIndex; b: NodeIndex; base: NodeIndex; params: RegulatorParams }
+  /** a is the output, b is ground; the output is held for a whole step, so the matrix never changes with it. */
+  | { kind: 'logic'; element: number; a: NodeIndex; b: NodeIndex; inputs: NodeIndex[]; gate: GateKind; vdd: number; state: boolean }
   /** a and b are the primary, c and d the secondary, each winding with its branch current; the primed nodes come after their series resistances. */
   | { kind: 'transformer'; element: number; a: NodeIndex; b: NodeIndex; c: NodeIndex; d: NodeIndex; ap: NodeIndex; cp: NodeIndex; l1: number; l2: number; m: number; branch: number; branch2: number };
 
@@ -277,6 +280,16 @@ export function compileCircuit(circuit: Circuit): CompileResult {
       case 'block':
         errors.push(`${el.tag}: un sottocircuito non si può animare. Usa l'Analisi precisa`);
         break;
+      case 'logic': {
+        const params = logicParams(el, s);
+        if (!params) {
+          errors.push(`${el.tag}: alimentazione non valida "${el.props[s.vddProp] ?? ''}"`);
+          break;
+        }
+        const [a, inputs] = [node(s.output), s.inputs.map(node)];
+        pending.push({ element, needsBranch: false, build: () => ({ kind: 'logic', element, a, b: -1, inputs, gate: s.gate, vdd: params.vdd, state: params.state }) });
+        break;
+      }
       case 'meter': {
         const resistance = meterResistance(el.props[s.modeProp]);
         if (resistance === null) {
@@ -409,7 +422,7 @@ export function compileCircuit(circuit: Circuit): CompileResult {
 
   const signature = JSON.stringify([
     branch,
-    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : 0]),
+    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.inputs] : 0]),
   ]);
   return { ok: true, compiled: { size: branch, devices, netIndex, elementIds, signature } };
 }

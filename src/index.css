@@ -40,6 +40,9 @@
   --sch-voltage: #1d4ed8;
   --sch-current: #c2410c;
   --sch-alert: #b91c1c;
+  /* Logic levels on the pins of gates */
+  --sch-high: #16a34a;
+  --sch-low: #94a3b8;
   /* Charts: categorical slots from the validated dataviz palette */
   --surface-1: #fcfcfb;
   --text-primary: #0b0b0b;
@@ -59,6 +62,8 @@
 
 :root[data-theme='dark'] {
   color-scheme: dark;
+  --sch-high: #4ade80;
+  --sch-low: #64748b;
   --bg: #0b1220;
   --surface: #1e293b;
   --surface-glass: rgba(30, 41, 59, 0.9);
@@ -641,6 +646,19 @@ button.close-results {
 /* The titles of the examples are long: the closed menu only needs to say what it is */
 .toolbar select.examples {
   width: 120px;
+}
+
+/* On the pins of gates and on the switch of a logic input */
+.logic-high {
+  fill: var(--sch-high);
+  stroke: var(--sch-halo);
+  stroke-width: 1.5;
+}
+
+.logic-low {
+  fill: var(--sch-low);
+  stroke: var(--sch-halo);
+  stroke-width: 1.5;
 }
 
 .example-hint {
