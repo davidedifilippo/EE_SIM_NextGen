@@ -12,8 +12,9 @@ const NEWER_FILE = 'Il circuito è stato salvato da una versione più recente di
 
 type Storable = Pick<Storage, 'getItem' | 'setItem'>;
 
-export function serializeCircuit(circuit: Circuit): string {
-  return JSON.stringify({ format: FORMAT, version: VERSION, circuit }, null, 2);
+/** Indented for a file someone may open; without spaces for a link, where every character counts. */
+export function serializeCircuit(circuit: Circuit, indent = 2): string {
+  return JSON.stringify({ format: FORMAT, version: VERSION, circuit }, null, indent);
 }
 
 const fail = (): never => {

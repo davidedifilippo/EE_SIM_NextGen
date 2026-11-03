@@ -7,6 +7,8 @@ import { parseSpiceValue } from './netlist/values';
 import { isDcSource } from './netlist/source';
 import { halfWaveRectifier } from './samples/halfWaveRectifier';
 import { EXAMPLES } from './samples/examples';
+import { circuitFromFragment, isCircuitFragment } from './storage/shareLink';
+import { SharePanel } from './ui/SharePanel';
 import { clearOfCircuit, Clip, copySelection, moveInView, moveToCenter, PASTE_STEP, pasteClipboard } from './editor/clipboard';
 import { SchematicCanvas } from './editor/SchematicCanvas';
 import { Box } from './utils/geometry';
@@ -97,6 +99,7 @@ export const App: React.FC = () => {
   const [showValues, setShowValues] = useState(true);
   /** What to look at in the example just opened. */
   const [exampleHint, setExampleHint] = useState<string | null>(null);
+  const [isSharing, setIsSharing] = useState(false);
   const [theme, setTheme] = useTheme();
 
   // ngspice arrives in the background once the page is up, so the first analysis finds it ready
@@ -189,6 +192,26 @@ export const App: React.FC = () => {
     openCircuit(example.build());
     setExampleHint(example.hint);
   };
+
+  // A link opens its circuit in place of the one on screen, which Annulla brings back. The address
+  // then loses the circuit, so that reloading the page does not open it again over later changes
+  const openCircuitRef = useRef(openCircuit);
+  openCircuitRef.current = openCircuit;
+  useEffect(() => {
+    const openLink = async () => {
+      if (!isCircuitFragment(location.hash)) return;
+      const hash = location.hash;
+      window.history.replaceState(null, '', location.pathname + location.search);
+      try {
+        openCircuitRef.current(await circuitFromFragment(hash));
+      } catch (err) {
+        setErrors([`Link non valido. ${err instanceof Error ? err.message : String(err)}`]);
+      }
+    };
+    openLink();
+    window.addEventListener('hashchange', openLink);
+    return () => window.removeEventListener('hashchange', openLink);
+  }, []);
 
   const openFile = async (file: File) => {
     try {
@@ -421,6 +444,7 @@ export const App: React.FC = () => {
 
   return (
     <div className="app">
+      {isSharing && <SharePanel circuit={forSaving} onClose={() => setIsSharing(false)} />}
       <header className="toolbar">
         <h1>
             <Logo />
@@ -428,7 +452,7 @@ export const App: React.FC = () => {
         <div className="button-row">
           <button onClick={() => openCircuit({ title: 'Circuito', elements: [], wires: [], models: [] })}>Nuovo</button>
           <button onClick={() => fileInputRef.current?.click()}>Apri</button>
-          <select aria-label="Apri un esempio" value="" onChange={(e) => openExample(e.target.value)}>
+          <select className="examples" aria-label="Apri un esempio" value="" onChange={(e) => openExample(e.target.value)}>
             <option value="" disabled>
               Esempi…
             </option>
@@ -439,6 +463,7 @@ export const App: React.FC = () => {
             ))}
           </select>
           <button className="primary" onClick={() => downloadCircuit(forSaving)}>Salva</button>
+          <button onClick={() => setIsSharing(true)}>Condividi</button>
           <input
             ref={fileInputRef}
             type="file"

@@ -301,6 +301,7 @@ button.close-results {
 
 .button-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -549,6 +550,55 @@ button.close-results {
   -webkit-touch-callout: none;
 }
 
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.share-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(480px, 100%);
+  padding: 16px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px var(--shadow);
+}
+
+.share-panel h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.share-panel p {
+  margin: 0;
+}
+
+.share-panel input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 8px;
+  color: var(--text);
+  background: var(--sheet);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.share-warning {
+  color: var(--warning-text);
+}
+
 .context-menu-backdrop {
   position: fixed;
   inset: 0;
@@ -586,6 +636,11 @@ button.close-results {
   overflow-y: auto;
   background: var(--surface);
   border-left: 1px solid var(--border);
+}
+
+/* The titles of the examples are long: the closed menu only needs to say what it is */
+.toolbar select.examples {
+  width: 120px;
 }
 
 .example-hint {
