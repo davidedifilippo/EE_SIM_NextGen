@@ -82,7 +82,7 @@ const MAX_ZOOM = 4;
 const DRAG_THRESHOLD = 4;
 
 /** A finger held still this long starts a selection area on the empty sheet, and opens the menu on a part. */
-const LONG_PRESS_MS = 400;
+export const LONG_PRESS_MS = 400;
 
 const hitRadius = (e: React.PointerEvent) => (e.pointerType === 'touch' ? 20 : 12);
 
@@ -153,7 +153,7 @@ export const SchematicCanvas: React.FC<Props> = ({
   const pressedRef = useRef<string | null>(null);
   const pressWasTouchRef = useRef(false);
   /** With `sheetPoint` it was opened on the empty sheet, and a paste lands there. */
-  const [menu, setMenu] = useState<{ at: Pt; sheetPoint: Pt | null } | null>(null);
+  const [menu, setMenu] = useState<{ at: Pt; sheetPoint: Pt | null; byFinger?: boolean } | null>(null);
 
   useEffect(() => setPlacementRot(0), [activeDefToPlace]);
 
@@ -443,7 +443,7 @@ export const SchematicCanvas: React.FC<Props> = ({
       longPressRef.current = null;
       stopGestures();
       if (id && !selectedIds.has(id)) onSelectIds(new Set([id]));
-      setMenu({ at, sheetPoint: null });
+      setMenu({ at, sheetPoint: null, byFinger: true });
       navigator.vibrate?.(20);
     }, LONG_PRESS_MS);
   };
@@ -942,7 +942,7 @@ export const SchematicCanvas: React.FC<Props> = ({
           </g>
         </svg>
       </div>
-      {menu && <ContextMenu at={menu.at} items={menuItems(menu.sheetPoint)} onClose={() => setMenu(null)} />}
+      {menu && <ContextMenu at={menu.at} items={menuItems(menu.sheetPoint)} byFinger={menu.byFinger} onClose={() => setMenu(null)} />}
     </>
   );
 };

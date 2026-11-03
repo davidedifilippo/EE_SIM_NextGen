@@ -6,6 +6,7 @@ import { ScopePanel } from '../ui/ScopePanel';
 import { SharePanel } from '../ui/SharePanel';
 import { CanvasArea, CircuitFileInput, EditButtons, Library, Properties } from '../workbench/parts';
 import { Workbench } from '../workbench/useWorkbench';
+import { LONG_PRESS_MS } from '../editor/SchematicCanvas';
 import { BottomSheet } from './BottomSheet';
 import { MobileMenu } from './MobileMenu';
 import './mobile.css';
@@ -52,14 +53,16 @@ export const MobileApp: React.FC<{ wb: Workbench; onFullLayout: () => void }> = 
   selectionRef.current = wb.selectedIds;
   const circuitRef = useRef(wb.circuit);
   circuitRef.current = wb.circuit;
-  const pressRef = useRef<{ x: number; y: number; ids: Set<string> } | null>(null);
+  const pressRef = useRef<{ x: number; y: number; at: number; ids: Set<string> } | null>(null);
   const onCanvasDown = (e: React.PointerEvent) => {
-    pressRef.current = { x: e.clientX, y: e.clientY, ids: wb.selectedIds };
+    pressRef.current = { x: e.clientX, y: e.clientY, at: performance.now(), ids: wb.selectedIds };
   };
   const onCanvasUp = (e: React.PointerEvent) => {
     const press = pressRef.current;
     pressRef.current = null;
     if (!press || Math.hypot(e.clientX - press.x, e.clientY - press.y) > TAP_SLOP) return;
+    // A finger held still opened the menu of the part instead: the panel stays as it was
+    if (performance.now() - press.at >= LONG_PRESS_MS) return;
     // After the canvas has handled the same release
     setTimeout(() => {
       const ids = selectionRef.current;
