@@ -6,6 +6,7 @@ import { Analysis, describeNodes, generateNetlist, sweepCount } from './netlist/
 import { parseSpiceValue } from './netlist/values';
 import { isDcSource } from './netlist/source';
 import { halfWaveRectifier } from './samples/halfWaveRectifier';
+import { EXAMPLES } from './samples/examples';
 import { clearOfCircuit, Clip, copySelection, moveInView, moveToCenter, PASTE_STEP, pasteClipboard } from './editor/clipboard';
 import { SchematicCanvas } from './editor/SchematicCanvas';
 import { Box } from './utils/geometry';
@@ -94,6 +95,8 @@ export const App: React.FC = () => {
   const [liveRunning, setLiveRunning] = useState(true);
   const [speed, setSpeed] = useState(20e-3);
   const [showValues, setShowValues] = useState(true);
+  /** What to look at in the example just opened. */
+  const [exampleHint, setExampleHint] = useState<string | null>(null);
   const [theme, setTheme] = useTheme();
 
   // ngspice arrives in the background once the page is up, so the first analysis finds it ready
@@ -177,6 +180,14 @@ export const App: React.FC = () => {
     setRun(null);
     setErrors([]);
     setDocumentId((id) => id + 1);
+    setExampleHint(null);
+  };
+
+  const openExample = (id: string) => {
+    const example = EXAMPLES.find((e) => e.id === id);
+    if (!example) return;
+    openCircuit(example.build());
+    setExampleHint(example.hint);
   };
 
   const openFile = async (file: File) => {
@@ -417,6 +428,16 @@ export const App: React.FC = () => {
         <div className="button-row">
           <button onClick={() => openCircuit({ title: 'Circuito', elements: [], wires: [], models: [] })}>Nuovo</button>
           <button onClick={() => fileInputRef.current?.click()}>Apri</button>
+          <select aria-label="Apri un esempio" value="" onChange={(e) => openExample(e.target.value)}>
+            <option value="" disabled>
+              Esempi…
+            </option>
+            {EXAMPLES.map(({ id, title }) => (
+              <option key={id} value={id}>
+                {title}
+              </option>
+            ))}
+          </select>
           <button className="primary" onClick={() => downloadCircuit(forSaving)}>Salva</button>
           <input
             ref={fileInputRef}
@@ -569,6 +590,14 @@ export const App: React.FC = () => {
         />
 
         <div className="canvas-area">
+          {exampleHint && (
+            <p className="example-hint">
+              {exampleHint}
+              <button aria-label="Chiudi il suggerimento" onClick={() => setExampleHint(null)}>
+                ×
+              </button>
+            </p>
+          )}
           {resolved.elements.some((el) => (el.def === 'opamp' || getDevice(el.def)?.spice.kind === 'regulator') && el.props.model) && <p className="live-note">Animazione con il comportamento semplice: i modelli importati valgono per l'Analisi precisa</p>}
           <SchematicCanvas
             key={documentId}
