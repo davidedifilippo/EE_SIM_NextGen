@@ -661,6 +661,38 @@ button.close-results {
   stroke-width: 1.5;
 }
 
+/* Undo, redo, rotate: one group, the same size as the other buttons of the bar */
+.edit-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.edit-buttons button.icon {
+  min-width: 40px;
+  padding: 0 8px;
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* The first end of a wire chosen with a finger, waiting for the second */
+.pending-ring {
+  animation: pending-pulse 1.1s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes pending-pulse {
+  0%,
+  100% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(1.35);
+  }
+}
+
 .example-hint {
   position: absolute;
   top: 8px;

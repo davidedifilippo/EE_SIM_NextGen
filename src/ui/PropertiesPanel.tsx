@@ -1,6 +1,6 @@
 import React from 'react';
 import { Circuit, Element, SpiceModel } from '../model/types';
-import { blockId, canMirror, canRotate, getDevice } from '../library/devices';
+import { blockId, canMirror, getDevice } from '../library/devices';
 import { ImportedModel } from '../library/modelImport';
 import { fitsModelType, modelsOfType } from '../library/models';
 import { OPAMP_ROLES, OpAmpRole, readOpAmpRoles, readRegulatorRoles, REGULATOR_ROLES, RegulatorRole, subcircuitPins } from '../library/subcircuit';
@@ -15,7 +15,6 @@ interface Props {
   circuit: Circuit;
   selectedIds: Set<string>;
   onChange: (next: Circuit, record?: boolean) => void;
-  onRotateSelected: () => void;
   onMirrorSelected: () => void;
   onSelectAll: () => void;
   onDeleteSelected: () => void;
@@ -60,7 +59,7 @@ function ModelPins<Role extends string>({ pins, roles, allRoles, labels, onChang
   );
 }
 
-export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onRotateSelected, onMirrorSelected, onSelectAll, onDeleteSelected, onCopy, onCut, onDuplicate, onPaste, layout, frameRef, library, onImportModels, onRemoveModel, scopeIds, isScopeFull, onToggleProbe }) => {
+export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onMirrorSelected, onSelectAll, onDeleteSelected, onCopy, onCut, onDuplicate, onPaste, layout, frameRef, library, onImportModels, onRemoveModel, scopeIds, isScopeFull, onToggleProbe }) => {
   if (selectedIds.size === 0) {
     return (
       <div className="properties">
@@ -202,7 +201,6 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
         </div>
       )}
       <div className="button-row">
-        {selected.some((el) => canRotate(getDevice(el.def))) && <button onClick={onRotateSelected}>Ruota</button>}
         {selected.some((el) => canMirror(getDevice(el.def))) && (
           <button title="Scambia sopra e sotto: per un op. amp, gli ingressi + e −" onClick={onMirrorSelected}>
             Specchia

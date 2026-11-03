@@ -5,7 +5,7 @@ import { Logo } from './ui/Logo';
 import { ScopePanel } from './ui/ScopePanel';
 import { AnalysisControls } from './ui/AnalysisControls';
 import { ResultsView } from './ui/ResultsView';
-import { CanvasArea, CircuitFileInput, ExamplesSelect, Library, Properties, SpeedSelect, ThemeSelect, ValuesToggle } from './workbench/parts';
+import { CanvasArea, CircuitFileInput, EditButtons, ExamplesSelect, Library, Properties, SpeedSelect, ThemeSelect, ValuesToggle } from './workbench/parts';
 import { Workbench } from './workbench/useWorkbench';
 
 /** The full layout, for computers and tablets: everything in view at once. */
@@ -27,12 +27,7 @@ export const App: React.FC<{ wb: Workbench; onPhoneLayout: () => void }> = ({ wb
         <CircuitFileInput wb={wb} />
       </div>
       <div className="button-row">
-        <button onClick={wb.undo} disabled={wb.history.length === 0}>
-          Annulla
-        </button>
-        <button onClick={wb.redo} disabled={wb.redoStack.length === 0}>
-          Ripeti
-        </button>
+        <EditButtons wb={wb} />
         <ThemeSelect wb={wb} />
         <button className="layout-switch" onClick={onPhoneLayout} title="L'interfaccia pensata per gli schermi piccoli">
           Vista telefono

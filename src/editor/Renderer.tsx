@@ -25,7 +25,8 @@ interface Props {
   onTerminalUp: (worldPos: Pt, e: Press) => void;
   wireDraft: Pt[];
   ghost: { def: ComponentDef; x: number; y: number; rot: Rotation } | null;
-  hoveredTerminal: { x: number; y: number; label?: string } | null;
+  /** isPending marks the first terminal of a wire chosen with a finger, waiting for the second one. */
+  hoveredTerminal: { x: number; y: number; label?: string; isPending?: boolean } | null;
   /** Drawn above the wires and below the components. */
   overlay?: React.ReactNode;
   /** Drawn above the components. */
@@ -129,7 +130,8 @@ export const Renderer: React.FC<Props> = ({
     {labels}
 
     {hoveredTerminal && (
-      <g transform={`translate(${hoveredTerminal.x}, ${hoveredTerminal.y})`} pointerEvents="none">
+      <g transform={`translate(${hoveredTerminal.x}, ${hoveredTerminal.y})`} pointerEvents="none" data-testid={hoveredTerminal.isPending ? 'pending-terminal' : undefined}>
+        {hoveredTerminal.isPending && <circle r={12} className="pending-ring" fill="none" stroke="var(--sch-select)" strokeWidth={2} />}
         <circle r={7} fill="rgba(37, 99, 235, 0.14)" stroke="var(--sch-select)" strokeWidth={1.8} />
         {hoveredTerminal.label && (
           <text y={-11} fontSize={9} fontWeight={700} fill="var(--sch-ink)" textAnchor="middle">

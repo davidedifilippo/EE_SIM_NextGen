@@ -1,5 +1,5 @@
 import { Pt, Wire } from '../model/types';
-import { Box, dist, isPointOnSegment } from '../utils/geometry';
+import { Box, dist, isPointOnSegment, normalizeBox, snap } from '../utils/geometry';
 
 /** A wire attached to a part being moved, as it was when the drag started. */
 export interface WireFollower {
@@ -117,4 +117,86 @@ export const isShortWire = (pts: Pt[], reach: number) => wireLength(pts) <= 2 * 
 export function wireEndingAt(wires: Wire[], point: Pt): Wire | undefined {
   const ending = wires.filter((w) => dist(w.pts[0], point) < 2 || dist(w.pts[w.pts.length - 1], point) < 2);
   return ending.sort((a, b) => wireLength(a.pts) - wireLength(b.pts))[0];
+}
+
+/** One end of a wire to route: where it is, and the way out of the part it belongs to (null on a wire). */
+export interface RouteEnd {
+  pt: Pt;
+  out: Pt | null;
+}
+
+/** How far a wire runs out of a terminal before it may turn, when it must not go back over its part. */
+const ROUTE_STUB = 20;
+const CROSSING_PENALTY = 1000;
+const BACKWARD_PENALTY = 400;
+const BEND_PENALTY = 15;
+/** Leaving a terminal sideways, not along its lead: allowed, but a straight exit looks better. */
+const SIDEWAYS_PENALTY = 30;
+
+/** Whether a horizontal or vertical segment passes through the inside of a box, not just along its edge. */
+function crossesBox(a: Pt, b: Pt, box: Box): boolean {
+  const { minX, minY, maxX, maxY } = normalizeBox(box);
+  const inset = 2;
+  const [x1, x2] = [Math.min(a.x, b.x), Math.max(a.x, b.x)];
+  const [y1, y2] = [Math.min(a.y, b.y), Math.max(a.y, b.y)];
+  return x2 > minX + inset && x1 < maxX - inset && y2 > minY + inset && y1 < maxY - inset;
+}
+
+function cost(pts: Pt[], from: RouteEnd, to: RouteEnd, obstacles: Box[], avoid: Pt[]): number {
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) {
+    total += dist(pts[i - 1], pts[i]);
+    total += obstacles.filter((box) => crossesBox(pts[i - 1], pts[i], box)).length * CROSSING_PENALTY;
+    // A terminal or a wire end on the way would be connected to it
+    total += avoid.filter((p) => isPointOnSegment(p, pts[i - 1], pts[i], TOLERANCE)).length * CROSSING_PENALTY;
+  }
+  total += (pts.length - 2) * BEND_PENALTY;
+  // Leaving a terminal back over its own part reads badly even when it crosses nothing
+  const leaves = (end: RouteEnd, next: Pt) => (end.out ? (next.x - end.pt.x) * end.out.x + (next.y - end.pt.y) * end.out.y : 0);
+  for (const way of [leaves(from, pts[1]), leaves(to, pts[pts.length - 2])]) {
+    if (way < 0) total += BACKWARD_PENALTY;
+    else if (way === 0) total += SIDEWAYS_PENALTY;
+  }
+  return total;
+}
+
+/** Room left between a wire going round a part and the part. */
+const ROUTE_CLEARANCE = 20;
+
+/**
+ * The ways an orthogonal wire can go between two points: straight, with one corner, or with two, the
+ * middle run half way or just past the edge of a part, to go round it.
+ */
+function shapes(a: Pt, b: Pt, obstacles: Box[]): Pt[][] {
+  const xs = [snap((a.x + b.x) / 2)];
+  const ys = [snap((a.y + b.y) / 2)];
+  for (const box of obstacles) {
+    const { minX, minY, maxX, maxY } = normalizeBox(box);
+    xs.push(snap(minX - ROUTE_CLEARANCE), snap(maxX + ROUTE_CLEARANCE));
+    ys.push(snap(minY - ROUTE_CLEARANCE), snap(maxY + ROUTE_CLEARANCE));
+  }
+  return [
+    [a, { x: b.x, y: a.y }, b],
+    [a, { x: a.x, y: b.y }, b],
+    ...xs.map((x) => [a, { x, y: a.y }, { x, y: b.y }, b]),
+    ...ys.map((y) => [a, { x: a.x, y }, { x: b.x, y }, b]),
+  ];
+}
+
+/**
+ * An orthogonal path for a wire from one terminal to another, as tidy as a simple rule can make it:
+ * touching no other terminal or wire end, clear of the parts, leaving each terminal outwards, then
+ * short and with few corners. The user can still drag it afterwards.
+ */
+export function routeWire(from: RouteEnd, to: RouteEnd, obstacles: Box[], avoid: Pt[] = []): Pt[] {
+  const others = avoid.filter((p) => !same(p, from.pt) && !same(p, to.pt));
+  const stub = (end: RouteEnd) => (end.out ? { x: end.pt.x + end.out.x * ROUTE_STUB, y: end.pt.y + end.out.y * ROUTE_STUB } : end.pt);
+  const candidates = [...shapes(from.pt, to.pt, obstacles), ...shapes(stub(from), stub(to), obstacles).map((path) => [from.pt, ...path, to.pt])].map(simplify);
+  let best = candidates[0];
+  let bestCost = Infinity;
+  for (const path of candidates) {
+    const c = cost(path, from, to, obstacles, others);
+    if (c < bestCost - 1e-9) [best, bestCost] = [path, c];
+  }
+  return best;
 }

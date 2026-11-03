@@ -4,7 +4,7 @@ import { Logo } from '../ui/Logo';
 import { ResultsView } from '../ui/ResultsView';
 import { ScopePanel } from '../ui/ScopePanel';
 import { SharePanel } from '../ui/SharePanel';
-import { CanvasArea, CircuitFileInput, Library, Properties } from '../workbench/parts';
+import { CanvasArea, CircuitFileInput, EditButtons, Library, Properties } from '../workbench/parts';
 import { Workbench } from '../workbench/useWorkbench';
 import { BottomSheet } from './BottomSheet';
 import { MobileMenu } from './MobileMenu';
@@ -50,6 +50,8 @@ export const MobileApp: React.FC<{ wb: Workbench; onFullLayout: () => void }> = 
   // A drag never does: the panel would cover what the finger is moving
   const selectionRef = useRef(wb.selectedIds);
   selectionRef.current = wb.selectedIds;
+  const circuitRef = useRef(wb.circuit);
+  circuitRef.current = wb.circuit;
   const pressRef = useRef<{ x: number; y: number; ids: Set<string> } | null>(null);
   const onCanvasDown = (e: React.PointerEvent) => {
     pressRef.current = { x: e.clientX, y: e.clientY, ids: wb.selectedIds };
@@ -63,7 +65,9 @@ export const MobileApp: React.FC<{ wb: Workbench; onFullLayout: () => void }> = 
       const ids = selectionRef.current;
       const hasChanged = ids.size !== press.ids.size || [...ids].some((id) => !press.ids.has(id));
       if (!hasChanged) return;
-      if (ids.size > 0) setSheet((open) => (open === null || open === 'properties' ? 'properties' : open));
+      // A wire just drawn is selected too, ready to drag: only a part brings up the panel
+      const hasPart = circuitRef.current.elements.some((el) => ids.has(el.id));
+      if (hasPart) setSheet((open) => (open === null || open === 'properties' ? 'properties' : open));
       else setSheet((open) => (open === 'properties' ? null : open));
     }, 0);
   };
@@ -80,12 +84,7 @@ export const MobileApp: React.FC<{ wb: Workbench; onFullLayout: () => void }> = 
         <button className="icon" aria-label={wb.liveRunning ? 'Ferma l’animazione' : 'Avvia l’animazione'} onClick={() => wb.setLiveRunning((r) => !r)}>
           {wb.liveRunning ? '⏸' : '▶'}
         </button>
-        <button className="icon" aria-label="Annulla" onClick={wb.undo} disabled={wb.history.length === 0}>
-          ↶
-        </button>
-        <button className="icon" aria-label="Ripeti" onClick={wb.redo} disabled={wb.redoStack.length === 0}>
-          ↷
-        </button>
+        <EditButtons wb={wb} />
         <button className="icon" aria-label="Menu" aria-expanded={isMenuOpen} onClick={() => setIsMenuOpen(true)}>
           ⋮
         </button>

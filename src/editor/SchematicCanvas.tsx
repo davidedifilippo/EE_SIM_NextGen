@@ -4,8 +4,8 @@ import { Circuit, ComponentDef, Element, Pt, Rotation, Wire } from '../model/typ
 import { canMirror, canRotate, createElement, getDevice } from '../library/devices';
 import { Box, dist, isElementInBox, isPointInBox, isPointOnSegment, isWireInBox, localToWorld, snap, snapPt } from '../utils/geometry';
 import { ContextMenu, MenuItem } from './ContextMenu';
-import { Renderer } from './Renderer';
-import { anchoredWires, followMove, isShortWire, selectionBounds, wireEndingAt, WireFollower, wireFollowers } from './wireRouting';
+import { getBounds, Renderer } from './Renderer';
+import { anchoredWires, followMove, isShortWire, RouteEnd, routeWire, selectionBounds, wireEndingAt, WireFollower, wireFollowers } from './wireRouting';
 
 interface Props {
   circuit: Circuit;
@@ -85,6 +85,28 @@ const DRAG_THRESHOLD = 4;
 const LONG_PRESS_MS = 400;
 
 const hitRadius = (e: React.PointerEvent) => (e.pointerType === 'touch' ? 20 : 12);
+
+/** On the body of a part, how close to a terminal a finger must land to mean the terminal and not the part. */
+const TOUCH_TERMINAL_RADIUS = 9;
+
+/** The way out of a part through one of its terminals, along the axis it mostly points to; null at its center. */
+function outward(el: Element, terminal: Pt): Pt | null {
+  const [dx, dy] = [terminal.x - el.x, terminal.y - el.y];
+  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return null;
+  return Math.abs(dx) >= Math.abs(dy) ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) };
+}
+
+/** Where a part sits on the sheet, for a wire to go round it. */
+function elementBox(el: Element): Box | null {
+  const def = getDevice(el.def);
+  if (!def) return null;
+  const b = getBounds(def);
+  const corners = [
+    { x: b.x, y: b.y },
+    { x: b.x + b.w, y: b.y + b.h },
+  ].map((p) => localToWorld(el.x, el.y, p, el.rot, el.flip));
+  return { x1: corners[0].x, y1: corners[0].y, x2: corners[1].x, y2: corners[1].y };
+}
 
 const moveEnds = (pts: Pt[], ends: ConnectedEnd[], dx: number, dy: number) =>
   pts.map((p, idx) => {
@@ -207,15 +229,15 @@ export const SchematicCanvas: React.FC<Props> = ({
     setZoom(clamped);
   };
 
-  // Nearest terminal or wire tip within the magnetic snap radius
-  const findNearestTerminal = (worldPt: Pt, maxDist = 12): { label?: string; worldPos: Pt } | null => {
-    let best: { label?: string; worldPos: Pt; d: number } | null = null;
+  // Nearest terminal or wire tip within the magnetic snap radius; out is the way out of its part
+  const findNearestTerminal = (worldPt: Pt, maxDist = 12): { label?: string; worldPos: Pt; out?: Pt | null } | null => {
+    let best: { label?: string; worldPos: Pt; out?: Pt | null; d: number } | null = null;
     for (const elem of circuit.elements) {
       for (const term of getDevice(elem.def)?.terminals ?? []) {
         const tWorld = localToWorld(elem.x, elem.y, term, elem.rot, elem.flip);
         const d = dist(worldPt, tWorld);
         if (d <= maxDist && (!best || d < best.d)) {
-          best = { label: elem.tag ? `${elem.tag}.${term.id}` : term.id, worldPos: snapPt(tWorld), d };
+          best = { label: elem.tag ? `${elem.tag}.${term.id}` : term.id, worldPos: snapPt(tWorld), out: outward(elem, tWorld), d };
         }
       }
     }
@@ -271,7 +293,37 @@ export const SchematicCanvas: React.FC<Props> = ({
     onChange({ ...circuit, wires: [...circuit.wires, ...newWires] });
   };
 
+  // With a finger, a wire is two taps: on its first end, which lights up and waits, then on the second
+  const [pendingEnd, setPendingEnd] = useState<(RouteEnd & { label?: string }) | null>(null);
+  /** A finger down on something a wire could end on: a tap there, if it lifts without moving. */
+  const touchTapRef = useRef<RouteEnd & { label?: string; onWire?: boolean } | null>(null);
+
+  const connectTo = (target: RouteEnd & { label?: string }) => {
+    const start = pendingEnd;
+    if (!start) {
+      setPendingEnd(target);
+      navigator.vibrate?.(10);
+      return;
+    }
+    setPendingEnd(null);
+    if (dist(start.pt, target.pt) < 2) return;
+    const obstacles = circuit.elements.map(elementBox).filter((box): box is Box => box !== null);
+    const terminals = circuit.elements.flatMap((el) => (getDevice(el.def)?.terminals ?? []).map((t) => localToWorld(el.x, el.y, t, el.rot, el.flip)));
+    const tips = circuit.wires.flatMap((w) => [w.pts[0], w.pts[w.pts.length - 1]]);
+    const wire: Wire = { id: `wire_${Date.now()}`, pts: routeWire(start, target, obstacles, [...terminals, ...tips]) };
+    onChange({ ...circuit, wires: [...circuit.wires, wire] });
+    onSelectIds(new Set([wire.id]));
+  };
+
+  /** Takes a finger press as a possible tap on a wire end, and lets it move the view instead if it moves. */
+  const pressForWire = (e: React.PointerEvent, target: RouteEnd & { label?: string; onWire?: boolean }) => {
+    touchTapRef.current = target;
+    setIsPanning(true);
+    setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+  };
+
   const hoveredTerminal = (() => {
+    if (pendingEnd) return { ...pendingEnd.pt, label: pendingEnd.label, isPending: true };
     if (!mouseWorld || activeDefToPlace || isPanning) return null;
     const near = findNearestTerminal(mouseWorld);
     return near ? { x: near.worldPos.x, y: near.worldPos.y, label: near.label } : null;
@@ -300,6 +352,7 @@ export const SchematicCanvas: React.FC<Props> = ({
         if (activeDefToPlace) setPlacementRot((prev) => ((prev + 90) % 360) as Rotation);
         else if (selectedIds.size > 0) onRotateSelected();
       } else if (e.key === 'Escape') {
+        setPendingEnd(null);
         resetDraft();
         setSelectionBox(null);
         onPlacedDef();
@@ -433,6 +486,14 @@ export const SchematicCanvas: React.FC<Props> = ({
     }
 
     const nearTerm = findNearestTerminal(world, hitRadius(e));
+    if (e.pointerType === 'touch') {
+      // A tap on the empty sheet drops a first end chosen before: no wire ever ends in the void
+      if (nearTerm) {
+        pressForWire(e, { pt: nearTerm.worldPos, out: nearTerm.out ?? null, label: nearTerm.label });
+        return;
+      }
+      setPendingEnd(null);
+    }
     if (wireDraft.length > 0) {
       completeWire(nearTerm ? nearTerm.worldPos : snapped);
       return;
@@ -604,6 +665,14 @@ export const SchematicCanvas: React.FC<Props> = ({
     setIsPanning(false);
     cancelLongPress();
 
+    const tap = touchTapRef.current;
+    touchTapRef.current = null;
+    if (tap && e.pointerType === 'touch' && !hasDragged(e)) {
+      connectTo(tap);
+      dragRef.current = null;
+      return;
+    }
+
     // Drag-to-wire: releasing away from the start completes the wire
     if (wireDraft.length > 0 && e.button === 0 && hasDragged(e)) {
       const world = screenToWorld(e.clientX, e.clientY);
@@ -664,6 +733,15 @@ export const SchematicCanvas: React.FC<Props> = ({
       handlePointerDown(e);
       return;
     }
+    if (e.pointerType === 'touch') {
+      const terminal = findNearestTerminal(world, TOUCH_TERMINAL_RADIUS);
+      if (terminal) {
+        pressForWire(e, { pt: terminal.worldPos, out: terminal.out ?? null, label: terminal.label });
+        return;
+      }
+      // Grabbing a part drops a first end chosen before
+      setPendingEnd(null);
+    }
     const nearTerm = findNearestTerminal(world, e.pointerType === 'touch' ? 14 : 10);
     if (nearTerm) {
       if (wireDraft.length === 0) startWire(nearTerm.worldPos);
@@ -703,6 +781,14 @@ export const SchematicCanvas: React.FC<Props> = ({
     if (activeDefToPlace) {
       handlePointerDown(e);
       return;
+    }
+    if (e.pointerType === 'touch') {
+      const tip = findNearestTerminal(world, hitRadius(e));
+      // A tip of the wire, or with a first end waiting, any point along it: a junction
+      if (tip || pendingEnd) {
+        pressForWire(e, tip ? { pt: tip.worldPos, out: tip.out ?? null, label: tip.label } : { pt: snapPt(world), out: null, onWire: true });
+        return;
+      }
     }
     if (wireDraft.length > 0) {
       completeWire(findNearestTerminal(world, hitRadius(e))?.worldPos ?? snapPt(world));
@@ -779,6 +865,11 @@ export const SchematicCanvas: React.FC<Props> = ({
     if (e.button !== 0) return;
     if (activeDefToPlace) {
       handlePointerDown(e);
+      return;
+    }
+    if (e.pointerType === 'touch') {
+      const pressed = findNearestTerminal(screenToWorld(e.clientX, e.clientY), hitRadius(e));
+      pressForWire(e, { pt: pressed?.worldPos ?? snapPt(worldPos), out: pressed?.out ?? null, label: pressed?.label });
       return;
     }
     // Terminals can overlap under a finger: the nearest counts, not the one drawn on top

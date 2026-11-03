@@ -1,6 +1,6 @@
 import React from 'react';
 import { ComponentDef } from '../model/types';
-import { getDevice } from '../library/devices';
+import { canRotate, getDevice } from '../library/devices';
 import { EXAMPLES } from '../samples/examples';
 import { SchematicCanvas } from '../editor/SchematicCanvas';
 import { ComponentLibrary } from '../ui/ComponentLibrary';
@@ -9,6 +9,24 @@ import { PropertiesPanel } from '../ui/PropertiesPanel';
 import { MAX_TRACES } from '../ui/scopeTraces';
 import { THEME_CHOICES } from '../ui/theme';
 import { Workbench } from './useWorkbench';
+
+/** Undo, redo and rotate, side by side under the thumb: the same three on every screen. */
+export const EditButtons: React.FC<{ wb: Workbench }> = ({ wb }) => {
+  const canTurn = wb.circuit.elements.some((el) => wb.selectedIds.has(el.id) && canRotate(getDevice(el.def)));
+  return (
+    <div className="edit-buttons" role="group" aria-label="Modifica">
+      <button className="icon" aria-label="Annulla" title="Annulla" onClick={wb.undo} disabled={wb.history.length === 0}>
+        ↶
+      </button>
+      <button className="icon" aria-label="Ripeti" title="Ripeti" onClick={wb.redo} disabled={wb.redoStack.length === 0}>
+        ↷
+      </button>
+      <button className="icon" aria-label="Ruota la selezione" title="Ruota la selezione (R)" onClick={wb.rotateSelected} disabled={!canTurn}>
+        ⟳
+      </button>
+    </div>
+  );
+};
 
 /** The hidden field behind Apri. */
 export const CircuitFileInput: React.FC<{ wb: Workbench }> = ({ wb }) => (
@@ -135,7 +153,6 @@ export const Properties: React.FC<{ wb: Workbench }> = ({ wb }) => (
     circuit={wb.circuit}
     selectedIds={wb.selectedIds}
     onChange={wb.handleChange}
-    onRotateSelected={wb.rotateSelected}
     onMirrorSelected={wb.mirrorSelected}
     onSelectAll={wb.selectAll}
     onDeleteSelected={wb.deleteSelected}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Pt } from '../model/types';
 import { isPointOnSegment } from '../utils/geometry';
-import { anchoredWires, followMove, isShortWire, selectionBounds, wireEndingAt, wireFollowers, wireLength } from './wireRouting';
+import { anchoredWires, followMove, isShortWire, routeWire, selectionBounds, wireEndingAt, wireFollowers, wireLength } from './wireRouting';
 
 const pt = (x: number, y: number): Pt => ({ x, y });
 const isOrthogonal = (pts: Pt[]) => pts.slice(1).every((p, i) => p.x === pts[i].x || p.y === pts[i].y);
@@ -137,3 +137,55 @@ describe('short wires', () => {
 function pt2(length: number) {
   return [pt(0, 0), pt(length, 0)];
 }
+
+describe('routeWire', () => {
+  const right = { x: 1, y: 0 };
+  const left = { x: -1, y: 0 };
+  const up = { x: 0, y: -1 };
+  const down = { x: 0, y: 1 };
+  const corners = (pts: Pt[]) => pts.length - 2;
+
+  it('goes straight between terminals facing each other', () => {
+    expect(routeWire({ pt: pt(40, 0), out: right }, { pt: pt(120, 0), out: left }, [])).toEqual([pt(40, 0), pt(120, 0)]);
+  });
+
+  it('turns once between parts side by side, and stays orthogonal', () => {
+    const path = routeWire({ pt: pt(40, 0), out: right }, { pt: pt(120, 80), out: up }, []);
+    expect(isOrthogonal(path)).toBe(true);
+    expect(corners(path)).toBe(1);
+    expect(path).toEqual([pt(40, 0), pt(120, 0), pt(120, 80)]);
+  });
+
+  it('leaves a terminal outwards, not back over its part', () => {
+    // Right terminal of a part at the origin, target behind it on the left and below
+    const part = { x1: -40, y1: -10, x2: 40, y2: 10 };
+    const path = routeWire({ pt: pt(40, 0), out: right }, { pt: pt(-80, 60), out: up }, [part]);
+    expect(path.slice(1).every((p, i) => !(Math.min(p.y, path[i].y) < 8 && Math.max(p.y, path[i].y) > -8 && Math.max(p.x, path[i].x) > -38 && Math.min(p.x, path[i].x) < 38))).toBe(true);
+  });
+
+  it('goes round a part in the way', () => {
+    const blocker = { x1: 60, y1: -20, x2: 100, y2: 20 };
+    const path = routeWire({ pt: pt(40, 0), out: right }, { pt: pt(160, 0), out: left }, [blocker]);
+    expect(isOrthogonal(path)).toBe(true);
+    for (let i = 1; i < path.length; i++) {
+      const [a, b] = [path[i - 1], path[i]];
+      const inside = Math.max(a.x, b.x) > 62 && Math.min(a.x, b.x) < 98 && Math.max(a.y, b.y) > -18 && Math.min(a.y, b.y) < 18;
+      expect(inside).toBe(false);
+    }
+  });
+
+  it('leaves along the lead of the terminal when it can', () => {
+    // The top terminal of an upright source to the left terminal of a resistor above and to the right
+    expect(routeWire({ pt: pt(0, -40), out: up }, { pt: pt(80, -80), out: left }, [])).toEqual([pt(0, -40), pt(0, -80), pt(80, -80)]);
+  });
+
+  it('never runs over another terminal, which it would connect', () => {
+    const path = routeWire({ pt: pt(240, 40), out: down }, { pt: pt(0, 80), out: null }, [], [pt(0, 40)]);
+    for (let i = 1; i < path.length; i++) expect(isPointOnSegment(pt(0, 40), path[i - 1], path[i], 0.5)).toBe(false);
+  });
+
+  it('adds no corner where the points are already in line', () => {
+    expect(routeWire({ pt: pt(0, 40), out: down }, { pt: pt(0, 120), out: up }, [])).toEqual([pt(0, 40), pt(0, 120)]);
+    expect(routeWire({ pt: pt(0, 0), out: null }, { pt: pt(50, 0), out: null }, [])).toEqual([pt(0, 0), pt(50, 0)]);
+  });
+});
