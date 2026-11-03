@@ -928,7 +928,7 @@ export const SchematicCanvas: React.FC<Props> = ({
               selectionBox={selectionBox}
               groupBounds={groupBounds}
               onElementDown={handleElementDown}
-              onSetProp={(elem, key, value) => onChange({ ...circuit, elements: circuit.elements.map((el) => (el.id === elem.id ? { ...el, props: { ...el.props, [key]: value } } : el)) })}
+              onSetProp={(elem, key, value, record = true) => onChange({ ...circuit, elements: circuit.elements.map((el) => (el.id === elem.id ? { ...el, props: { ...el.props, [key]: value } } : el)) }, record)}
               onWireDown={handleWireDown}
               onWireHandleDown={handleWireHandleDown}
               onTerminalDown={handleTerminalDown}

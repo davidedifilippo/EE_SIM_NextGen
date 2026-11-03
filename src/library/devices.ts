@@ -2,6 +2,7 @@ import { METER_MODES } from '../realtime/meterModes';
 import { MAX_BLOCK_PINS, MIN_BLOCK_PINS } from './blockPins';
 import { ComponentDef, Prim, Rotation, Circuit, Element, Pt } from '../model/types';
 import { GateKind } from '../realtime/logic';
+import { closedWay, SwitchKind } from '../realtime/switches';
 import { SourceShape, sourceShape } from '../netlist/source';
 
 
@@ -527,6 +528,78 @@ const LOGIC: ComponentDef[] = [
   gateDevice('xor', 'XOR', [...GATE_LEADS, { t: 'path', d: 'M -30 -18 Q -20 0 -30 18' }, { t: 'path', d: OR_BODY, fill: 'var(--sch-part)' }, output(18)], 'xor or esclusivo'),
 ];
 
+/** Contacts as small circles where a lever or a bar can touch them. */
+const contact = (cx: number, cy: number): Prim => ({ t: 'circle', cx, cy, r: 2.5, fill: 'var(--sch-part)' });
+const SWITCH_LEADS: Prim[] = [
+  { t: 'line', x1: -40, y1: 0, x2: -16, y2: 0 },
+  { t: 'line', x1: 16, y1: 0, x2: 40, y2: 0 },
+];
+
+/** The drawing of a contact in its state: the lever or the bar moves, the rest stays. */
+function switchSymbol(kind: SwitchKind, props: Element['props']): Prim[] {
+  const way = closedWay(kind, props);
+  const isPressed = String(props.pressed ?? '0') === '1';
+  if (kind === 'spdt') {
+    const end = way === 1 ? 20 : -20;
+    return [
+      { t: 'line', x1: -40, y1: 0, x2: -16, y2: 0 },
+      { t: 'line', x1: 16, y1: -20, x2: 40, y2: -20 },
+      { t: 'line', x1: 16, y1: 20, x2: 40, y2: 20 },
+      { t: 'line', x1: -16, y1: 0, x2: 14, y2: end, w: 2 },
+      contact(-16, 0),
+      contact(16, -20),
+      contact(16, 20),
+    ];
+  }
+  if (kind === 'toggle') {
+    return [...SWITCH_LEADS, { t: 'line', x1: -16, y1: 0, x2: way === 0 ? 14 : 12, y2: way === 0 ? 0 : -16, w: 2 }, contact(-16, 0), contact(16, 0)];
+  }
+  // The bar of a push button rests above the contacts if they are open, on them if closed; pressing moves it down
+  const barY = kind === 'pushno' ? (isPressed ? -1 : -9) : isPressed ? 9 : 1;
+  return [
+    ...SWITCH_LEADS,
+    contact(-16, 0),
+    contact(16, 0),
+    { t: 'line', x1: -18, y1: barY, x2: 18, y2: barY, w: 2 },
+    { t: 'line', x1: 0, y1: barY, x2: 0, y2: barY - 12 },
+    { t: 'line', x1: -7, y1: barY - 12, x2: 7, y2: barY - 12, w: 2 },
+  ];
+}
+
+const SWITCH_SEARCH = 'interruttore pulsante deviatore switch contatto';
+
+function switchDevice(switchKind: SwitchKind, id: string, name: string, extra: string, props: ComponentDef['props']): ComponentDef {
+  const isChangeover = switchKind === 'spdt';
+  return {
+    id,
+    category: 'Passivi',
+    name,
+    tagPrefix: 'S',
+    searchTerms: `${SWITCH_SEARCH} ${extra}`,
+    terminals: isChangeover
+      ? [
+          { id: 'c', x: -40, y: 0 },
+          { id: '1', x: 40, y: -20 },
+          { id: '2', x: 40, y: 20 },
+        ]
+      : twoPin('a', 'b'),
+    symbol: switchSymbol(switchKind, {}),
+    props,
+    spice: { kind: 'switch', switchKind, common: isChangeover ? 'c' : 'a', ways: isChangeover ? ['1', '2'] : ['b'] },
+  };
+}
+
+const SWITCHES: ComponentDef[] = [
+  switchDevice('toggle', 'switch', 'Interruttore', 'bistabile spst', [
+    { key: 'closed', label: 'Stato', type: 'choice', default: '0', options: [{ value: '0', label: 'Aperto' }, { value: '1', label: 'Chiuso' }] },
+  ]),
+  switchDevice('pushno', 'pushno', 'Pulsante NA', 'normalmente aperto push button', []),
+  switchDevice('pushnc', 'pushnc', 'Pulsante NC', 'normalmente chiuso push button', []),
+  switchDevice('spdt', 'spdt', 'Deviatore', 'spdt due vie scambio', [
+    { key: 'position', label: 'Posizione', type: 'choice', default: '1', options: [{ value: '1', label: 'Verso 1' }, { value: '2', label: 'Verso 2' }] },
+  ]),
+];
+
 const REGULATORS = [
   ...[5, 6, 8, 9, 12, 15, 24].map((v) => regulatorDevice(`78${String(v).padStart(2, '0')}`, v, 1)),
   ...[5, 12, 15].map((v) => regulatorDevice(`79${String(v).padStart(2, '0')}`, v, -1)),
@@ -534,7 +607,7 @@ const REGULATORS = [
   regulatorDevice('LM337', 1.25, -1, true),
 ];
 
-DEVICES.push(...REGULATORS, ...LOGIC);
+DEVICES.push(...REGULATORS, ...LOGIC, ...SWITCHES);
 for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));
@@ -545,6 +618,7 @@ export function getDevice(id: string): ComponentDef | undefined {
 
 export function elementSymbol(def: ComponentDef, element: Element): Prim[] {
   if (def.id === 'multimeter' && def.spice.kind === 'meter') return meterSymbol(element.props[def.spice.modeProp]);
+  if (def.spice.kind === 'switch') return switchSymbol(def.spice.switchKind, element.props);
   if (def.id !== 'vsource') return def.symbol;
   return [...SOURCE_BODY, { t: 'path', d: SOURCE_GLYPHS[sourceShape(element.props)] }];
 }

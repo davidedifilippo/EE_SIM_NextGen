@@ -103,6 +103,8 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
       return [s.p1, s.p2, s.s1, s.s2];
     case 'logic':
       return [s.output, ...s.inputs];
+    case 'switch':
+      return [s.common, ...s.ways];
   }
 };
 

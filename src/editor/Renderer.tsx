@@ -18,7 +18,7 @@ interface Props {
   groupBounds: Box | null;
   onElementDown: (elem: Element, e: Press) => void;
   /** A control drawn on a part was pressed: a mark around the dial of a multimeter, the lever of a logic input. */
-  onSetProp: (elem: Element, key: string, value: string) => void;
+  onSetProp: (elem: Element, key: string, value: string, record?: boolean) => void;
   onWireDown: (wire: Wire, e: Press) => void;
   onWireHandleDown: (wire: Wire, pointIndex: number, e: Press) => void;
   onTerminalDown: (worldPos: Pt, e: Press) => void;
@@ -113,7 +113,7 @@ export const Renderer: React.FC<Props> = ({
           elem={elem}
           isSelected={selectedIds.has(elem.id)}
           onDown={(e) => onElementDown(elem, e)}
-          onSetProp={(key, value) => onSetProp(elem, key, value)}
+          onSetProp={(key, value, record) => onSetProp(elem, key, value, record)}
           onTerminalDown={onTerminalDown}
           onTerminalUp={onTerminalUp}
         />
@@ -201,7 +201,8 @@ const ElementItem: React.FC<{
   elem: Element;
   isSelected: boolean;
   onDown: (e: Press) => void;
-  onSetProp: (key: string, value: string) => void;
+  /** record false: a change that must not go into Annulla, such as holding a push button. */
+  onSetProp: (key: string, value: string, record?: boolean) => void;
   onTerminalDown: (worldPos: Pt, e: Press) => void;
   onTerminalUp: (worldPos: Pt, e: Press) => void;
 }> = ({ elem, isSelected, onDown, onSetProp, onTerminalDown, onTerminalUp }) => {
@@ -281,6 +282,61 @@ const ElementItem: React.FC<{
             {elem.props.state === '1' ? '1' : '0'}
           </text>
         </g>
+      )}
+
+      {/* The lever of a toggle or a changeover flips at a press; the rest of the part moves it */}
+      {def.spice.kind === 'switch' && (def.spice.switchKind === 'toggle' || def.spice.switchKind === 'spdt') && (
+        <rect
+          role="switch"
+          aria-checked={def.spice.switchKind === 'toggle' ? elem.props.closed === '1' : elem.props.position === '2'}
+          aria-label={`${elem.tag}: ${def.spice.switchKind === 'toggle' ? (elem.props.closed === '1' ? 'chiuso' : 'aperto') : `verso ${elem.props.position === '2' ? '2' : '1'}`}`}
+          x={-14}
+          y={def.spice.switchKind === 'spdt' ? -24 : -20}
+          width={30}
+          height={def.spice.switchKind === 'spdt' ? 48 : 24}
+          fill="transparent"
+          pointerEvents="all"
+          style={{ cursor: 'pointer' }}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            if (e.button !== 0) return;
+            if (def.spice.kind !== 'switch') return;
+            if (def.spice.switchKind === 'toggle') onSetProp('closed', elem.props.closed === '1' ? '0' : '1');
+            else onSetProp('position', elem.props.position === '2' ? '1' : '2');
+          }}
+        />
+      )}
+      {/* A push button acts only while held: pressed on the way down, released on the way up */}
+      {def.spice.kind === 'switch' && (def.spice.switchKind === 'pushno' || def.spice.switchKind === 'pushnc') && (
+        <rect
+          role="button"
+          aria-pressed={elem.props.pressed === '1'}
+          aria-label={`${elem.tag}: tieni premuto`}
+          x={-20}
+          y={-26}
+          width={40}
+          height={30}
+          fill="transparent"
+          pointerEvents="all"
+          style={{ cursor: 'pointer', touchAction: 'none' }}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            if (e.button !== 0) return;
+            onSetProp('pressed', '1', false);
+            // Held even if the finger slides off the button; a pointer the browser no longer knows cannot be held
+            try {
+              e.currentTarget.setPointerCapture(e.pointerId);
+            } catch {
+              // The release still comes from the window
+            }
+          }}
+          onPointerUp={(e) => {
+            e.stopPropagation();
+            onSetProp('pressed', '0', false);
+          }}
+          onPointerCancel={() => onSetProp('pressed', '0', false)}
+          onLostPointerCapture={() => elem.props.pressed === '1' && onSetProp('pressed', '0', false)}
+        />
       )}
 
       {/* Its name and pins on the box, upright whatever the rotation */}

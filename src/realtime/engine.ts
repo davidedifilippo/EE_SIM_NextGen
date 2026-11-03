@@ -339,6 +339,9 @@ export class RealtimeEngine {
         case 'diode':
           if (d.params.rs > 0) this.addG(d.a, d.junction, 1 / d.params.rs);
           break;
+        case 'switch':
+          d.ways.forEach((way, k) => this.addG(d.a, way, d.g[k]));
+          break;
         case 'logic':
           this.addG(d.a, -1, 1 / LOGIC_OUTPUT_RESISTANCE);
           for (const input of d.inputs) this.addG(input, -1, 1 / LOGIC_INPUT_RESISTANCE);
@@ -890,6 +893,7 @@ export class RealtimeEngine {
       case 'mos':
       case 'regulator':
       case 'logic':
+      case 'switch':
         return this.terminalCurrents(index)[0];
     }
   }
@@ -921,6 +925,11 @@ export class RealtimeEngine {
       return [polarity * (i + iq), -polarity * i, -polarity * iq];
     }
     if (d.kind === 'opamp') return [this.x[d.branch], 0, 0];
+    if (d.kind === 'switch') {
+      // Into the common, out of each way
+      const toWays = d.ways.map((way, k) => d.g[k] * (this.voltage(d.a) - this.voltage(way)));
+      return [toWays.reduce((sum, i) => sum + i, 0), ...toWays.map((i) => -i)];
+    }
     if (d.kind === 'logic') {
       const out = (this.voltage(d.a) - (this.logicOut[index] ? d.vdd : 0)) / LOGIC_OUTPUT_RESISTANCE;
       return [out, ...d.inputs.map((node) => this.voltage(node) / LOGIC_INPUT_RESISTANCE)];

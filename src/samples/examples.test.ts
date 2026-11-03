@@ -59,6 +59,22 @@ describe('the examples', () => {
     expect(current('d2')).toBeGreaterThan(5e-3);
   });
 
+  it('switches: the LED lights only with the toggle closed and the button held', () => {
+    const led = (closed: string, pressed: string) => {
+      const circuit = example('switches');
+      circuit.elements = circuit.elements.map((el) => (el.id === 's1' ? { ...el, props: { ...el.props, closed } } : el.id === 's2' ? { ...el, props: { ...el.props, pressed } } : el));
+      const compiled = compileCircuit(circuit);
+      if (!compiled.ok) throw new Error(compiled.errors.join());
+      const engine = new RealtimeEngine(compiled.compiled);
+      engine.initialize();
+      return engine.deviceCurrent(compiled.compiled.elementIds.indexOf('d1'));
+    };
+    expect(led('0', '0')).toBeLessThan(1e-6);
+    expect(led('1', '0')).toBeLessThan(1e-6);
+    expect(led('0', '1')).toBeLessThan(1e-6);
+    expect(led('1', '1')).toBeGreaterThan(5e-3);
+  });
+
   it('transistor switch: the collector conducts only while the base is driven', () => {
     const { engine, current } = start('switch');
     const collector = () => Math.abs(current('rc'));

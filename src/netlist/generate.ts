@@ -7,6 +7,7 @@ import { internalResistance, sourceAcSpec, sourceDcSpec, sourceSpec } from './so
 import { parseSpiceValue } from './values';
 import { METER_TEST_CURRENT, meterResistance } from '../realtime/meter';
 import { gateExpression, levelExpression, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicParams } from '../realtime/logic';
+import { contactResistances } from '../realtime/switches';
 import { REGULATOR_GAIN, REGULATOR_LEAK, REGULATOR_STIFFNESS, regulatorParams } from '../realtime/regulator';
 
 export interface TranAnalysis {
@@ -238,6 +239,14 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         }
         const name = uniqueName('X', el.tag);
         if (name) lines.push(`${name} ${s.pins.map(node).join(' ')} ${model}`);
+        break;
+      }
+      case 'switch': {
+        const name = uniqueName('R', el.tag);
+        if (!name) break;
+        // As it stands now: a push button counts at rest, as nobody presses it during the analysis
+        const resistances = contactResistances(s.switchKind, { ...el.props, pressed: '0' });
+        s.ways.forEach((way, k) => lines.push(`${name}${s.ways.length > 1 ? `_${k + 1}` : ''} ${node(s.common)} ${node(way)} ${resistances[k]}`));
         break;
       }
       case 'logic': {

@@ -6,6 +6,7 @@ import { OPAMP_GAIN, transformerWindings } from '../netlist/generate';
 import { METER_TEST_CURRENT, meterResistance } from './meter';
 import { GateKind, logicParams } from './logic';
 import { RegulatorParams, regulatorParams } from './regulator';
+import { contactResistances } from './switches';
 import { internalResistance, sourceSpec } from '../netlist/source';
 import { parseSpiceValue } from '../netlist/values';
 import { parseWaveform, Waveform } from './waveform';
@@ -86,6 +87,8 @@ export type CompiledDevice =
   | { kind: 'opamp'; element: number; a: NodeIndex; b: NodeIndex; plus: NodeIndex; minus: NodeIndex; high: number; low: number; /** Time constant of the open loop pole; 0 for no limit. */ tau: number; branch: number }
   /** a is the input, b the output and base the reference. */
   | { kind: 'regulator'; element: number; a: NodeIndex; b: NodeIndex; base: NodeIndex; params: RegulatorParams }
+  /** a is the common, b the first way; g holds the conductance to each way, set by the state of the contact. */
+  | { kind: 'switch'; element: number; a: NodeIndex; b: NodeIndex; ways: NodeIndex[]; g: number[] }
   /** a is the output, b is ground; the output is held for a whole step, so the matrix never changes with it. */
   | { kind: 'logic'; element: number; a: NodeIndex; b: NodeIndex; inputs: NodeIndex[]; gate: GateKind; vdd: number; state: boolean }
   /** a and b are the primary, c and d the secondary, each winding with its branch current; the primed nodes come after their series resistances. */
@@ -281,6 +284,12 @@ export function compileCircuit(circuit: Circuit): CompileResult {
       case 'block':
         errors.push(`${el.tag}: un sottocircuito non si può animare. Usa l'Analisi precisa`);
         break;
+      case 'switch': {
+        const [a, ways] = [node(s.common), s.ways.map(node)];
+        const g = contactResistances(s.switchKind, el.props).map((r) => 1 / r);
+        pending.push({ element, needsBranch: false, build: () => ({ kind: 'switch', element, a, b: ways[0], ways, g }) });
+        break;
+      }
       case 'logic': {
         const params = logicParams(el, s);
         if (!params) {
@@ -428,7 +437,7 @@ export function compileCircuit(circuit: Circuit): CompileResult {
 
   const signature = JSON.stringify([
     branch,
-    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.inputs] : 0]),
+    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.inputs] : d.kind === 'switch' ? d.ways : 0]),
   ]);
   return { ok: true, compiled: { size: branch, devices, netIndex, elementIds, signature } };
 }

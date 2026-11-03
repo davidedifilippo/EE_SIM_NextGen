@@ -23,7 +23,7 @@ const part = (id: string, def: string, x: number, y: number, rot: Rotation, tag:
 
 const wire = (id: string, ...pts: [number, number][]): Wire => ({ id, pts: pts.map(([x, y]): Pt => ({ x, y })) });
 
-const ground = (x: number, y: number) => part('gnd', 'ground', x, y, 0, '');
+const ground = (x: number, y: number, id = 'gnd') => part(id, 'ground', x, y, 0, '');
 
 const sine = (amplitude: string, frequency: string) => ({ shape: 'sin', amplitude, offset: '0', frequency });
 
@@ -137,6 +137,39 @@ const gates = (): Circuit => ({
   models: [],
 });
 
+const switches = (): Circuit => ({
+  title: 'Pulsante, interruttore e porta logica',
+  elements: [
+    part('v1', 'dcsupply', -120, 40, 90, 'V1', { amplitude: '5' }),
+    part('s1', 'switch', 0, 0, 0, 'S1'),
+    part('s2', 'pushno', 0, 160, 0, 'S2'),
+    part('r1', 'resistor', 60, 40, 90, 'R1', { value: '10k' }),
+    part('r2', 'resistor', 80, 200, 90, 'R2', { value: '10k' }),
+    part('u1', 'gate_and', 160, 50, 0, 'U1'),
+    part('r3', 'resistor', 240, 50, 0, 'R3', { value: '220' }),
+    part('d1', 'led', 300, 90, 90, 'D1', { model: 'LED_VERDE' }),
+    // A ground under each part that needs one, as in a schematic drawn by hand
+    ground(-120, 120),
+    ground(60, 100, 'gnd2'),
+    ground(80, 260, 'gnd3'),
+    ground(300, 150, 'gnd4'),
+  ],
+  wires: [
+    wire('w1', [-120, 0], [-40, 0]),
+    wire('w2', [-60, 0], [-60, 160], [-40, 160]),
+    wire('w3', [40, 0], [60, 0]),
+    wire('w4', [60, 0], [100, 0], [100, 40], [120, 40]),
+    wire('w5', [40, 160], [80, 160]),
+    wire('w6', [80, 160], [100, 160], [100, 60], [120, 60]),
+    wire('w7', [280, 50], [300, 50]),
+    wire('w8', [-120, 80], [-120, 120]),
+    wire('w9', [60, 80], [60, 100]),
+    wire('w10', [80, 240], [80, 260]),
+    wire('w11', [300, 130], [300, 150]),
+  ],
+  models: [],
+});
+
 const regulator = (): Circuit => ({
   title: 'Regolatore 7805',
   elements: [
@@ -160,5 +193,6 @@ export const EXAMPLES: Example[] = [
   { id: 'inverting', title: 'Amplificatore invertente', hint: 'Guadagno −RF/R1 = −10: 0,5 V in ingresso, 5 V in uscita, in opposizione', build: inverting },
   { id: 'switch', title: 'Transistor come interruttore', hint: 'Un’onda quadra tra 0 e 5 V, a 1 Hz, accende e spegne la corrente nel collettore', build: transistorSwitch },
   { id: 'gates', title: 'Porte logiche e LED', hint: 'Tocca 0 e 1 sugli ingressi: il LED rosso si accende con AND, il verde con XOR', build: gates },
+  { id: 'switches', title: 'Pulsante, interruttore e porta logica', hint: 'Chiudi l’interruttore e tieni premuto il pulsante: il LED si accende solo con entrambi', build: switches },
   { id: 'regulator', title: 'Regolatore 7805', hint: '5 V sul carico da 100 Ω: guarda la potenza e la temperatura del regolatore', build: regulator },
 ];
