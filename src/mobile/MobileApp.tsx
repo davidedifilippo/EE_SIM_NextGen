@@ -128,6 +128,10 @@ export const MobileApp: React.FC<{ wb: Workbench; onFullLayout: () => void }> = 
             )}
             {(wb.run || wb.errors.length > 0) && (
               <div className="results mobile-results">
+                {/* Closes only the analysis: the oscilloscope above has its own */}
+                <button className="close-results" aria-label="Chiudi i risultati dell'analisi" title="Chiudi i risultati dell'analisi" onClick={wb.closeResults}>
+                  ×
+                </button>
                 <ResultsView wb={wb} />
               </div>
             )}

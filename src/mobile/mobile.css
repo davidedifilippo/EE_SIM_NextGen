@@ -257,3 +257,8 @@
 .sheet-body .palette button.part {
   width: auto;
 }
+
+/* Without the padding of the full layout the button needs no pulling into the corner */
+.mobile-results button.close-results {
+  margin: 0;
+}
