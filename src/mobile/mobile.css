@@ -258,7 +258,12 @@
   width: auto;
 }
 
-/* Without the padding of the full layout the button needs no pulling into the corner */
+/* Without the padding of the full layout the button needs no pulling into the corner. Grey and small,
+   as the button that takes a trace off the oscilloscope: it closes one chart, not the whole panel */
 .mobile-results button.close-results {
+  min-width: 32px;
+  min-height: 28px;
   margin: 0;
+  font-size: 16px;
+  color: var(--text-muted);
 }
