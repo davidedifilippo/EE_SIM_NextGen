@@ -6,7 +6,7 @@ import { computeConnectivity, terminalKey } from './connectivity';
 import { internalResistance, sourceAcSpec, sourceDcSpec, sourceSpec } from './source';
 import { parseSpiceValue } from './values';
 import { METER_TEST_CURRENT, meterResistance } from '../realtime/meter';
-import { gateExpression, levelExpression, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicParams, tableExpression } from '../realtime/logic';
+import { gateExpression, levelExpression, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicParams, nextStateTable, outputTable, sequentialSpec, tableExpression } from '../realtime/logic';
 import { contactResistances } from '../realtime/switches';
 import { SEGMENT_LEAK, segmentColor, segmentExpression } from '../realtime/display7';
 import { ctTransformerParams } from '../realtime/ctTransformer';
@@ -142,6 +142,7 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
   };
 
   const lines: string[] = [];
+  let needsLatchModel = false;
   const usedNames = new Set<string>();
   const usedModels = new Map<string, SpiceModel>();
   let hasAcSource = false;
@@ -309,8 +310,25 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
             return `v(xv${k}${name})`;
           });
         }
+        if (s.gate === 'clock') {
+          // Low for the first half period, as in the real-time engine, with short edges
+          const period = 1 / params.frequency;
+          const edge = period * 1e-4;
+          lines.push(`VC${name} xl0${name} 0 PULSE(0 ${params.vdd} ${period / 2} ${edge} ${edge} ${period / 2 - edge} ${period})`);
+          lines.push(`RL0${name} xl0${name} ${node(s.outputs[0])} ${LOGIC_OUTPUT_RESISTANCE}`);
+          break;
+        }
+        const spec = sequentialSpec(s.gate, params.modulus);
+        if (spec) {
+          lines.push(...latchLines(name, spec, levels, params.vdd));
+          needsLatchModel = true;
+        }
         s.outputs.forEach((output, j) => {
-          const expression = params.table ? tableExpression(params.table, j, levels) : gateExpression(s.gate, levels, params.state);
+          const expression = spec
+            ? tableExpression(outputTable(spec), j, latchLevels(name, spec))
+            : params.table
+              ? tableExpression(params.table, j, levels)
+              : gateExpression(s.gate, levels, params.state);
           lines.push(`BL${j}${name} xl${j}${name} 0 V=${params.vdd}*${expression}`);
           lines.push(`RL${j}${name} xl${j}${name} ${node(output)} ${LOGIC_OUTPUT_RESISTANCE}`);
         });
@@ -514,6 +532,60 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
       : analysis.type === 'dc'
         ? `.dc ${sweptName(analysis.source)} ${analysis.from} ${analysis.to} ${analysis.step}${familyPart}`
         : `.tran ${analysis.step} ${analysis.stop}${analysis.maxStep ? ` 0 ${analysis.maxStep}` : ''}`;
+  if (needsLatchModel) lines.push(LATCH_SWITCH_MODEL, LATCH_FORCE_MODEL);
   const text = [circuit.title, ...lines, ...modelCards.map((m) => m.card), command, '.end', ''].join('\n');
   return { text, errors, nodeOf };
+}
+
+/** The switches of the latches: a little hysteresis around the middle, so master and slave are never closed together. */
+const LATCH_SWITCH_MODEL = '.model LOGIC_SW SW(VT=0 VH=0.1 RON=100 ROFF=1e12)';
+const LATCH_FORCE_MODEL = '.model LOGIC_FORCE SW(VT=0 VH=0.1 RON=1 ROFF=1e12)';
+const LATCH_CAPACITANCE = '1n';
+const LATCH_LEAK = 1e12;
+
+/** The level of each state bit for ngspice, most significant first: the voltage held by its slave. */
+const latchLevels = (name: string, spec: { stateBits: number }) =>
+  Array.from({ length: spec.stateBits }, (_, k) => `v(xq${spec.stateBits - 1 - k}${name})`);
+
+/**
+ * The memory of a sequential part for ngspice: for each state bit a master capacitor, which follows the
+ * next state while the clock is low, and a slave capacitor, which takes the master while the clock is
+ * high. The state therefore moves at the rising edge, as in the real-time engine. Reset and set pull both
+ * capacitors at once, reset first.
+ */
+function latchLines(name: string, spec: NonNullable<ReturnType<typeof sequentialSpec>>, levels: string[], vdd: number): string[] {
+  const lines: string[] = [];
+  const n = spec.stateBits;
+  const clock = `xc${name}`;
+  lines.push(`BC${name} ${clock} 0 V=${levels[spec.clock]}-0.5`);
+  // Each slave voltage once as a level from 0 to 1, as the next state and the outputs read it
+  const slaveLevels = Array.from({ length: n }, (_, k) => {
+    const bit = n - 1 - k;
+    lines.push(`BQ${bit}${name} xq${bit}${name} 0 V=${levelExpression(`v(xs${bit}${name})`, vdd)}`);
+    return `v(xq${bit}${name})`;
+  });
+  const rowLevels = [...slaveLevels, ...spec.data.map((k) => levels[k])];
+  const table = nextStateTable(spec);
+  const reset = spec.reset !== null ? levels[spec.reset] : null;
+  if (reset) lines.push(`BR${name} xr${name} 0 V=${reset}-0.5`);
+  if (spec.set !== null) {
+    lines.push(`BT${name} xt${name} 0 V=${levels[spec.set]}*(1-${reset ?? '0'})-0.5`);
+    lines.push(`VT${name} xh${name} 0 ${vdd}`);
+  }
+  for (let bit = 0; bit < n; bit++) {
+    const [d, m, b, q] = [`xd${bit}${name}`, `xm${bit}${name}`, `xb${bit}${name}`, `xs${bit}${name}`];
+    lines.push(`BD${bit}${name} ${d} 0 V=${vdd}*${tableExpression(table, bit, rowLevels)}`);
+    lines.push(`SM${bit}${name} ${d} ${m} 0 ${clock} LOGIC_SW`);
+    lines.push(`CM${bit}${name} ${m} 0 ${LATCH_CAPACITANCE}`);
+    lines.push(`RM${bit}${name} ${m} 0 ${LATCH_LEAK}`);
+    lines.push(`BB${bit}${name} ${b} 0 V=v(${m})`);
+    lines.push(`SS${bit}${name} ${b} ${q} ${clock} 0 LOGIC_SW`);
+    lines.push(`CS${bit}${name} ${q} 0 ${LATCH_CAPACITANCE}`);
+    lines.push(`RS${bit}${name} ${q} 0 ${LATCH_LEAK}`);
+    for (const [node, tag] of [[m, 'M'], [q, 'S']]) {
+      if (reset) lines.push(`SR${tag}${bit}${name} ${node} 0 xr${name} 0 LOGIC_FORCE`);
+      if (spec.set !== null) lines.push(`ST${tag}${bit}${name} ${node} xh${name} xt${name} 0 LOGIC_FORCE`);
+    }
+  }
+  return lines;
 }

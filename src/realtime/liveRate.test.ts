@@ -6,6 +6,9 @@ describe('automatic speed', () => {
   it('keeps the usual speed for circuits in continuous voltage or at mains frequency', () => {
     expect(automaticSpeed(null)).toBe(DEFAULT_SPEED);
     expect(automaticSpeed(1 / 50)).toBe(DEFAULT_SPEED);
+    // Slow signals: no more than one period a second, up to real time
+    expect(automaticSpeed(1 / 10)).toBe(100e-3);
+    expect(automaticSpeed(1)).toBe(1);
     expect(automaticSpeed(1 / 1000)).toBe(DEFAULT_SPEED);
   });
 

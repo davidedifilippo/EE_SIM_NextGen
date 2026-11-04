@@ -17,6 +17,20 @@ interface Props {
 
 /** Two plots share the room of the panel. */
 const plotHeightFor = (plots: number) => (plots > 1 ? 104 : 140);
+/** Height of each trace of its own, as on a logic analyser: enough to tell a 0 from a 1. */
+const LANE_HEIGHT = 34;
+
+/**
+ * Where a value goes on a plot: on the whole height, or in the lane of its trace, from the top, with a
+ * margin so that the 1 of one lane does not touch the 0 of the next.
+ */
+export function laneY(value: number, lo: number, hi: number, top: number, height: number, lane: number | null, lanes: number): number {
+  const fraction = 1 - (value - lo) / (hi - lo || 1);
+  if (lane === null) return top + fraction * height;
+  const laneHeight = height / lanes;
+  const pad = laneHeight * 0.18;
+  return top + lane * laneHeight + pad + fraction * (laneHeight - 2 * pad);
+}
 const MARGIN = { top: 8, right: 12, bottom: 22, left: 58 };
 /** How long a sweep lasts on screen, as the time menu offers it. */
 /** Seconds of real time across the screen. The short ones show a few periods of a fast signal, kept still by the trigger. */
@@ -34,6 +48,12 @@ function sweepFor(period: number | null, speed: number): number {
   return SWEEPS_SECONDS.find((seconds) => speed * seconds >= PERIODS_IN_VIEW * period) ?? SWEEPS_SECONDS[SWEEPS_SECONDS.length - 1];
 }
 const STATS_EVERY_MS = 250;
+
+/** The short name of a lane, for the narrow margin: the pin of a part without the V( ), or the start of the name. */
+const laneName = (label: string) => {
+  const pin = /^V\((.+)\)$/.exec(label)?.[1] ?? label;
+  return pin.length > 9 ? pin.slice(pin.length - 9) : pin;
+};
 const UNIT_NAMES: Record<ScopeUnit, string> = { V: 'Tensione (V)', A: 'Corrente (A)' };
 
 const buildPath = (columns: Float64Array, width: number, toY: (v: number) => number): string => {
@@ -57,6 +77,12 @@ export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, 
   // Follows the signal until the viewer chooses a window: then it stays where it was put
   const sweepSeconds = pickedSweep ?? Math.min(DEFAULT_SWEEP_SECONDS, sweepFor(signalPeriod, speed));
   const [isTriggered, setIsTriggered] = useState(true);
+  // Separate lanes for the voltages: by itself when they are all outputs of logic parts, until the viewer chooses
+  const [pickedSeparate, setPickedSeparate] = useState<boolean | null>(null);
+  const voltageTraces = traces.filter((t) => unitOf(t) === 'V');
+  const canSeparate = voltageTraces.length > 1;
+  const isSeparate = canSeparate && (pickedSeparate ?? voltageTraces.every((t) => t.kind === 'pin'));
+  const laneOf = useMemo(() => new Map(isSeparate ? voltageTraces.map((t, k) => [t.id, k]) : []), [isSeparate, voltageTraces.map((t) => t.id).join()]);
   const [axes, setAxes] = useState<Partial<Record<ScopeUnit, number[]>>>({});
   const [measures, setMeasures] = useState<Map<string, string>>(new Map());
   const hoverRef = useRef<number | null>(null);
@@ -64,8 +90,9 @@ export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, 
   const units = useMemo(() => (['V', 'A'] as ScopeUnit[]).filter((u) => traces.some((t) => unitOf(t) === u)), [traces]);
   const span = speed * sweepSeconds;
   const plotWidth = Math.max(width - MARGIN.left - MARGIN.right, 60);
-  const totalHeight = plotHeightFor(units.length);
-  const plotHeight = totalHeight - MARGIN.top - MARGIN.bottom;
+  const baseHeight = plotHeightFor(units.length) - MARGIN.top - MARGIN.bottom;
+  const plotHeightOf = (unit: ScopeUnit) => (unit === 'V' && isSeparate ? Math.max(baseHeight, voltageTraces.length * LANE_HEIGHT) : baseHeight);
+  const vHeight = plotHeightOf('V');
 
   useEffect(() => {
     const el = rootRef.current;
@@ -115,7 +142,10 @@ export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, 
         const path = root.querySelector<SVGPathElement>(`[data-trace="${trace.slot}"]`);
         if (!ticks || !path) return;
         const [lo, hi] = [ticks[0], ticks[ticks.length - 1]];
-        path.setAttribute('d', buildPath(columns[i], plotWidth, (v) => MARGIN.top + (1 - (v - lo) / (hi - lo || 1)) * plotHeight));
+        const unit = unitOf(trace);
+        const height = unit === 'V' ? vHeight : baseHeight;
+        const lane = laneOf.get(trace.id) ?? null;
+        path.setAttribute('d', buildPath(columns[i], plotWidth, (v) => laneY(v, lo, hi, MARGIN.top, height, lane, laneOf.size)));
       });
 
       const hover = hoverRef.current;
@@ -157,7 +187,7 @@ export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, 
     };
     handle = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(handle);
-  }, [traces, labels, units, span, isTriggered, plotWidth, plotHeight, bufferRef]);
+  }, [traces, labels, units, span, isTriggered, plotWidth, baseHeight, vHeight, laneOf, bufferRef]);
 
   const onHover = (e: React.PointerEvent<SVGRectElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -194,6 +224,12 @@ export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, 
           <input type="checkbox" checked={isTriggered} onChange={(e) => setIsTriggered(e.target.checked)} />
           Trigger
         </label>
+        {canSeparate && (
+          <label title="Ogni tensione nella sua fascia, una sotto l'altra, come in un analizzatore logico">
+            <input type="checkbox" checked={isSeparate} onChange={(e) => setPickedSeparate(e.target.checked)} />
+            Tracce separate
+          </label>
+        )}
       </div>
 
       <ul className="scope-traces">
@@ -213,11 +249,27 @@ export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, 
         {units.map((unit, index) => {
           const ticks = axes[unit] ?? [0, 1];
           const [lo, hi] = [ticks[0], ticks[ticks.length - 1]];
+          const plotHeight = plotHeightOf(unit);
+          const totalHeight = plotHeight + MARGIN.top + MARGIN.bottom;
           const toY = (v: number) => MARGIN.top + (1 - (v - lo) / (hi - lo || 1)) * plotHeight;
           const isLast = index === units.length - 1;
+          const lanes = unit === 'V' && isSeparate ? voltageTraces : [];
           return (
             <svg key={unit} width={width} height={totalHeight} role="img" aria-label={`Andamento nel tempo: ${UNIT_NAMES[unit]}`}>
-              {ticks.map((v) => (
+              {/* Each lane: its name on the left, a line at its 0 and a fainter one at its top */}
+              {lanes.map((trace, k) => {
+                const [y0, y1] = [laneY(lo, lo, hi, MARGIN.top, plotHeight, k, lanes.length), laneY(hi, lo, hi, MARGIN.top, plotHeight, k, lanes.length)];
+                return (
+                  <g key={trace.id}>
+                    <line x1={MARGIN.left} x2={MARGIN.left + plotWidth} y1={y0} y2={y0} className="viz-zero" />
+                    <line x1={MARGIN.left} x2={MARGIN.left + plotWidth} y1={y1} y2={y1} className="viz-grid" />
+                    <text x={MARGIN.left - 6} y={(y0 + y1) / 2 + 4} textAnchor="end" className="viz-tick">
+                      {laneName(labels.get(trace.id) ?? '')}
+                    </text>
+                  </g>
+                );
+              })}
+              {lanes.length === 0 && ticks.map((v) => (
                 <g key={v}>
                   <line x1={MARGIN.left} x2={MARGIN.left + plotWidth} y1={toY(v)} y2={toY(v)} className={v === 0 ? 'viz-zero' : 'viz-grid'} />
                   <text x={MARGIN.left - 6} y={toY(v) + 4} textAnchor="end" className="viz-tick">

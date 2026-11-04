@@ -214,7 +214,7 @@ const ElementItem: React.FC<{
   const isBesideLabel = elem.rot === 90 || elem.rot === 270 || isTransistor;
   const isBlock = def.spice.kind === 'block';
   // A box with named pins: a subcircuit, a truth table, a decoder, a display
-  const isNamedBox = isBlock || def.spice.kind === 'display7' || (def.spice.kind === 'logic' && def.spice.gate === 'table');
+  const isNamedBox = isBlock || def.spice.kind === 'display7' || (def.spice.kind === 'logic' && (def.spice.gate === 'table' || def.spice.gate === 'dff' || def.spice.gate === 'counter'));
   const isRegulator = def.spice.kind === 'regulator';
   // The box is as tall as its pins: its labels go beyond it
   const blockReach = Math.max(...def.terminals.map((t) => Math.abs(t.y))) + 16;
@@ -373,7 +373,7 @@ const ElementItem: React.FC<{
           const anchor = elem.rot === 90 || elem.rot === 270 ? 'middle' : isOnStart ? 'start' : 'end';
           return (
             <text key={t.id} transform={`translate(${Math.sign(t.x) * pinNameX} ${t.y}) rotate(${-elem.rot})`} y={3} textAnchor={anchor} fontSize={9} fill="var(--sch-muted)" pointerEvents="none">
-              {blockPinNames[k]?.slice(0, 7)}
+              {blockPinNames[k] === 'nQ' && !isBlock ? 'Q̄' : blockPinNames[k]?.slice(0, 7)}
             </text>
           );
         })}

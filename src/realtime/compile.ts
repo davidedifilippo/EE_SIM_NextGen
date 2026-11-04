@@ -105,7 +105,7 @@ export type CompiledDevice =
   /** a is the common, b the first way; g holds the conductance to each way, set by the state of the contact. */
   | { kind: 'switch'; element: number; a: NodeIndex; b: NodeIndex; ways: NodeIndex[]; g: number[] }
   /** a is the output, b is ground; the output is held for a whole step, so the matrix never changes with it. */
-  | { kind: 'logic'; element: number; a: NodeIndex; b: NodeIndex; outputs: NodeIndex[]; inputs: NodeIndex[]; gate: GateKind; vdd: number; state: boolean; table: number[] | null }
+  | { kind: 'logic'; element: number; a: NodeIndex; b: NodeIndex; outputs: NodeIndex[]; inputs: NodeIndex[]; gate: GateKind; vdd: number; state: boolean; table: number[] | null; frequency: number; modulus: number }
   /** a and b are the primary, c and d the secondary, each winding with its branch current; the primed nodes come after their series resistances. */
   | { kind: 'transformer'; element: number; a: NodeIndex; b: NodeIndex; c: NodeIndex; d: NodeIndex; ap: NodeIndex; cp: NodeIndex; l1: number; l2: number; m: number; branch: number; branch2: number };
 
@@ -350,8 +350,8 @@ export function compileCircuit(circuit: Circuit): CompileResult {
           break;
         }
         const [outputs, inputs] = [s.outputs.map(node), s.inputs.map(node)];
-        const { vdd, state, table } = params;
-        pending.push({ element, needsBranch: false, build: () => ({ kind: 'logic', element, a: outputs[0], b: -1, outputs, inputs, gate: s.gate, vdd, state, table }) });
+        const { vdd, state, table, frequency, modulus } = params;
+        pending.push({ element, needsBranch: false, build: () => ({ kind: 'logic', element, a: outputs[0], b: -1, outputs, inputs, gate: s.gate, vdd, state, table, frequency, modulus }) });
         break;
       }
       case 'meter': {

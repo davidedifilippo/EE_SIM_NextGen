@@ -1,5 +1,5 @@
 import { SEGMENT_LEAK, segmentPoint } from './display7';
-import { LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicOutputs, readLevel } from './logic';
+import { clockLevel, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicOutputs, readLevel, sequentialSpec } from './logic';
 import { REGULATOR_GAIN, REGULATOR_LEAK, RegulatorRegion, regulatorPoint, regulatorPower, THERMAL_RESTART, THERMAL_SHUTDOWN, THERMAL_STEPS } from './regulator';
 import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams, MosParams } from './compile';
 import { luFactor, luSolve } from './linear';
@@ -214,6 +214,8 @@ export class RealtimeEngine {
   /** Per logic part: its output levels and the level each input last read, one bit each. */
   private readonly logicOut: Int32Array;
   private readonly logicIn: Int32Array;
+  /** Per logic part with a memory: its state, such as the count of a counter. */
+  private readonly logicState: Int32Array;
   /** Per centre-tapped transformer: voltage and current of each of its three windings at the last accepted point. */
   private readonly vPrevW: Float64Array;
   private readonly iPrevW: Float64Array;
@@ -254,6 +256,7 @@ export class RealtimeEngine {
     this.regulatorState = new Int8Array(devices.length);
     this.logicOut = new Int32Array(devices.length);
     this.logicIn = new Int32Array(devices.length);
+    this.logicState = new Int32Array(devices.length);
     this.vIterBridge = new Float64Array(devices.length * 4);
     this.vPrevW = new Float64Array(devices.length * 3);
     this.iPrevW = new Float64Array(devices.length * 3);
@@ -806,12 +809,14 @@ export class RealtimeEngine {
     });
   }
 
-  /** Outputs as the parts would give them with every input at 0. */
+  /** Outputs as the parts would give them with every input at 0, and every memory cleared. */
   private resetLogic() {
     this.compiled.devices.forEach((d, i) => {
       if (d.kind !== 'logic') return;
       this.logicIn[i] = 0;
-      this.logicOut[i] = logicOutputs(d.gate, d.inputs.map(() => false), d.state, d.table);
+      this.logicState[i] = 0;
+      const spec = sequentialSpec(d.gate, d.modulus);
+      this.logicOut[i] = spec ? spec.outputs(0) : d.gate === 'clock' ? (clockLevel(this.time, d.frequency) ? 1 : 0) : logicOutputs(d.gate, d.inputs.map(() => false), d.state, d.table);
     });
   }
 
@@ -819,10 +824,11 @@ export class RealtimeEngine {
    * Reads the inputs of the logic parts at the accepted point, and sets their outputs for the next
    * step: a delay of one step, which keeps every step linear. True if an output changed.
    */
-  private updateLogic(): boolean {
+  private updateLogic(time: number): boolean {
     let hasChanged = false;
     this.compiled.devices.forEach((d, i) => {
       if (d.kind !== 'logic') return;
+      const previous = this.logicIn[i];
       let bits = 0;
       const levels = d.inputs.map((node, k) => {
         const level = readLevel(this.voltage(node), d.vdd, (this.logicIn[i] & (1 << k)) !== 0);
@@ -830,7 +836,20 @@ export class RealtimeEngine {
         return level;
       });
       this.logicIn[i] = bits;
-      const out = logicOutputs(d.gate, levels, d.state, d.table);
+      let out: number;
+      const spec = sequentialSpec(d.gate, d.modulus);
+      if (spec) {
+        // Set and reset act at once; otherwise the state moves only on a rising edge of the clock
+        const isRising = levels[spec.clock] && !((previous >> spec.clock) & 1);
+        if (spec.reset !== null && levels[spec.reset]) this.logicState[i] = 0;
+        else if (spec.set !== null && levels[spec.set]) this.logicState[i] = (1 << spec.stateBits) - 1;
+        else if (isRising) this.logicState[i] = spec.next(this.logicState[i], spec.data.map((k) => levels[k]));
+        out = spec.outputs(this.logicState[i]);
+      } else if (d.gate === 'clock') {
+        out = clockLevel(time, d.frequency) ? 1 : 0;
+      } else {
+        out = logicOutputs(d.gate, levels, d.state, d.table);
+      }
       if (out !== this.logicOut[i]) {
         this.logicOut[i] = out;
         hasChanged = true;
@@ -872,7 +891,7 @@ export class RealtimeEngine {
     }
     // Gates feeding gates settle in as many rounds as the longest chain. A loop that never settles,
     // as a ring of inverters, is left as it is: the animation then shows it running
-    for (let round = 0; round < LOGIC_SETTLE_ROUNDS && this.updateLogic(); round++) {
+    for (let round = 0; round < LOGIC_SETTLE_ROUNDS && this.updateLogic(this.time); round++) {
       if (!this.solve(this.time, 0, 1)) throw new SolverError('Punto di lavoro non trovato');
     }
     this.commit(0);
@@ -906,6 +925,7 @@ export class RealtimeEngine {
     this.regulatorState.set(previous.regulatorState);
     this.logicOut.set(previous.logicOut);
     this.logicIn.set(previous.logicIn);
+    this.logicState.set(previous.logicState);
     // An input switched by hand gives its new level at once
     this.compiled.devices.forEach((d, i) => {
       if (d.kind === 'logic' && d.gate === 'input') this.logicOut[i] = d.state ? 1 : 0;
@@ -934,7 +954,7 @@ export class RealtimeEngine {
     const startRegulatorState = this.regulatorState.slice();
     if (this.solve(this.time + h, h, 1)) {
       this.commit(h);
-      this.updateLogic();
+      this.updateLogic(this.time + h);
       this.time += h;
       return;
     }

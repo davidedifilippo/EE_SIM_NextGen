@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptyTable, formatTable, gateExpression, gateOutput, GateKind, levelExpression, logicOutputs, parseTable, readLevel, tableExpression, tableRow } from './logic';
+import { clockLevel, emptyTable, nextStateTable, outputTable, sequentialSpec, formatTable, gateExpression, gateOutput, GateKind, levelExpression, logicOutputs, parseTable, readLevel, tableExpression, tableRow } from './logic';
 
 const GATES: GateKind[] = ['and', 'or', 'nand', 'nor', 'xor'];
 const TABLES: Record<string, boolean[]> = {
@@ -94,5 +94,40 @@ describe('truth tables', () => {
         expect(evaluate(tableExpression(table, 0, levels))).toBeCloseTo(table[row] & 1, 9);
       }
     }
+  });
+});
+
+describe('parts with a memory', () => {
+  it('a clock starts low and rises after half a period', () => {
+    expect(clockLevel(0, 1)).toBe(false);
+    expect(clockLevel(0.49, 1)).toBe(false);
+    expect(clockLevel(0.5, 1)).toBe(true);
+    expect(clockLevel(1.2, 1)).toBe(false);
+  });
+
+  it('a decimal counter goes 0 to 9 and back, its outputs from the most significant bit', () => {
+    const counter = sequentialSpec('counter', 10)!;
+    expect(counter.next(9, [])).toBe(0);
+    expect(counter.next(4, [])).toBe(5);
+    // 5 = 0101: Q3 Q2 Q1 Q0 = 0 1 0 1, bit j for output j
+    expect(counter.outputs(5)).toBe(0b1010);
+    expect(sequentialSpec('counter', 16)!.next(9, [])).toBe(10);
+  });
+
+  it('a D flip-flop takes D and gives Q and its complement', () => {
+    const dff = sequentialSpec('dff', 0)!;
+    expect(dff.next(0, [true])).toBe(1);
+    expect(dff.next(1, [false])).toBe(0);
+    expect(dff.outputs(1)).toBe(1);
+    expect(dff.outputs(0)).toBe(2);
+  });
+
+  it('writes the same rules as tables for ngspice', () => {
+    const dff = sequentialSpec('dff', 0)!;
+    // Rows: state, then D
+    expect(nextStateTable(dff)).toEqual([0, 1, 0, 1]);
+    const counter = sequentialSpec('counter', 10)!;
+    expect(nextStateTable(counter).slice(0, 10)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 0]);
+    expect(outputTable(counter)[5]).toBe(counter.outputs(5));
   });
 });

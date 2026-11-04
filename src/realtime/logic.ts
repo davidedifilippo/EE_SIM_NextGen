@@ -2,7 +2,7 @@ import { Element, SpiceDef } from '../model/types';
 import { parseSpiceValue } from '../netlist/values';
 
 /** What a logic part computes. An input has no inputs of its own: it gives the level it is set to. */
-export type GateKind = 'and' | 'or' | 'nand' | 'nor' | 'xor' | 'not' | 'input' | 'table';
+export type GateKind = 'and' | 'or' | 'nand' | 'nor' | 'xor' | 'not' | 'input' | 'table' | 'clock' | 'dff' | 'counter';
 
 /** Behind each output, as the push-pull stage of a CMOS gate: enough to light a LED through its resistor. */
 export const LOGIC_OUTPUT_RESISTANCE = 100;
@@ -19,6 +19,10 @@ export interface LogicParams {
   state: boolean;
   /** For a truth table: the outputs of each row, one bit per output, the first output in bit 0. */
   table: number[] | null;
+  /** For a clock: its frequency. */
+  frequency: number;
+  /** For a counter: how many states before it starts again, 16 for binary, 10 for decimal. */
+  modulus: number;
 }
 
 /** Most inputs and outputs of a truth table: 64 rows still fit on a phone, 8 outputs drive a display. */
@@ -53,8 +57,69 @@ export function logicParams(el: Element, s: Extract<SpiceDef, { kind: 'logic' }>
     table = parseTable(s.fixedTable ?? String(el.props[s.tableProp ?? ''] ?? ''), s.inputs.length, s.outputs.length);
     if (!table) return null;
   }
-  return { vdd, state: s.stateProp !== undefined && String(el.props[s.stateProp]) === '1', table };
+  let frequency = 0;
+  if (s.gate === 'clock') {
+    const value = parseSpiceValue(String(el.props.frequency ?? ''));
+    if (value === null || value <= 0) return null;
+    frequency = value;
+  }
+  const modulus = s.gate === 'counter' ? (String(el.props.modulus ?? '10') === '16' ? 16 : 10) : 0;
+  return { vdd, state: s.stateProp !== undefined && String(el.props[s.stateProp]) === '1', table, frequency, modulus };
 }
+
+/** A clock is low for the first half of each period, then high: the first rising edge comes after half a period. */
+export const clockLevel = (time: number, frequency: number) => (time * frequency) % 1 >= 0.5;
+
+/**
+ * A part with a memory, as the real-time engine and the netlist both read it: how many bits of state,
+ * which inputs are data, clock and asynchronous set and reset, the next state at a rising edge of the
+ * clock, and the outputs for a state. Outputs depend on the state alone.
+ */
+export interface SequentialSpec {
+  stateBits: number;
+  data: number[];
+  clock: number;
+  set: number | null;
+  reset: number | null;
+  next: (state: number, data: boolean[]) => number;
+  outputs: (state: number) => number;
+}
+
+export function sequentialSpec(kind: GateKind, modulus: number): SequentialSpec | null {
+  if (kind === 'dff') {
+    // D, clock, set, reset; Q and its complement
+    return { stateBits: 1, data: [0], clock: 1, set: 2, reset: 3, next: (_, [d]) => (d ? 1 : 0), outputs: (q) => (q ? 1 : 2) };
+  }
+  if (kind === 'counter') {
+    // Clock and reset; outputs from the most significant bit down, as D C B A at the input of a decoder
+    return {
+      stateBits: 4,
+      data: [],
+      clock: 0,
+      set: null,
+      reset: 1,
+      next: (q) => (q + 1) % modulus,
+      outputs: (q) => [3, 2, 1, 0].reduce((bits, bit, j) => bits | (((q >> bit) & 1) << j), 0),
+    };
+  }
+  return null;
+}
+
+/**
+ * The next state of each bit as a truth table, for ngspice: rows over the state bits, most significant
+ * first, then the data inputs. Bit i of a row is the next value of state bit i.
+ */
+export function nextStateTable(spec: SequentialSpec): number[] {
+  const rows = 1 << (spec.stateBits + spec.data.length);
+  return Array.from({ length: rows }, (_, row) => {
+    const state = row >> spec.data.length;
+    const data = spec.data.map((_, k) => ((row >> (spec.data.length - 1 - k)) & 1) === 1);
+    return spec.next(state, data);
+  });
+}
+
+/** The outputs as a truth table over the state bits, most significant first. */
+export const outputTable = (spec: SequentialSpec) => Array.from({ length: 1 << spec.stateBits }, (_, state) => spec.outputs(state));
 
 /** All the outputs of a logic part at once, one bit per output. */
 export function logicOutputs(kind: GateKind, inputs: boolean[], state: boolean, table: number[] | null): number {
@@ -87,6 +152,9 @@ export function gateOutput(kind: GateKind, inputs: boolean[], state = false): bo
     case 'input':
       return state;
     case 'table':
+    case 'clock':
+    case 'dff':
+    case 'counter':
       return false;
   }
 }
@@ -113,6 +181,9 @@ export function gateExpression(kind: GateKind, levels: string[], state = false):
     case 'input':
       return state ? '1' : '0';
     case 'table':
+    case 'clock':
+    case 'dff':
+    case 'counter':
       return '0';
   }
 }

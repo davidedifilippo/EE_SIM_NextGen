@@ -25,6 +25,18 @@ describe('probe choices', () => {
     expect(traceLabel(choices[2].probe, c)).toBe('V2(T1)');
   });
 
+  it('offers each output of a counter or a flip-flop on its own', () => {
+    const c = circuitFromNets('t', [
+      { def: 'counter4', tag: 'U1', nets: ['clk', '0', 'q3', 'q2', 'q1', 'q0'], props: { modulus: '10', vdd: '5' } },
+      { def: 'dff', tag: 'FF1', nets: ['d', 'clk', '0', '0', 'q', 'qn'], props: { vdd: '5' } },
+    ]);
+    const counter = elementProbes(c.elements[0]);
+    expect(counter.map((x) => x.label)).toEqual(['Uscita Q3', 'Uscita Q2', 'Uscita Q1', 'Uscita Q0']);
+    expect(counter.map((x) => unitOf(x.probe))).toEqual(['V', 'V', 'V', 'V']);
+    expect(traceLabel(counter[3].probe, c)).toBe('V(U1.Q0)');
+    expect(traceLabel(elementProbes(c.elements[1])[1].probe, c)).toBe('V(FF1.Q̄)');
+  });
+
   it('offers nothing on ground', () => {
     expect(elementProbes(circuit.elements.find((e) => e.def === 'ground')!)).toEqual([]);
   });

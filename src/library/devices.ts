@@ -694,6 +694,44 @@ const LOGIC: ComponentDef[] = [
     spice: { kind: 'logic', gate: 'table', inputs: ['D', 'C', 'B', 'A'], outputs: ['a', 'b', 'c', 'd', 'e', 'f', 'g'], vddProp: 'vdd', fixedTable: BCD_TABLE },
   },
   gateDevice('xor', 'XOR', [...GATE_LEADS, { t: 'path', d: 'M -30 -18 Q -20 0 -30 18' }, { t: 'path', d: OR_BODY, fill: 'var(--sch-part)' }, output(18)], 'xor or esclusivo'),
+  {
+    id: 'clock',
+    category: 'Logica',
+    name: 'Clock',
+    tagPrefix: 'CK',
+    searchTerms: 'clock onda quadra generatore impulsi temporizzatore 555',
+    terminals: [{ id: 'y', x: 40, y: 0 }],
+    symbol: [
+      { t: 'rect', x: -24, y: -14, w: 34, h: 28, fill: 'var(--sch-part-soft)' },
+      { t: 'path', d: 'M -19 6 L -13 6 L -13 -6 L -5 -6 L -5 6 L 3 6 L 3 -6 L 6 -6' },
+      { t: 'line', x1: 10, y1: 0, x2: 40, y2: 0 },
+    ],
+    props: [{ key: 'frequency', label: 'Frequenza (Hz)', type: 'text', default: '1' }, SUPPLY_PROP],
+    spice: { kind: 'logic', gate: 'clock', inputs: [], outputs: ['y'], vddProp: 'vdd' },
+  },
+  {
+    id: 'dff',
+    category: 'Logica',
+    name: 'Flip-flop D',
+    tagPrefix: 'FF',
+    searchTerms: 'flip flop d memoria latch registro bistabile 74',
+    ...tableBox(['D', 'CLK', 'S', 'R'], ['Q', 'nQ']),
+    props: [SUPPLY_PROP],
+    spice: { kind: 'logic', gate: 'dff', inputs: ['D', 'CLK', 'S', 'R'], outputs: ['Q', 'nQ'], vddProp: 'vdd' },
+  },
+  {
+    id: 'counter4',
+    category: 'Logica',
+    name: 'Contatore',
+    tagPrefix: 'U',
+    searchTerms: 'contatore decimale binario decade 4 bit 4510 4520 counter',
+    ...tableBox(['CLK', 'RST'], ['Q3', 'Q2', 'Q1', 'Q0']),
+    props: [
+      { key: 'modulus', label: 'Conteggio', type: 'choice', default: '10', options: [{ value: '10', label: 'Decimale (0–9)' }, { value: '16', label: 'Binario (0–15)' }] },
+      SUPPLY_PROP,
+    ],
+    spice: { kind: 'logic', gate: 'counter', inputs: ['CLK', 'RST'], outputs: ['Q3', 'Q2', 'Q1', 'Q0'], vddProp: 'vdd' },
+  },
 ];
 
 /** Contacts as small circles where a lever or a bar can touch them. */

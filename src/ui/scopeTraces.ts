@@ -15,13 +15,23 @@ export interface ProbeChoice {
   probe: ScopeProbe;
 }
 
+/** A pin as the drawing names it: the complement of Q with its bar. */
+const pinName = (terminal: string) => (terminal === 'nQ' ? 'Q̄' : terminal);
+
 export const unitOf = (probe: ScopeProbe): ScopeUnit => (probe.kind === 'current' || probe.kind === 'ib' ? 'A' : 'V');
 
 /** What can be measured on a part. */
 export function elementProbes(el: Element): ProbeChoice[] {
   const spice = getDevice(el.def)?.spice;
   if (!spice || spice.kind === 'ground' || spice.kind === 'block') return [];
-  const choice = (label: string, kind: Exclude<ScopeProbe['kind'], 'node'>): ProbeChoice => ({
+  // A logic part with several outputs: each output on its own, as on a logic analyser
+  if (spice.kind === 'logic' && spice.outputs.length > 1) {
+    return spice.outputs.map((terminal) => ({
+      label: `Uscita ${pinName(terminal)}`,
+      probe: { id: `pin:${el.id}:${terminal}`, kind: 'pin', elementId: el.id, terminal },
+    }));
+  }
+  const choice = (label: string, kind: 'voltage' | 'current' | 'vbe' | 'ib'): ProbeChoice => ({
     label,
     probe: { id: `${kind}:${el.id}`, kind, elementId: el.id },
   });
@@ -60,6 +70,10 @@ export function liveTraces(traces: ScopeTrace[], circuit: Circuit): ScopeTrace[]
 
 /** The name of a trace, in the terms of the drawing. */
 export function traceLabel(probe: ScopeProbe, circuit: Circuit): string {
+  if (probe.kind === 'pin') {
+    const tag = circuit.elements.find((el) => el.id === probe.elementId)?.tag ?? '?';
+    return `V(${tag}.${pinName(probe.terminal)})`;
+  }
   if (probe.kind !== 'node') {
     const tag = circuit.elements.find((el) => el.id === probe.elementId)?.tag ?? '?';
     const kind = getDevice(circuit.elements.find((el) => el.id === probe.elementId)?.def ?? '')?.spice.kind;

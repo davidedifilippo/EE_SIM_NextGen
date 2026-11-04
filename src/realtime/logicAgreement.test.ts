@@ -147,3 +147,69 @@ describe('truth tables and displays against ngspice', () => {
     }
   });
 });
+
+describe('clock, flip-flop and counter against ngspice', () => {
+  const clock: Part = { def: 'clock', tag: 'CK1', nets: ['clk'], props: { frequency: '1k', vdd: '5' } };
+  const loads = (...nets: string[]) => nets.map((net, k) => R(`RL${k}`, net, '0', '10k'));
+
+  /** Both engines over the same time, read at the given instants: one value per net and instant. */
+  async function compare(parts: Part[], nets: string[], times: number[], stop: string) {
+    const { engine, compiled } = realtime(parts);
+    const h = 1e-6;
+    const real: number[][] = [];
+    let t = 0;
+    for (const time of times) {
+      while (t < time - h / 2) {
+        engine.step(h);
+        t += h;
+      }
+      real.push(nets.map((_, k) => engine.nodeVoltage(compiled.devices[compiled.elementIds.indexOf(`rl${k}`)].a)));
+    }
+    const { result, at } = await precise(parts, stop, '1u');
+    const precise_ = times.map((time) => {
+      const j = result.time.findIndex((x) => x >= time);
+      return nets.map((_, k) => at(`rl${k}`, 'a')[j]);
+    });
+    return { real, precise: precise_ };
+  }
+
+  const count = (levels: number[]) => levels.reduce((n, v) => n * 2 + (v > 2.5 ? 1 : 0), 0);
+
+  it('a decade counter on a clock counts the rising edges, and starts again after nine', async () => {
+    const parts = [clock, { def: 'counter4', tag: 'U1', nets: ['clk', '0', 'q3', 'q2', 'q1', 'q0'], props: { modulus: '10', vdd: '5' } } as Part, ...loads('q3', 'q2', 'q1', 'q0')];
+    // Edges at 0.5 ms, 1.5 ms and so on: read a quarter period after each
+    const times = Array.from({ length: 12 }, (_, k) => (k + 0.25) * 1e-3);
+    const { real, precise: ng } = await compare(parts, ['q3', 'q2', 'q1', 'q0'], times, '12m');
+    expect(real.map(count)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1]);
+    expect(ng.map(count)).toEqual(real.map(count));
+  });
+
+  it('a binary counter goes on past nine', () => {
+    const parts = [clock, { def: 'counter4', tag: 'U1', nets: ['clk', '0', 'q3', 'q2', 'q1', 'q0'], props: { modulus: '16', vdd: '5' } } as Part, ...loads('q3', 'q2', 'q1', 'q0')];
+    const { engine, compiled } = realtime(parts);
+    for (let k = 0; k < 12250; k++) engine.step(1e-6);
+    const levels = [0, 1, 2, 3].map((k) => engine.nodeVoltage(compiled.devices[compiled.elementIds.indexOf(`rl${k}`)].a));
+    expect(count(levels)).toBe(12);
+  });
+
+  it('a flip-flop with its complement back on D divides the clock by two', async () => {
+    const parts = [clock, { def: 'dff', tag: 'FF1', nets: ['d', 'clk', '0', '0', 'q', 'd'], props: { vdd: '5' } } as Part, ...loads('q')];
+    const times = Array.from({ length: 6 }, (_, k) => (k + 0.25) * 1e-3);
+    const { real, precise: ng } = await compare(parts, ['q'], times, '6m');
+    expect(real.map(count)).toEqual([0, 1, 0, 1, 0, 1]);
+    expect(ng.map(count)).toEqual(real.map(count));
+  });
+
+  it('reset holds the counter at zero, set holds the flip-flop at one', async () => {
+    const counter = [clock, input('IN1', 'r', '1'), { def: 'counter4', tag: 'U1', nets: ['clk', 'r', 'q3', 'q2', 'q1', 'q0'], props: { modulus: '10', vdd: '5' } } as Part, ...loads('q3', 'q2', 'q1', 'q0')];
+    const times = [1.25e-3, 3.25e-3];
+    const a = await compare(counter, ['q3', 'q2', 'q1', 'q0'], times, '4m');
+    expect(a.real.map(count)).toEqual([0, 0]);
+    expect(a.precise.map(count)).toEqual([0, 0]);
+
+    const flipflop = [clock, input('IN1', 's', '1'), { def: 'dff', tag: 'FF1', nets: ['0', 'clk', 's', '0', 'q', 'qn'], props: { vdd: '5' } } as Part, ...loads('q', 'qn')];
+    const b = await compare(flipflop, ['q', 'qn'], times, '4m');
+    expect(b.real.map(count)).toEqual([2, 2]);
+    expect(b.precise.map(count)).toEqual([2, 2]);
+  });
+});

@@ -18,7 +18,11 @@ export class ScopeBuffer {
   private head = 0;
   private count = 0;
 
-  constructor(private readonly capacity = 32768) {
+  /**
+   * By default, 27 s of the solver at 2400 steps a second: the trigger looks for an edge up to two
+   * windows back, and the longest window is 10 s.
+   */
+  constructor(private readonly capacity = 65536) {
     this.times = new Float64Array(capacity);
   }
 

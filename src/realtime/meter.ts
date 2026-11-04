@@ -1,7 +1,5 @@
-import { getDevice } from '../library/devices';
 import { Circuit } from '../model/types';
-import { sourceSpec } from '../netlist/source';
-import { waveformStats } from './waveform';
+import { generatorFrequencies } from './liveRate';
 
 import { METER_MODES } from './meterModes';
 
@@ -25,14 +23,8 @@ export function meterResistance(mode: unknown): number | null {
 
 /** Period of the slowest generator: a mean or an RMS is only right over whole periods. Null if none is periodic. */
 export function slowestPeriod(circuit: Circuit): number | null {
-  let period: number | null = null;
-  for (const el of circuit.elements) {
-    if (getDevice(el.def)?.spice.kind !== 'vsource') continue;
-    const spec = sourceSpec(el.props);
-    const frequency = spec ? waveformStats(spec)?.frequency : null;
-    if (frequency && frequency > 0 && (period === null || 1 / frequency > period)) period = 1 / frequency;
-  }
-  return period;
+  const frequencies = generatorFrequencies(circuit);
+  return frequencies.length > 0 ? 1 / Math.min(...frequencies) : null;
 }
 
 /** At the 2400 steps per second of the animation, a tenth of a second: a reading must not change faster than it can be read. */

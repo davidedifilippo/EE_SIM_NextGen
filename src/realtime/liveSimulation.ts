@@ -1,6 +1,6 @@
 import { Circuit, Element, Pt, SpiceDef } from '../model/types';
 import { getDevice } from '../library/devices';
-import { computeConnectivity } from '../netlist/connectivity';
+import { computeConnectivity, terminalKey } from '../netlist/connectivity';
 import { localToWorld, ptKey } from '../utils/geometry';
 import { CompiledCircuit, compileCircuit } from './compile';
 import { METER_MODES, MeterWindow, readingWindow, slowestPeriod } from './meter';
@@ -55,6 +55,7 @@ export interface LiveFrame {
 /** What the oscilloscope follows: a node through one of its wires, or a quantity of a part. */
 export type ScopeProbe =
   | { id: string; kind: 'node'; wireId: string }
+  | { id: string; kind: 'pin'; elementId: string; terminal: string }
   | { id: string; kind: 'voltage' | 'current' | 'vbe' | 'ib'; elementId: string };
 
 export interface RegulatorDisplay {
@@ -202,6 +203,11 @@ export class LiveSimulation {
       const { compiled } = engine;
       if (probe.kind === 'node') {
         const net = computeConnectivity(lastCircuit).wireNet.get(probe.wireId);
+        const node = net === undefined ? undefined : compiled.netIndex.get(net);
+        return node === undefined ? () => NaN : () => engine.nodeVoltage(node);
+      }
+      if (probe.kind === 'pin') {
+        const net = computeConnectivity(lastCircuit).netOf.get(terminalKey(probe.elementId, probe.terminal));
         const node = net === undefined ? undefined : compiled.netIndex.get(net);
         return node === undefined ? () => NaN : () => engine.nodeVoltage(node);
       }

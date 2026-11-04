@@ -4,7 +4,7 @@ import { Circuit, Element, SpiceModel, Wire } from '../model/types';
 import { D1N4148 } from '../samples/halfWaveRectifier';
 
 export interface Part {
-  def: 'multimetercompact' | 'isource' | 'dcsupply' | 'battery' | 'reg7805' | 'reg7905' | 'reglm317' | 'multimeter' | 'resistor' | 'capacitor' | 'inductor' | 'vsource' | 'diode' | 'zener' | 'npn' | 'pnp' | 'nmos' | 'pmos' | 'opamp' | 'transformer' | 'gate_and' | 'gate_or' | 'gate_nand' | 'gate_nor' | 'gate_xor' | 'gate_not' | 'logicinput' | 'led' | 'switch' | 'pushno' | 'pushnc' | 'spdt' | 'truthtable' | 'bcd7seg' | 'display7';
+  def: 'multimetercompact' | 'isource' | 'dcsupply' | 'battery' | 'reg7805' | 'reg7905' | 'reglm317' | 'multimeter' | 'resistor' | 'capacitor' | 'inductor' | 'vsource' | 'diode' | 'zener' | 'npn' | 'pnp' | 'nmos' | 'pmos' | 'opamp' | 'transformer' | 'gate_and' | 'gate_or' | 'gate_nand' | 'gate_nor' | 'gate_xor' | 'gate_not' | 'logicinput' | 'led' | 'switch' | 'pushno' | 'pushnc' | 'spdt' | 'truthtable' | 'bcd7seg' | 'display7' | 'clock' | 'dff' | 'counter4';
   tag: string;
   /** In the order of the terminals of the device. */
   nets: string[];
@@ -28,7 +28,26 @@ export function circuitFromNets(title: string, parts: Part[]): Circuit {
   parts.forEach((p, row) => {
     const y = row * ROW_HEIGHT;
     elements.push({ id: p.tag.toLowerCase(), def: p.def, x: 0, y, rot: 0, tag: p.tag, props: p.props });
-    getDevice(p.def)!.terminals.forEach((t, i) => {
+    const terminals = getDevice(p.def)!.terminals;
+    terminals.forEach((t, i) => {
+      // A column of pins on one side: each lead first steps out to a column and a level of its own
+      const column = terminals.filter((u) => u.x === t.x);
+      if (column.length >= 3) {
+        const rank = column.indexOf(t);
+        const sideShift = t.x > 0 ? 5 : 0;
+        const x = t.x + Math.sign(t.x) * (10 + 10 * rank);
+        const leadY = y + (t.y < 0 ? -95 - 10 * rank - sideShift : 85 + 10 * rank + sideShift);
+        wires.push({
+          id: `${p.tag}_${t.id}`,
+          pts: [
+            { x: t.x, y: y + t.y },
+            { x, y: y + t.y },
+            { x, y: leadY },
+            { x: busX.get(p.nets[i])!, y: leadY },
+          ],
+        });
+        return;
+      }
       // Leads leave on their own level, so that they only ever cross each other
       const side = t.y !== 0 && t.x > 0 ? 20 : 0;
       const leadY = y + (t.y < 0 ? -60 - side : t.y > 0 ? Math.max(80, t.y + 20) + side : t.x < 0 ? 20 : -20);

@@ -203,6 +203,36 @@ const sevenSegment = (): Circuit => {
   };
 };
 
+const counterDisplay = (): Circuit => {
+  const pinY = (k: number) => -30 + 20 * k;
+  const segments = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+  const segmentY = (k: number) => -60 + 20 * k;
+  const resistorX = (k: number) => (k % 2 === 0 ? 100 : 180);
+  return {
+    title: 'Contatore decimale e display',
+    elements: [
+      part('ck1', 'clock', -300, -10, 0, 'CK1', { frequency: '1' }),
+      part('u2', 'counter4', -160, 0, 0, 'U2', { modulus: '10' }),
+      part('u1', 'bcd7seg', 0, 0, 0, 'U1'),
+      ...segments.map((name, k) => part(`r${name}`, 'resistor', resistorX(k), segmentY(k), 0, `R${k + 1}`, { value: '220' })),
+      part('ds1', 'display7', 320, 0, 0, 'DS1', { color: 'rosso' }),
+      part('inr', 'logicinput', -260, 40, 0, 'IN1', { state: '0' }),
+      ground(380, 40),
+    ],
+    wires: [
+      wire('wclk', [-260, -10], [-200, -10]),
+      wire('wrst', [-220, 40], [-210, 40], [-210, 10], [-200, 10]),
+      ...[0, 1, 2, 3].map((k) => wire(`wq${k}`, [-120, pinY(k)], [-40, pinY(k)])),
+      ...segments.flatMap((name, k) => [
+        wire(`wo${name}`, [40, segmentY(k)], [resistorX(k) - 40, segmentY(k)]),
+        wire(`ws${name}`, [resistorX(k) + 40, segmentY(k)], [280, segmentY(k)]),
+      ]),
+      wire('wk', [360, 0], [380, 0], [380, 40]),
+    ],
+    models: [],
+  };
+};
+
 const dualSupply = (): Circuit => ({
   title: 'Alimentatore duale con presa centrale',
   elements: [
@@ -262,6 +292,7 @@ export const EXAMPLES: Example[] = [
   { id: 'gates', title: 'Porte logiche e LED', hint: 'Tocca 0 e 1 sugli ingressi: il LED rosso si accende con AND, il verde con XOR', build: gates },
   { id: 'switches', title: 'Pulsante, interruttore e porta logica', hint: 'Chiudi l’interruttore e tieni premuto il pulsante: il LED si accende solo con entrambi', build: switches },
   { id: 'sevenseg', title: 'Driver BCD e display a 7 segmenti', hint: 'Tocca gli ingressi D C B A: il display mostra la cifra del numero binario, da 0 a 9', build: sevenSegment },
+  { id: 'counter', title: 'Contatore decimale e display', hint: 'Un clock da 1 Hz fa avanzare il contatore: il display conta da 0 a 9 e ricomincia. Tocca IN1 per portare RST a 1 e azzerarlo', build: counterDisplay },
   { id: 'dual', title: 'Alimentatore duale con presa centrale', hint: 'Trasformatore 230 V → 12+12 V, ponte di Graetz e due condensatori: circa +17 V e −17 V rispetto alla presa centrale', build: dualSupply },
   { id: 'regulator', title: 'Regolatore 7805', hint: '5 V sul carico da 100 Ω: guarda la potenza e la temperatura del regolatore', build: regulator },
 ];
