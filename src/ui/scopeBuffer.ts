@@ -36,6 +36,10 @@ export class ScopeBuffer {
     return this.count;
   }
 
+  get oldestTime(): number | null {
+    return this.count > 0 ? this.timeAt(0) : null;
+  }
+
   get latestTime(): number | null {
     return this.count > 0 ? this.timeAt(this.count - 1) : null;
   }
@@ -93,6 +97,28 @@ export class ScopeBuffer {
     return max - min <= FLAT * Math.max(Math.abs(min), Math.abs(max), 1e-3);
   }
 
+  /**
+   * Rising edges in the whole buffer: up through the top of a band around the middle, after being
+   * below its bottom, so that noise near the middle does not count twice. None for a flat signal.
+   */
+  risingEdges(channel: number): number {
+    if (channel >= this.channels.length) return 0;
+    const range = this.range(channel, 0, this.count);
+    if (!range || this.isFlat(range)) return 0;
+    const middle = (range.min + range.max) / 2;
+    const band = (range.max - range.min) * 0.1;
+    let [edges, isLow] = [0, false];
+    for (let i = 0; i < this.count; i++) {
+      const v = this.valueAt(channel, i);
+      if (v < middle - band) isLow = true;
+      else if (v > middle + band && isLow) {
+        edges++;
+        isLow = false;
+      }
+    }
+    return edges;
+  }
+
   /** Time of the rising edge through mid level, interpolated between samples. */
   private crossing(channel: number, index: number, level: number): number {
     const [a, b] = [this.valueAt(channel, index - 1), this.valueAt(channel, index)];
@@ -101,19 +127,24 @@ export class ScopeBuffer {
   }
 
   /**
-   * Start of a sweep of the given length, on the latest rising edge that leaves it complete, so
-   * that a periodic signal stands still. Null when there is none, as with a flat signal.
+   * Start of a sweep of the given length around the latest rising edge that leaves it complete, so
+   * that a periodic signal stands still. The edge comes `pretrigger` seconds after the start: with half
+   * the span, it sits in the middle of the screen. Null when there is none, as with a flat signal.
    */
-  triggerStart(channel: number, span: number): number | null {
+  triggerStart(channel: number, span: number, pretrigger = 0): number | null {
     const latest = this.latestTime;
-    if (latest === null || channel >= this.channels.length) return null;
-    const from = this.lowerBound(latest - 2 * span);
+    const oldest = this.oldestTime;
+    if (latest === null || oldest === null || channel >= this.channels.length) return null;
+    const from = this.lowerBound(latest - 2 * span + pretrigger);
     const range = this.range(channel, from, this.count);
     if (!range || this.isFlat(range)) return null;
     const level = (range.min + range.max) / 2;
-    const last = this.lowerBound(latest - span + 1e-15);
+    const last = this.lowerBound(latest - span + pretrigger + 1e-15);
     for (let i = Math.min(last, this.count - 1); i > 0 && i >= from; i--) {
-      if (this.valueAt(channel, i - 1) < level && this.valueAt(channel, i) >= level) return this.crossing(channel, i, level);
+      if (this.valueAt(channel, i - 1) < level && this.valueAt(channel, i) >= level) {
+        const start = this.crossing(channel, i, level) - pretrigger;
+        return start >= oldest ? start : null;
+      }
     }
     return null;
   }

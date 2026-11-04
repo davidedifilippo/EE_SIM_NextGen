@@ -48,6 +48,42 @@ function sweepFor(period: number | null, speed: number): number {
   return SWEEPS_SECONDS.find((seconds) => speed * seconds >= PERIODS_IN_VIEW * period) ?? SWEEPS_SECONDS[SWEEPS_SECONDS.length - 1];
 }
 const STATS_EVERY_MS = 250;
+const AUTO_TRIGGER = 'auto';
+
+/**
+ * The trace the automatic trigger follows: the one with the fewest rising edges, among those that have
+ * some. On a counter it is the most significant bit, which repeats once a cycle; with an input and what
+ * a circuit makes of it, usually the input. Null when no trace has an edge.
+ *
+ * The current choice stays unless another trace is clearly slower: two traces that both repeat once a
+ * cycle, as two bits of a counter, differ by one edge depending on where the buffer starts.
+ */
+export function slowestChannel(buffer: ScopeBuffer, channels: number, current: number | null = null): number | null {
+  const edges = Array.from({ length: channels }, (_, channel) => buffer.risingEdges(channel));
+  let best: number | null = null;
+  edges.forEach((count, channel) => {
+    if (count > 0 && (best === null || count < edges[best])) best = channel;
+  });
+  if (best === null || current === null || current >= channels || edges[current] === 0) return best;
+  // Fewer by a share and by at least two: with few edges in the buffer, one more or less means nothing
+  return edges[best] < edges[current] * CLEARLY_SLOWER && edges[current] - edges[best] >= 2 ? best : current;
+}
+
+/** How many fewer edges another trace needs to take over the automatic trigger. */
+const CLEARLY_SLOWER = 0.7;
+
+/**
+ * Where a triggered sweep starts: on the latest edge that fills it, or else where the last one started,
+ * as long as the buffer still holds it, as an oscilloscope keeps the last sweep on screen. Null before
+ * any edge: then the trace runs free.
+ */
+export function triggeredStart(buffer: ScopeBuffer, span: number, held: number | null, channel = 0, pretrigger = 0): number | null {
+  const found = buffer.triggerStart(channel, span, pretrigger);
+  if (found !== null) return found;
+  const oldest = buffer.oldestTime;
+  const latest = buffer.latestTime;
+  return held !== null && oldest !== null && latest !== null && held >= oldest && held + span <= latest ? held : null;
+}
 
 /** The short name of a lane, for the narrow margin: the pin of a part without the V( ), or the start of the name. */
 const laneName = (label: string) => {
@@ -77,6 +113,12 @@ export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, 
   // Follows the signal until the viewer chooses a window: then it stays where it was put
   const sweepSeconds = pickedSweep ?? Math.min(DEFAULT_SWEEP_SECONDS, sweepFor(signalPeriod, speed));
   const [isTriggered, setIsTriggered] = useState(true);
+  // The trace the trigger follows: the first until the viewer picks another, and the first again if that one goes
+  const [pickedTriggerId, setPickedTriggerId] = useState<string>(AUTO_TRIGGER);
+  // For the automatic choice: the slowest trace, found again a few times a second
+  const [slowestId, setSlowestId] = useState<string | null>(null);
+  const triggerTrace = traces.find((t) => t.id === (pickedTriggerId === AUTO_TRIGGER ? slowestId : pickedTriggerId)) ?? traces[0];
+  const triggerChannel = triggerTrace ? traces.indexOf(triggerTrace) : -1;
   // Separate lanes for the voltages: by itself when they are all outputs of logic parts, until the viewer chooses
   const [pickedSeparate, setPickedSeparate] = useState<boolean | null>(null);
   const voltageTraces = traces.filter((t) => unitOf(t) === 'V');
@@ -108,13 +150,16 @@ export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, 
     let handle = 0;
     let lastStats = 0;
     const currentAxes = new Map<ScopeUnit, number[]>();
+    // The start of the last triggered sweep, kept while no new edge comes
+    let heldStart: number | null = null;
+    let slowestNow = slowestId;
 
     const draw = (now: number) => {
       handle = requestAnimationFrame(draw);
       const buffer = bufferRef.current;
       const latest = buffer.latestTime;
       if (latest === null) return;
-      const t0 = (isTriggered ? buffer.triggerStart(0, span) : null) ?? latest - span;
+      const t0 = isTriggered && triggerChannel >= 0 ? (heldStart = triggeredStart(buffer, span, heldStart, triggerChannel)) ?? latest - span : latest - span;
       const t1 = t0 + span;
       const columns = traces.map((_, i) => buffer.columns(i, t0, t1, Math.round(plotWidth)));
 
@@ -172,6 +217,10 @@ export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, 
 
       if (now - lastStats > STATS_EVERY_MS) {
         lastStats = now;
+        const current = traces.findIndex((t) => t.id === slowestNow);
+        const slowest = slowestChannel(buffer, traces.length, current >= 0 ? current : null);
+        slowestNow = slowest === null ? null : traces[slowest].id;
+        setSlowestId(slowestNow);
         const next = new Map<string, string>();
         traces.forEach((trace, i) => {
           const s = buffer.stats(i, t0, t1);
@@ -187,7 +236,7 @@ export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, 
     };
     handle = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(handle);
-  }, [traces, labels, units, span, isTriggered, plotWidth, baseHeight, vHeight, laneOf, bufferRef]);
+  }, [traces, labels, units, span, isTriggered, triggerChannel, plotWidth, baseHeight, vHeight, laneOf, bufferRef]);
 
   const onHover = (e: React.PointerEvent<SVGRectElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -220,10 +269,23 @@ export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, 
             })}
           </select>
         </label>
-        <label title="Ogni scansione parte da un fronte di salita della prima traccia, così un segnale periodico sta fermo">
+        <label title="Ogni scansione parte da un fronte di salita della traccia di riferimento, a metà della sua escursione, così un segnale periodico sta fermo">
           <input type="checkbox" checked={isTriggered} onChange={(e) => setIsTriggered(e.target.checked)} />
           Trigger
         </label>
+        {isTriggered && traces.length > 1 && (
+          <label title="La traccia di riferimento. Automatico sceglie la più lenta: per un contatore il bit più significativo, che si ripete una volta per ciclo">
+            su
+            <select value={traces.some((t) => t.id === pickedTriggerId) ? pickedTriggerId : AUTO_TRIGGER} onChange={(e) => setPickedTriggerId(e.target.value)}>
+              <option value={AUTO_TRIGGER}>Automatico{triggerTrace ? `: ${labels.get(triggerTrace.id)}` : ''}</option>
+              {traces.map((trace) => (
+                <option key={trace.id} value={trace.id}>
+                  {labels.get(trace.id)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {canSeparate && (
           <label title="Ogni tensione nella sua fascia, una sotto l'altra, come in un analizzatore logico">
             <input type="checkbox" checked={isSeparate} onChange={(e) => setPickedSeparate(e.target.checked)} />
