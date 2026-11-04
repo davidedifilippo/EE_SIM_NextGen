@@ -123,7 +123,6 @@ export const MobileApp: React.FC<{ wb: Workbench; onFullLayout: () => void }> = 
                 speed={wb.speed}
                 signalPeriod={wb.signalPeriod}
                 onRemove={(id) => wb.setTraces(wb.traces.filter((t) => t.id !== id))}
-                onClose={() => wb.setTraces([])}
               />
             )}
             {(wb.run || wb.errors.length > 0) && (

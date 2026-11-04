@@ -965,18 +965,6 @@ button.close-results {
   min-height: 0;
 }
 
-.scope-header button.close-scope {
-  min-width: 44px;
-  min-height: 36px;
-  margin-left: auto;
-  padding: 0;
-  font-size: 24px;
-  line-height: 1;
-  color: var(--danger-strong);
-  background: none;
-  border: none;
-}
-
 .scope-traces {
   margin: 2px 0;
   padding: 0;

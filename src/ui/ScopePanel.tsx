@@ -13,7 +13,6 @@ interface Props {
   /** Period of the fastest generator, to say when the speed is too high to draw it. */
   signalPeriod: number | null;
   onRemove: (id: string) => void;
-  onClose: () => void;
 }
 
 /** Two plots share the room of the panel. */
@@ -51,7 +50,7 @@ const buildPath = (columns: Float64Array, width: number, toY: (v: number) => num
 };
 
 /** Live traces of the running circuit, on one plot per unit: volts and amperes never share an axis. */
-export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, signalPeriod, onRemove, onClose }) => {
+export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, signalPeriod, onRemove }) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
   const [pickedSweep, setPickedSweep] = useState<number | null>(null);
@@ -195,9 +194,6 @@ export const ScopePanel: React.FC<Props> = ({ traces, labels, bufferRef, speed, 
           <input type="checkbox" checked={isTriggered} onChange={(e) => setIsTriggered(e.target.checked)} />
           Trigger
         </label>
-        <button className="close-scope" aria-label="Chiudi oscilloscopio" title="Chiudi e togli le tracce" onClick={onClose}>
-          ×
-        </button>
       </div>
 
       <ul className="scope-traces">
