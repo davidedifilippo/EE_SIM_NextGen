@@ -158,9 +158,6 @@ export const Properties: React.FC<{ wb: Workbench }> = ({ wb }) => (
     onMirrorSelected={wb.mirrorSelected}
     onSelectAll={wb.selectAll}
     onDeleteSelected={wb.deleteSelected}
-    onCopy={wb.copySelected}
-    onCut={wb.cutSelected}
-    onDuplicate={wb.duplicateSelected}
     onPaste={wb.clipboard ? wb.paste : null}
     layout={wb.live.layout}
     frameRef={wb.live.frameRef}

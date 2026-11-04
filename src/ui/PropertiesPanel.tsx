@@ -19,9 +19,6 @@ interface Props {
   onMirrorSelected: () => void;
   onSelectAll: () => void;
   onDeleteSelected: () => void;
-  onCopy: () => void;
-  onCut: () => void;
-  onDuplicate: () => void;
   /** Null with nothing to paste. */
   onPaste: (() => void) | null;
   layout: LiveLayout | null;
@@ -60,7 +57,7 @@ function ModelPins<Role extends string>({ pins, roles, allRoles, labels, onChang
   );
 }
 
-export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onMirrorSelected, onSelectAll, onDeleteSelected, onCopy, onCut, onDuplicate, onPaste, layout, frameRef, library, onImportModels, onRemoveModel, scopeIds, isScopeFull, onToggleProbe }) => {
+export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onMirrorSelected, onSelectAll, onDeleteSelected, onPaste, layout, frameRef, library, onImportModels, onRemoveModel, scopeIds, isScopeFull, onToggleProbe }) => {
   if (selectedIds.size === 0) {
     return (
       <div className="properties">
@@ -216,12 +213,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
           Elimina
         </button>
       </div>
-      <div className="button-row">
-        <button onClick={onCopy}>Copia</button>
-        <button onClick={onCut}>Taglia</button>
-        <button onClick={onDuplicate}>Duplica</button>
-        {onPaste && <button onClick={() => onPaste()}>Incolla</button>}
-      </div>
+      <p className="hint">Per copiare, tagliare o duplicare, tieni premuto un componente o usa il tasto destro del mouse.</p>
     </div>
   );
 };
