@@ -24,12 +24,32 @@ export interface PropDef {
   key: string;
   label: string;
   /** "model" lists the SPICE models defined in the circuit; "choice" lists the options. */
-  type: 'text' | 'model' | 'choice';
+  /** "range" is a number written as text, with a slider between min and max. */
+  type: 'text' | 'model' | 'choice' | 'range';
   default: string;
   /** For type "model": the kind of SPICE model it accepts. */
   modelType?: ModelType;
   /** For type "choice". */
   options?: { value: string; label: string }[];
+  /** For type "range". */
+  min?: number;
+  max?: number;
+  step?: number;
+}
+
+/**
+ * An analog temperature sensor, as a regulator whose voltage is offset + slope × temperature. It gives
+ * a valid output only with its supply between vMin and vMax; above vAbsMax it is damaged.
+ */
+export interface SensorSpec {
+  offset: number;
+  slope: number;
+  tempProp: string;
+  iMax: number;
+  dropout: number;
+  vMin: number;
+  vMax: number;
+  vAbsMax: number;
 }
 
 /** OPAMP is a subcircuit with five pins, in place of the ideal part; REGULATOR one with three, in place of the simple behaviour; SUBCKT is any subcircuit, as a block of its own. */
@@ -47,7 +67,7 @@ export type SpiceDef =
   | { kind: 'mos'; drain: string; gate: string; source: string; modelProp: string; modelType: 'NMOS' | 'PMOS' }
   | { kind: 'opamp'; plus: string; minus: string; out: string; highProp: string; lowProp: string; gbwProp: string; modelProp: string; pinsProp: string }
   /** ref is ground, or ADJ on an adjustable part; polarity is -1 on those for negative voltages. */
-  | { kind: 'regulator'; input: string; output: string; ref: string; vNominal: number; polarity: 1 | -1; iq: number }
+  | { kind: 'regulator'; input: string; output: string; ref: string; vNominal: number; polarity: 1 | -1; iq: number; sensor?: SensorSpec }
   | { kind: 'block'; pins: string[]; modelProp: string }
   | { kind: 'meter'; a: string; b: string; modeProp: string }
   /** A mains transformer with a centre tap on the secondary, sized from its plate. */

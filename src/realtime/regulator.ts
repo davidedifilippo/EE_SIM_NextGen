@@ -1,4 +1,4 @@
-import { Element, SpiceDef } from '../model/types';
+import { Element, SensorSpec, SpiceDef } from '../model/types';
 import { parseSpiceValue } from '../netlist/values';
 
 export interface RegulatorParams {
@@ -9,6 +9,8 @@ export interface RegulatorParams {
   dropout: number;
   rth: number;
   ambient: number;
+  /** For a temperature sensor: where its supply must stay. */
+  sensor?: SensorSpec;
 }
 
 /** How hard the output holds its voltage: 10 mV from no load to 1 A. Shared with the netlist. */
@@ -26,12 +28,30 @@ export const THERMAL_RESTART = 125;
 export const THERMAL_STEPS = 4800;
 
 export function regulatorParams(el: Element, s: Extract<SpiceDef, { kind: 'regulator' }>): RegulatorParams | null {
+  if (s.sensor) {
+    const temperature = parseSpiceValue(String(el.props[s.sensor.tempProp] ?? ''));
+    if (temperature === null) return null;
+    const { offset, slope, iMax, dropout } = s.sensor;
+    return { vNominal: offset + slope * temperature, polarity: 1, iq: s.iq, iMax, dropout, rth: 0, ambient: 25, sensor: s.sensor };
+  }
   const [iMax, dropout, rth, ambient] = ['imax', 'dropout', 'rth', 'ta'].map((key) => parseSpiceValue(String(el.props[key] ?? '')));
   if (iMax === null || dropout === null || rth === null || ambient === null || iMax <= 0 || dropout < 0 || rth < 0) return null;
   return { vNominal: s.vNominal, polarity: s.polarity, iq: s.iq, iMax, dropout, rth, ambient };
 }
 
 export type RegulatorRegion = 'regulating' | 'dropout' | 'limit' | 'off';
+
+/** The supply of a sensor: within its range, outside it but still giving, too low to give, or past the absolute maximum. */
+export type SensorSupply = 'ok' | 'high' | 'low' | 'damaged';
+
+export function sensorSupply(sensor: SensorSpec, input: number, wasDamaged: boolean): SensorSupply {
+  if (wasDamaged || input > sensor.vAbsMax) return 'damaged';
+  if (input < sensor.vMin) return 'low';
+  return input > sensor.vMax ? 'high' : 'ok';
+}
+
+/** Whether a sensor gives a valid output with this supply: the same condition in the netlist. */
+export const sensorGives = (supply: SensorSupply) => supply === 'ok' || supply === 'high';
 
 /**
  * Current given to the output, for voltages seen from the reference with the polarity taken out.

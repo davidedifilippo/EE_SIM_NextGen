@@ -216,6 +216,7 @@ const ElementItem: React.FC<{
   // A box with named pins: a subcircuit, a truth table, a decoder, a display
   const isNamedBox = isBlock || def.spice.kind === 'display7' || (def.spice.kind === 'logic' && (def.spice.gate === 'table' || def.spice.gate === 'dff' || def.spice.gate === 'counter'));
   const isRegulator = def.spice.kind === 'regulator';
+  const isSensor = def.spice.kind === 'regulator' && !!def.spice.sensor;
   // The box is as tall as its pins: its labels go beyond it
   const blockReach = Math.max(...def.terminals.map((t) => Math.abs(t.y))) + 16;
   const blockPinNames = isBlock ? String(elem.props.pinNames ?? '').split(' ') : isNamedBox ? def.terminals.map((t) => t.id) : [];
@@ -351,17 +352,18 @@ const ElementItem: React.FC<{
       {isRegulator && (
         <g transform={`rotate(${-elem.rot})`} pointerEvents="none" textAnchor="middle" fill="var(--sch-ink)">
           {/* Standing, the box is narrow: the name makes room for the pin on its side */}
-          <text x={elem.rot === 90 ? 4 : elem.rot === 270 ? -4 : 0} y={4} fontSize={isBesideLabel ? 10 : 11} fontWeight={700}>
-            {def.name}
+          <text x={(elem.rot === 90 ? 4 : elem.rot === 270 ? -4 : 0) + (isSensor && elem.rot === 0 ? 5 : 0)} y={4} fontSize={isBesideLabel ? 10 : 11} fontWeight={700}>
+            {isSensor ? def.name.replace('Sensore ', '') : def.name}
           </text>
         </g>
       )}
       {isRegulator &&
         def.terminals.map((t) => {
-          const [x, y] = t.id === 'in' ? [-21, -11] : t.id === 'out' ? [20, -11] : [0, 13];
+          const role = def.spice.kind === 'regulator' ? (t.id === def.spice.input ? 'in' : t.id === def.spice.output ? 'out' : 'ref') : t.id;
+          const [x, y] = role === 'in' ? [-21, -11] : role === 'out' ? [20, -11] : [0, 13];
           return (
-            <text key={t.id} transform={`translate(${x} ${y})${t.id === 'ref' && isBesideLabel ? '' : ` rotate(${-elem.rot})`}`} y={3} textAnchor="middle" fontSize={8} fill="var(--sch-muted)" pointerEvents="none">
-              {t.id === 'ref' ? (def.name.startsWith('LM') ? 'ADJ' : 'GND') : t.id.toUpperCase()}
+            <text key={t.id} transform={`translate(${x} ${y})${role === 'ref' && isBesideLabel ? '' : ` rotate(${-elem.rot})`}`} y={3} textAnchor="middle" fontSize={8} fill="var(--sch-muted)" pointerEvents="none">
+              {isSensor ? (role === 'in' ? '+VS' : role.toUpperCase().replace('REF', 'GND')) : t.id === 'ref' ? (def.name.startsWith('LM') ? 'ADJ' : 'GND') : t.id.toUpperCase()}
             </text>
           );
         })}

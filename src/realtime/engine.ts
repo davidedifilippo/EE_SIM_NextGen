@@ -1,6 +1,6 @@
 import { SEGMENT_LEAK, segmentPoint } from './display7';
 import { clockLevel, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicOutputs, readLevel, sequentialSpec } from './logic';
-import { REGULATOR_GAIN, REGULATOR_LEAK, RegulatorRegion, regulatorPoint, regulatorPower, THERMAL_RESTART, THERMAL_SHUTDOWN, THERMAL_STEPS } from './regulator';
+import { REGULATOR_GAIN, REGULATOR_LEAK, RegulatorRegion, regulatorPoint, regulatorPower, SensorSupply, sensorGives, sensorSupply, THERMAL_RESTART, THERMAL_SHUTDOWN, THERMAL_STEPS } from './regulator';
 import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams, MosParams } from './compile';
 import { luFactor, luSolve } from './linear';
 import { CURRENT_SOURCE_LEAK, OPAMP_GAIN, TRANSFORMER_WINDING_RESISTANCE } from '../netlist/generate';
@@ -211,6 +211,8 @@ export class RealtimeEngine {
   private readonly regulatorTj: Float64Array;
   private readonly regulatorIsOff: Uint8Array;
   private readonly regulatorState: Int8Array;
+  /** The supply of each temperature sensor at the last accepted step; damaged stays. */
+  private readonly sensorSupply: SensorSupply[];
   /** Per logic part: its output levels and the level each input last read, one bit each. */
   private readonly logicOut: Int32Array;
   private readonly logicIn: Int32Array;
@@ -254,6 +256,7 @@ export class RealtimeEngine {
     this.regulatorTj = Float64Array.from(devices, (d) => (d.kind === 'regulator' ? d.params.ambient : 0));
     this.regulatorIsOff = new Uint8Array(devices.length);
     this.regulatorState = new Int8Array(devices.length);
+    this.sensorSupply = devices.map(() => 'ok');
     this.logicOut = new Int32Array(devices.length);
     this.logicIn = new Int32Array(devices.length);
     this.logicState = new Int32Array(devices.length);
@@ -548,8 +551,28 @@ export class RealtimeEngine {
     return { input: polarity * (this.voltage(d.a) - reference), output: polarity * (this.voltage(d.b) - reference) };
   }
 
+  /** Off by its protection, or a sensor whose supply does not let it give a valid output. */
+  private isRegulatorOff(i: number): boolean {
+    return this.regulatorIsOff[i] === 1 || !sensorGives(this.sensorSupply[i]);
+  }
+
+  /**
+   * Reads the supply of each sensor from the solution just accepted: the output follows it from the
+   * next step, as the logic levels do, so that Newton never sees the jump. True if one changed.
+   */
+  private updateSensors(): boolean {
+    let hasChanged = false;
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind !== 'regulator' || !d.params.sensor) return;
+      const supply = sensorSupply(d.params.sensor, this.regulatorVoltages(d).input, this.sensorSupply[i] === 'damaged');
+      if (supply !== this.sensorSupply[i]) hasChanged = true;
+      this.sensorSupply[i] = supply;
+    });
+    return hasChanged;
+  }
+
   private regulatorCurrent(i: number, d: Extract<CompiledDevice, { kind: 'regulator' }>): { i: number; region: RegulatorRegion } {
-    if (this.regulatorIsOff[i]) return { i: 0, region: 'off' };
+    if (this.isRegulatorOff(i)) return { i: 0, region: 'off' };
     const { input, output } = this.regulatorVoltages(d);
     return regulatorPoint(d.params, input, output);
   }
@@ -565,7 +588,7 @@ export class RealtimeEngine {
     const isDropout = input - dropout < vNominal;
     const wanted = REGULATOR_GAIN * ((isDropout ? input - dropout : vNominal) - output);
     let state = this.regulatorState[i];
-    if (this.regulatorIsOff[i]) state = REGULATOR_NOT_GIVING;
+    if (this.isRegulatorOff(i)) state = REGULATOR_NOT_GIVING;
     else if (state === REGULATOR_ACTIVE) state = wanted <= 0 ? REGULATOR_NOT_GIVING : wanted >= iMax ? REGULATOR_AT_LIMIT : REGULATOR_ACTIVE;
     else if (state === REGULATOR_NOT_GIVING ? wanted > 0 : wanted < iMax) state = REGULATOR_ACTIVE;
     const hasChanged = state !== this.regulatorState[i];
@@ -894,6 +917,10 @@ export class RealtimeEngine {
     for (let round = 0; round < LOGIC_SETTLE_ROUNDS && this.updateLogic(this.time); round++) {
       if (!this.solve(this.time, 0, 1)) throw new SolverError('Punto di lavoro non trovato');
     }
+    // A sensor out of its supply range gives nothing from the start, as in the netlist
+    for (let round = 0; round < 3 && this.updateSensors(); round++) {
+      if (!this.solve(this.time, 0, 1)) throw new SolverError('Punto di lavoro non trovato');
+    }
     this.commit(0);
     // With a pole, a loop that cannot rest would still rest on an exact zero, since nothing moves it:
     // it gets the same push the first instant gives an ideal op amp
@@ -923,6 +950,7 @@ export class RealtimeEngine {
     this.regulatorTj.set(previous.regulatorTj);
     this.regulatorIsOff.set(previous.regulatorIsOff);
     this.regulatorState.set(previous.regulatorState);
+    previous.sensorSupply.forEach((supply, i) => (this.sensorSupply[i] = supply));
     this.logicOut.set(previous.logicOut);
     this.logicIn.set(previous.logicIn);
     this.logicState.set(previous.logicState);
@@ -955,6 +983,7 @@ export class RealtimeEngine {
     if (this.solve(this.time + h, h, 1)) {
       this.commit(h);
       this.updateLogic(this.time + h);
+      this.updateSensors();
       this.time += h;
       return;
     }
@@ -1007,12 +1036,25 @@ export class RealtimeEngine {
   }
 
   /** What a regulator is doing, for the display. */
-  regulatorStatus(index: number): { power: number; temperature: number; region: RegulatorRegion | 'thermal' } {
+  regulatorStatus(index: number): { power: number; temperature: number; region: RegulatorRegion | 'thermal' | 'supply' | 'damaged' } {
     const d = this.compiled.devices[index];
     if (d.kind !== 'regulator') return { power: 0, temperature: 0, region: 'off' };
     const { input, output } = this.regulatorVoltages(d);
-    const { i, region } = this.regulatorCurrent(index, d);
-    return { power: regulatorPower(d.params, input, output, i), temperature: this.regulatorTj[index], region: this.regulatorIsOff[index] ? 'thermal' : region };
+    const { i, region: computed } = this.regulatorCurrent(index, d);
+    // The state the last solution settled in: computed again from the voltages it would be wrong right
+    // after a change of values, as a new temperature on a sensor, until the next step
+    const region: RegulatorRegion = this.isRegulatorOff(index)
+      ? 'off'
+      : this.regulatorState[index] === REGULATOR_AT_LIMIT
+        ? 'limit'
+        : this.regulatorState[index] === REGULATOR_NOT_GIVING
+          ? 'off'
+          : computed === 'dropout'
+            ? 'dropout'
+            : 'regulating';
+    const supply = this.sensorSupply[index];
+    const shown = this.regulatorIsOff[index] ? 'thermal' : supply === 'damaged' ? 'damaged' : supply !== 'ok' ? 'supply' : region;
+    return { power: regulatorPower(d.params, input, output, i), temperature: this.regulatorTj[index], region: shown };
   }
 
   /** Current entering each terminal: first and second for two terminals, collector, base and emitter for a transistor. */

@@ -61,7 +61,7 @@ export type ScopeProbe =
 export interface RegulatorDisplay {
   power: number;
   temperature: number;
-  region: RegulatorRegion | 'thermal';
+  region: RegulatorRegion | 'thermal' | 'supply' | 'damaged';
 }
 
 export interface ScopeSamples {

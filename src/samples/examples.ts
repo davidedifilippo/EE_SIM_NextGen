@@ -279,6 +279,29 @@ const regulator = (): Circuit => ({
   models: [],
 });
 
+const sensors = (): Circuit => ({
+  title: 'Sensori di temperatura LM35 e TMP36',
+  elements: [
+    part('v1', 'dcsupply', 0, 0, 90, 'V1', { amplitude: '5' }),
+    part('u1', 'lm35', 120, -60, 0, 'U1', { temp: '25' }),
+    part('u2', 'tmp36', 320, -60, 0, 'U2', { temp: '25' }),
+    part('mm1', 'multimetercompact', 200, 0, 90, 'MM1', { mode: 'vdc' }),
+    part('mm2', 'multimetercompact', 400, 0, 90, 'MM2', { mode: 'vdc' }),
+    ground(60, 80),
+  ],
+  wires: [
+    wire('w1', [0, -40], [0, -60], [80, -60]),
+    wire('w2', [40, -60], [40, -100], [260, -100], [260, -60], [280, -60]),
+    wire('w3', [160, -60], [200, -60], [200, -40]),
+    wire('w4', [360, -60], [400, -60], [400, -40]),
+    wire('w5', [0, 40], [0, 80], [400, 80], [400, 40]),
+    wire('w6', [120, -20], [120, 80]),
+    wire('w7', [320, -20], [320, 80]),
+    wire('w8', [200, 40], [200, 80]),
+  ],
+  models: [],
+});
+
 /** What Nuovo opens: an empty sheet, but with the ground that every circuit needs. */
 export const emptyCircuit = (): Circuit => ({ title: 'Circuito', elements: [ground(0, 0)], wires: [], models: [] });
 
@@ -294,5 +317,6 @@ export const EXAMPLES: Example[] = [
   { id: 'sevenseg', title: 'Driver BCD e display a 7 segmenti', hint: 'Tocca gli ingressi D C B A: il display mostra la cifra del numero binario, da 0 a 9', build: sevenSegment },
   { id: 'counter', title: 'Contatore decimale e display', hint: 'Un clock da 1 Hz fa avanzare il contatore: il display conta da 0 a 9 e ricomincia. Tocca IN1 per portare RST a 1 e azzerarlo', build: counterDisplay },
   { id: 'dual', title: 'Alimentatore duale con presa centrale', hint: 'Trasformatore 230 V → 12+12 V, ponte di Graetz e due condensatori: circa +17 V e −17 V rispetto alla presa centrale', build: dualSupply },
+  { id: 'sensors', title: 'Sensori di temperatura LM35 e TMP36', hint: 'Sposta la temperatura nelle proprietà di U1 e U2: 10 mV per grado. LM35: 0 V a 0 °C; TMP36: 0,5 V a 0 °C', build: sensors },
   { id: 'regulator', title: 'Regolatore 7805', hint: '5 V sul carico da 100 Ω: guarda la potenza e la temperatura del regolatore', build: regulator },
 ];

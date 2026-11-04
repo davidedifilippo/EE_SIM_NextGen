@@ -11,6 +11,15 @@ interface Props {
 
 const REFRESH_MS = 200;
 
+const volts = (v: number) => String(v).replace('.', ',');
+
+/** The range the supply of a sensor must stay in, as its datasheet gives it. */
+function supplyWarning(el: Circuit['elements'][number]): string {
+  const spice = getDevice(el.def)?.spice;
+  const sensor = spice?.kind === 'regulator' ? spice.sensor : undefined;
+  return sensor ? `Alimentazione fuori campo (${volts(sensor.vMin)}–${volts(sensor.vMax)} V)` : '';
+}
+
 /** A protection at work, written next to the part. Updates the text directly, as LiveOverlay does. */
 export const RegulatorStatus: React.FC<Props> = ({ circuit, layout, frameRef }) => {
   const rootRef = useRef<SVGGElement>(null);
@@ -29,9 +38,9 @@ export const RegulatorStatus: React.FC<Props> = ({ circuit, layout, frameRef }) 
     const refresh = () => {
       const frame = frameRef.current;
       if (!frame) return;
-      parts.forEach(({ index }, i) => {
+      parts.forEach(({ el, index }, i) => {
         const region = frame.regulators[index]?.region;
-        texts[i].textContent = region === 'thermal' ? 'Protezione termica' : region === 'limit' ? 'Limite di corrente' : '';
+        texts[i].textContent = region === 'thermal' ? 'Protezione termica' : region === 'limit' ? 'Limite di corrente' : region === 'damaged' ? 'Danneggiato' : region === 'supply' ? supplyWarning(el) : '';
       });
     };
     refresh();

@@ -222,7 +222,11 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         const given = `(${p}*i(VS${name}))`;
         const drop = `${REGULATOR_STIFFNESS}*max(0,${given}-${iMax})-${REGULATOR_STIFFNESS}*max(0,-${given})`;
         const source = `xs${name}`;
-        lines.push(`BO${name} ${source} ${reference} V=${p}*(min(${vNominal},${p}*(v(${input})-v(${reference}))-${dropout})-(${drop}))`);
+        // A sensor gives its voltage only with its supply in range, as the real-time engine says
+        const sensor = params.sensor;
+        const supply = `(v(${input})-v(${reference}))`;
+        const gate = sensor ? `u(${supply}-${sensor.vMin})*u(${sensor.vAbsMax}-${supply})*` : '';
+        lines.push(`BO${name} ${source} ${reference} V=${p}*(${gate}min(${vNominal},${p}*(v(${input})-v(${reference}))-${dropout})-(${drop}))`);
         lines.push(`RS${name} ${source} ${inner} ${1 / REGULATOR_GAIN}`);
         lines.push(`BI${name} ${input} ${reference} I=i(VS${name})+${p * iq}`);
         lines.push(`RI${name} ${input} ${reference} ${REGULATOR_LEAK}`, `RO${name} ${inner} ${reference} ${REGULATOR_LEAK}`);

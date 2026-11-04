@@ -86,8 +86,10 @@ export const LiveReadout: React.FC<{
   windingsFirstDot: number | null;
   /** Set for a regulator: where the dots of its pins start. */
   regulatorFirstDot: number | null;
+  /** A temperature sensor: no heat to show. */
+  isSensor?: boolean;
   frameRef: React.MutableRefObject<LiveFrame | null>;
-}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, frameRef }) => {
+}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor = false, frameRef }) => {
   const [rows, setRows] = React.useState<[string, string][] | null>(null);
 
   React.useEffect(() => {
@@ -100,11 +102,15 @@ export const LiveReadout: React.FC<{
       setRows(
         regulator && regulatorFirstDot !== null
           ? [
-              ['Vin', volts(frame.deviceVoltage[deviceIndex] + frame.deviceVbe[deviceIndex])],
+              [isSensor ? 'Vs' : 'Vin', volts(frame.deviceVoltage[deviceIndex] + frame.deviceVbe[deviceIndex])],
               ['Vout', volts(frame.deviceVbe[deviceIndex])],
               ['Iout', amps(Math.abs(frame.dotCurrent[regulatorFirstDot + 1]))],
-              ['Potenza', formatEngineering(regulator.power, 'W')],
-              ['Giunzione', `${Math.round(regulator.temperature)} °C`],
+              ...(isSensor
+                ? []
+                : ([
+                    ['Potenza', formatEngineering(regulator.power, 'W')],
+                    ['Giunzione', `${Math.round(regulator.temperature)} °C`],
+                  ] as [string, string][])),
             ]
           : windingsFirstDot !== null
           ? [
@@ -135,7 +141,7 @@ export const LiveReadout: React.FC<{
     refresh();
     const timer = setInterval(refresh, 200);
     return () => clearInterval(timer);
-  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, frameRef]);
+  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor, frameRef]);
 
   if (!rows) return null;
   return (

@@ -1,6 +1,6 @@
 import { METER_MODES } from '../realtime/meterModes';
 import { MAX_BLOCK_PINS, MIN_BLOCK_PINS } from './blockPins';
-import { ComponentDef, Prim, Rotation, Circuit, Element, Pt } from '../model/types';
+import { ComponentDef, Prim, Rotation, Circuit, Element, Pt, SensorSpec } from '../model/types';
 import { emptyTable, GateKind, MAX_TABLE_INPUTS, MAX_TABLE_OUTPUTS } from '../realtime/logic';
 import { closedWay, SwitchKind } from '../realtime/switches';
 import { SEGMENT_COLORS, SEGMENT_LINES } from '../realtime/display7';
@@ -813,7 +813,41 @@ const REGULATORS = [
   regulatorDevice('LM337', 1.25, -1, true),
 ];
 
-DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES);
+/**
+ * An analog temperature sensor, generic from the typical values of the datasheets: +Vs on the left,
+ * the output on the right, ground below, as on a regulator, whose behaviour it shares.
+ */
+function sensorDevice(name: string, sensor: SensorSpec, iq: number, range: [number, number]): ComponentDef {
+  return {
+    id: name.toLowerCase(),
+    name: `Sensore ${name}`,
+    category: 'Sensori',
+    tagPrefix: 'U',
+    searchTerms: `sensore temperatura termometro analogico ${name}`,
+    terminals: [
+      { id: 'vs', x: -40, y: 0 },
+      { id: 'out', x: 40, y: 0 },
+      { id: 'gnd', x: 0, y: 40 },
+    ],
+    symbol: [
+      ...leads(32),
+      { t: 'line', x1: 0, y1: 20, x2: 0, y2: 40 },
+      { t: 'rect', x: -32, y: -20, w: 64, h: 40, fill: 'var(--sch-part-soft)' },
+      // A small thermometer in the lower left corner, out of the way of the name: the stem and its bulb
+      { t: 'line', x1: -23, y1: -1, x2: -23, y2: 9, w: 3 },
+      { t: 'circle', cx: -23, cy: 12, r: 4, fill: 'var(--sch-part)' },
+    ],
+    props: [{ key: 'temp', label: 'Temperatura (°C)', type: 'range', default: '25', min: range[0], max: range[1], step: 1 }],
+    spice: { kind: 'regulator', input: 'vs', output: 'out', ref: 'gnd', vNominal: 0, polarity: 1, iq, sensor },
+  };
+}
+
+const SENSORS = [
+  sensorDevice('LM35', { offset: 0, slope: 0.01, tempProp: 'temp', iMax: 10e-3, dropout: 1.5, vMin: 4, vMax: 30, vAbsMax: 35 }, 56e-6, [-55, 150]),
+  sensorDevice('TMP36', { offset: 0.5, slope: 0.01, tempProp: 'temp', iMax: 10e-3, dropout: 1, vMin: 2.7, vMax: 5.5, vAbsMax: 7 }, 50e-6, [-40, 125]),
+];
+
+DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES);
 for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));

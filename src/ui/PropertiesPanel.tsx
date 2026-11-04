@@ -10,7 +10,7 @@ import { LiveReadout } from './LiveControls';
 import { ModelImporter } from './ModelImporter';
 import { elementProbes, nodeWire, wireProbe } from './scopeTraces';
 import { SourceInspector } from './SourceInspector';
-import { ValueSlider } from './ValueSlider';
+import { RangeSlider, ValueSlider } from './ValueSlider';
 
 interface Props {
   circuit: Circuit;
@@ -86,7 +86,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
     <div className="properties">
       <strong>{def ? def.name : singleWire ? 'Filo' : `${selectedIds.size} oggetti selezionati`}</strong>
       {deviceIndex >= 0 && (
-        <LiveReadout deviceIndex={deviceIndex} sign={single ? drawingSign(single) : 1} transistorFirstDot={def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' ? layout!.devices[deviceIndex].firstDot : null} isMos={def?.spice.kind === 'mos'} windingsFirstDot={def?.spice.kind === 'transformer' ? layout!.devices[deviceIndex].firstDot : null} regulatorFirstDot={def?.spice.kind === 'regulator' ? layout!.devices[deviceIndex].firstDot : null} frameRef={frameRef} />
+        <LiveReadout deviceIndex={deviceIndex} sign={single ? drawingSign(single) : 1} transistorFirstDot={def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' ? layout!.devices[deviceIndex].firstDot : null} isMos={def?.spice.kind === 'mos'} windingsFirstDot={def?.spice.kind === 'transformer' ? layout!.devices[deviceIndex].firstDot : null} regulatorFirstDot={def?.spice.kind === 'regulator' ? layout!.devices[deviceIndex].firstDot : null} isSensor={def?.spice.kind === 'regulator' && !!def.spice.sensor} frameRef={frameRef} />
       )}
       {single && def?.spice.kind === 'logic' && def.spice.gate === 'table' && def.spice.tableProp && (
         <TruthTableEditor element={single} inputs={def.spice.inputs} outputs={def.spice.outputs} onChange={(patch) => update(patch)} />
@@ -154,6 +154,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
                   <input value={value} onChange={(e) => setValue(e.target.value)} />
                 )}
                 {(def.spice.kind === 'passive' || def.spice.kind === 'isource') && <ValueSlider value={value} label={p.label} onChange={setValue} />}
+                {p.type === 'range' && <RangeSlider value={value} label={p.label} min={p.min ?? 0} max={p.max ?? 100} onChange={setValue} />}
               </label>
               {p.type === 'model' && <ModelImporter library={library} onImport={addModels} onRemove={onRemoveModel} />}
               {isBlock && chosenCard && (
@@ -174,7 +175,12 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
             </React.Fragment>
           );
         })}
-      {single && def?.spice.kind === 'regulator' && (
+      {single && def?.spice.kind === 'regulator' && def.spice.sensor && (
+        <p className="hint">
+          Uscita {def.spice.sensor.offset > 0 ? `${String(def.spice.sensor.offset).replace('.', ',')} V più ` : ''}10 mV per grado. Alimentazione da {String(def.spice.sensor.vMin).replace('.', ',')} a {def.spice.sensor.vMax} V: fuori campo l'uscita non vale, sopra {def.spice.sensor.vAbsMax} V il sensore si danneggia. L'uscita dà corrente ma non la assorbe.
+        </p>
+      )}
+      {single && def?.spice.kind === 'regulator' && !def.spice.sensor && (
         <p className="hint">Oltre 150 °C l'uscita si spegne e sotto 125 °C riparte. La temperatura è giusta, i tempi sono accorciati per vederla: circa 2 s di animazione.</p>
       )}
       {single && def?.spice.kind === 'meter' && (

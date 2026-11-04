@@ -35,6 +35,7 @@ export function elementProbes(el: Element): ProbeChoice[] {
     label,
     probe: { id: `${kind}:${el.id}`, kind, elementId: el.id },
   });
+  if (spice.kind === 'regulator' && spice.sensor) return [choice('Vout', 'vbe'), choice('Iout', 'ib')];
   if (spice.kind === 'regulator') return [choice('Vin−Vout', 'voltage'), choice('Vout', 'vbe'), choice('Iin', 'current'), choice('Iout', 'ib')];
   if (spice.kind === 'transformer') return [choice('V1', 'voltage'), choice('I1', 'current'), choice('V2', 'vbe'), choice('I2', 'ib')];
   if (spice.kind === 'mos') return [choice('Vds', 'voltage'), choice('Vgs', 'vbe'), choice('Id', 'current')];
