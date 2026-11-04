@@ -10,6 +10,7 @@ import { gateExpression, levelExpression, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_R
 import { contactResistances } from '../realtime/switches';
 import { SEGMENT_LEAK, segmentColor, segmentExpression } from '../realtime/display7';
 import { ctTransformerParams } from '../realtime/ctTransformer';
+import { MOTOR_LEAK, motorParamsOf } from '../realtime/motor';
 import { REGULATOR_GAIN, REGULATOR_LEAK, REGULATOR_STIFFNESS, regulatorParams } from '../realtime/regulator';
 
 export interface TranAnalysis {
@@ -230,6 +231,23 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         lines.push(`RS${name} ${source} ${inner} ${1 / REGULATOR_GAIN}`);
         lines.push(`BI${name} ${input} ${reference} I=i(VS${name})+${p * iq}`);
         lines.push(`RI${name} ${input} ${reference} ${REGULATOR_LEAK}`, `RO${name} ${inner} ${reference} ${REGULATOR_LEAK}`);
+        break;
+      }
+      case 'motor': {
+        const params = motorParamsOf(el, s.plate, s.loadProp);
+        if (!params) {
+          errors.push(`${el.tag}: carico non valido "${el.props[s.loadProp] ?? ''}"`);
+          break;
+        }
+        const name = uniqueName('X', el.tag);
+        if (!name) break;
+        // The same equivalent circuit as the real-time engine: winding, inertia, friction and load
+        const [plus, minus, inner, emf] = [node(s.plus), node(s.minus), `xr${name}`, `xe${name}`];
+        lines.push(`RW${name} ${plus} ${inner} ${params.r}`);
+        lines.push(`LW${name} ${inner} ${emf} ${params.l}`);
+        lines.push(`CJ${name} ${emf} ${minus} ${params.c}`);
+        lines.push(`RJ${name} ${emf} ${minus} ${MOTOR_LEAK}`);
+        lines.push(`BF${name} ${emf} ${minus} I=${params.iBrake}*tanh((v(${emf})-v(${minus}))/${params.eSmooth})`);
         break;
       }
       case 'block': {

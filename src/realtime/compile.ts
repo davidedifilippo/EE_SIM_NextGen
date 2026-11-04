@@ -6,6 +6,7 @@ import { OPAMP_GAIN, transformerWindings } from '../netlist/generate';
 import { METER_TEST_CURRENT, meterResistance } from './meter';
 import { GateKind, logicParams } from './logic';
 import { RegulatorParams, regulatorParams } from './regulator';
+import { MotorParams, motorParamsOf } from './motor';
 import { contactResistances } from './switches';
 import { segmentColor } from './display7';
 import { ctTransformerParams } from './ctTransformer';
@@ -89,6 +90,8 @@ export type CompiledDevice =
   | { kind: 'opamp'; element: number; a: NodeIndex; b: NodeIndex; plus: NodeIndex; minus: NodeIndex; high: number; low: number; /** Time constant of the open loop pole; 0 for no limit. */ tau: number; branch: number }
   /** a is the input, b the output and base the reference. */
   | { kind: 'regulator'; element: number; a: NodeIndex; b: NodeIndex; base: NodeIndex; params: RegulatorParams }
+  /** A geared DC motor: R and L in series from a to the inner node e, then the inertia as a capacitor to b with the brake in parallel. */
+  | { kind: 'motor'; element: number; a: NodeIndex; b: NodeIndex; e: NodeIndex; branch: number; params: MotorParams }
   /**
    * Three coupled windings: the primary, the upper and the lower half of the secondary. starts and ends
    * are their terminals, inner the node after the series resistance; m holds the self and mutual
@@ -296,6 +299,16 @@ export function compileCircuit(circuit: Circuit): CompileResult {
         pending.push({ element, needsBranch: false, build: () => ({ kind: 'regulator', element, a, b, base, params }) });
         break;
       }
+      case 'motor': {
+        const params = motorParamsOf(el, s.plate, s.loadProp);
+        if (!params) {
+          errors.push(`${el.tag}: carico non valido "${el.props[s.loadProp] ?? ''}"`);
+          break;
+        }
+        const [a, b] = [node(s.plus), node(s.minus)];
+        pending.push({ element, needsBranch: true, build: (branch, nextNode) => ({ kind: 'motor', element, a, b, e: nextNode(), branch, params }) });
+        break;
+      }
       case 'block':
         errors.push(`${el.tag}: un sottocircuito non si può animare. Usa l'Analisi precisa`);
         break;
@@ -492,7 +505,7 @@ export function compileCircuit(circuit: Circuit): CompileResult {
 
   const signature = JSON.stringify([
     branch,
-    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.outputs, ...d.inputs] : d.kind === 'switch' ? d.ways : d.kind === 'display7' ? d.segments : d.kind === 'bridge' ? [d.ac1, d.ac2, ...d.junctions] : d.kind === 'ctransformer' ? [...d.starts, ...d.ends, ...d.inner] : 0]),
+    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'motor' ? d.e : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.outputs, ...d.inputs] : d.kind === 'switch' ? d.ways : d.kind === 'display7' ? d.segments : d.kind === 'bridge' ? [d.ac1, d.ac2, ...d.junctions] : d.kind === 'ctransformer' ? [...d.starts, ...d.ends, ...d.inner] : 0]),
   ]);
   return { ok: true, compiled: { size: branch, devices, netIndex, elementIds, signature } };
 }

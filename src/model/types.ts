@@ -37,6 +37,23 @@ export interface PropDef {
   step?: number;
 }
 
+/** What the plate and the datasheet of a geared DC motor say, at the output shaft. */
+export interface MotorPlate {
+  /** Rated voltage. */
+  volts: number;
+  /** Above this the supply is too high: the rated voltage and its tolerance. */
+  vMax: number;
+  noLoadRpm: number;
+  noLoadCurrent: number;
+  stallCurrent: number;
+  /** Stall torque at the output shaft, in kgf·cm as datasheets give it. */
+  stallTorque: number;
+  /** Not on the datasheets: estimated for a motor of this size. */
+  inductance: number;
+  /** Mechanical time constant, estimated: it gives the inertia. */
+  tauMech: number;
+}
+
 /**
  * An analog temperature sensor, as a regulator whose voltage is offset + slope × temperature. It gives
  * a valid output only with its supply between vMin and vMax; above vAbsMax it is damaged.
@@ -68,6 +85,8 @@ export type SpiceDef =
   | { kind: 'opamp'; plus: string; minus: string; out: string; highProp: string; lowProp: string; gbwProp: string; modelProp: string; pinsProp: string }
   /** ref is ground, or ADJ on an adjustable part; polarity is -1 on those for negative voltages. */
   | { kind: 'regulator'; input: string; output: string; ref: string; vNominal: number; polarity: 1 | -1; iq: number; sensor?: SensorSpec }
+  /** A geared DC motor from its plate; the load is a braking torque in kgf·cm. */
+  | { kind: 'motor'; plus: string; minus: string; plate: MotorPlate; loadProp: string }
   | { kind: 'block'; pins: string[]; modelProp: string }
   | { kind: 'meter'; a: string; b: string; modeProp: string }
   /** A mains transformer with a centre tap on the secondary, sized from its plate. */

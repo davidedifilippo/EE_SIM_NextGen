@@ -1,6 +1,6 @@
 import { METER_MODES } from '../realtime/meterModes';
 import { MAX_BLOCK_PINS, MIN_BLOCK_PINS } from './blockPins';
-import { ComponentDef, Prim, Rotation, Circuit, Element, Pt, SensorSpec } from '../model/types';
+import { ComponentDef, Prim, Rotation, Circuit, Element, Pt, SensorSpec, MotorPlate } from '../model/types';
 import { emptyTable, GateKind, MAX_TABLE_INPUTS, MAX_TABLE_OUTPUTS } from '../realtime/logic';
 import { closedWay, SwitchKind } from '../realtime/switches';
 import { SEGMENT_COLORS, SEGMENT_LINES } from '../realtime/display7';
@@ -842,12 +842,60 @@ function sensorDevice(name: string, sensor: SensorSpec, iq: number, range: [numb
   };
 }
 
+/**
+ * A geared DC motor from its plate: + on the left, − on the right. The load is a braking torque at the
+ * output shaft, from nothing to beyond the stall.
+ */
+const MOTOR_LETTER: [number, number][] = [[-8, 8], [-8, -8], [0, 2], [8, -8], [8, 8]];
+
+/** The letter M turned back by the rotation of the part, so that it always reads upright. */
+function motorLetter(rot: Rotation): string {
+  const points = MOTOR_LETTER.map(([x, y]) => {
+    let [px, py] = [x, y];
+    // A quarter turn back for each quarter the part is turned
+    for (let k = 0; k < rot / 90; k++) [px, py] = [py, -px];
+    return `${px} ${py}`;
+  });
+  return `M ${points.join(' L ')}`;
+}
+
+function motorDevice(id: string, name: string, plate: MotorPlate, searchTerms: string): ComponentDef {
+  const maxLoad = Math.round(plate.stallTorque * 1.3 * 10) / 10;
+  return {
+    id,
+    name,
+    category: 'Motori',
+    tagPrefix: 'M',
+    searchTerms: `motore motoriduttore corrente continua dc riduttore ${searchTerms}`,
+    terminals: [
+      { id: 'plus', x: -40, y: 0 },
+      { id: 'minus', x: 40, y: 0 },
+    ],
+    symbol: [
+      ...leads(20),
+      { t: 'circle', cx: 0, cy: 0, r: 20, fill: 'var(--sch-part)' },
+      // The letter M, and + beside its terminal
+      { t: 'path', d: motorLetter(0) },
+      { t: 'path', d: 'M -33 -10 L -27 -10 M -30 -13 L -30 -7' },
+    ],
+    props: [{ key: 'load', label: 'Carico (kgf·cm)', type: 'range', default: '0', min: 0, max: maxLoad, step: maxLoad > 2 ? 0.1 : 0.05 }],
+    spice: { kind: 'motor', plus: 'plus', minus: 'minus', plate, loadProp: 'load' },
+  };
+}
+
+const MOTORS = [
+  // From the datasheet IG220019X00015R: 12 V, 1:19.225. Inductance and inertia are estimated
+  motorDevice('motor_ig22', 'Motoriduttore IG22 12 V', { volts: 12, vMax: 13.2, noLoadRpm: 789, noLoadCurrent: 0.2, stallCurrent: 2.4, stallTorque: 2.2, inductance: 2e-3, tauMech: 0.02 }, 'ig22 12v 1:19'),
+  // The yellow TT gear motor of the Arduino kits, 1:48: typical values of the sellers, at 6 V
+  motorDevice('motor_tt', 'Motoriduttore TT 6 V', { volts: 6, vMax: 6.6, noLoadRpm: 200, noLoadCurrent: 0.17, stallCurrent: 1.5, stallTorque: 0.8, inductance: 1e-3, tauMech: 0.015 }, 'tt giallo arduino 1:48 robot'),
+];
+
 const SENSORS = [
   sensorDevice('LM35', { offset: 0, slope: 0.01, tempProp: 'temp', iMax: 10e-3, dropout: 1.5, vMin: 4, vMax: 30, vAbsMax: 35 }, 56e-6, [-55, 150]),
   sensorDevice('TMP36', { offset: 0.5, slope: 0.01, tempProp: 'temp', iMax: 10e-3, dropout: 1, vMin: 2.7, vMax: 5.5, vAbsMax: 7 }, 50e-6, [-40, 125]),
 ];
 
-DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES);
+DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES);
 for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));
@@ -859,6 +907,7 @@ export function getDevice(id: string): ComponentDef | undefined {
 export function elementSymbol(def: ComponentDef, element: Element): Prim[] {
   if (def.id === 'multimeter' && def.spice.kind === 'meter') return meterSymbol(element.props[def.spice.modeProp]);
   if (def.spice.kind === 'switch') return switchSymbol(def.spice.switchKind, element.props);
+  if (def.spice.kind === 'motor') return def.symbol.map((p, k) => (k === 3 && p.t === 'path' ? { ...p, d: motorLetter(element.rot) } : p));
   if (def.id !== 'vsource') return def.symbol;
   return [...SOURCE_BODY, { t: 'path', d: SOURCE_GLYPHS[sourceShape(element.props)] }];
 }

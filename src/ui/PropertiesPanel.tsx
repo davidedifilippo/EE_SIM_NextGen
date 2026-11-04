@@ -154,7 +154,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
                   <input value={value} onChange={(e) => setValue(e.target.value)} />
                 )}
                 {(def.spice.kind === 'passive' || def.spice.kind === 'isource') && <ValueSlider value={value} label={p.label} onChange={setValue} />}
-                {p.type === 'range' && <RangeSlider value={value} label={p.label} min={p.min ?? 0} max={p.max ?? 100} onChange={setValue} />}
+                {p.type === 'range' && <RangeSlider value={value} label={p.label} min={p.min ?? 0} max={p.max ?? 100} step={p.step} onChange={setValue} />}
               </label>
               {p.type === 'model' && <ModelImporter library={library} onImport={addModels} onRemove={onRemoveModel} />}
               {isBlock && chosenCard && (
@@ -175,6 +175,11 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
             </React.Fragment>
           );
         })}
+      {single && def?.spice.kind === 'motor' && (
+        <p className="hint">
+          {def.spice.plate.volts} V nominali: a vuoto {def.spice.plate.noLoadRpm} giri/min e {String(def.spice.plate.noLoadCurrent).replace('.', ',')} A, in stallo {String(def.spice.plate.stallCurrent).replace('.', ',')} A e {String(def.spice.plate.stallTorque).replace('.', ',')} kgf·cm. Il carico frena l'albero d'uscita; oltre la coppia di stallo il motore si blocca. Induttanza e inerzia sono stimate.
+        </p>
+      )}
       {single && def?.spice.kind === 'regulator' && def.spice.sensor && (
         <p className="hint">
           Uscita {def.spice.sensor.offset > 0 ? `${String(def.spice.sensor.offset).replace('.', ',')} V più ` : ''}10 mV per grado. Alimentazione da {String(def.spice.sensor.vMin).replace('.', ',')} a {def.spice.sensor.vMax} V: fuori campo l'uscita non vale, sopra {def.spice.sensor.vAbsMax} V il sensore si danneggia. L'uscita dà corrente ma non la assorbe.

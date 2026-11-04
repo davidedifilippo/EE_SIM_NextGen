@@ -302,6 +302,28 @@ const sensors = (): Circuit => ({
   models: [],
 });
 
+const gearMotor = (): Circuit => ({
+  title: 'Motoriduttore IG22',
+  elements: [
+    part('v1', 'dcsupply', 0, 40, 90, 'V1', { amplitude: '12' }),
+    part('s1', 'switch', 80, 0, 0, 'S1'),
+    part('mm1', 'multimetercompact', 200, 0, 0, 'MM1', { mode: 'adc' }),
+    part('m1', 'motor_ig22', 320, 40, 90, 'M1', { load: '0' }),
+    // The freewheeling diode: at turn-off it carries the current of the winding, which would otherwise spark
+    part('d1', 'diode', 420, 40, 270, 'D1', { model: 'DIODO_1A' }),
+    ground(160, 80),
+  ],
+  wires: [
+    wire('w1', [0, 0], [40, 0]),
+    wire('w2', [120, 0], [160, 0]),
+    wire('w3', [240, 0], [320, 0]),
+    wire('w4', [320, 0], [420, 0]),
+    wire('w5', [0, 80], [320, 80]),
+    wire('w6', [320, 80], [420, 80]),
+  ],
+  models: [],
+});
+
 /** What Nuovo opens: an empty sheet, but with the ground that every circuit needs. */
 export const emptyCircuit = (): Circuit => ({ title: 'Circuito', elements: [ground(0, 0)], wires: [], models: [] });
 
@@ -317,6 +339,7 @@ export const EXAMPLES: Example[] = [
   { id: 'sevenseg', title: 'Driver BCD e display a 7 segmenti', hint: 'Tocca gli ingressi D C B A: il display mostra la cifra del numero binario, da 0 a 9', build: sevenSegment },
   { id: 'counter', title: 'Contatore decimale e display', hint: 'Un clock da 1 Hz fa avanzare il contatore: il display conta da 0 a 9 e ricomincia. Tocca IN1 per portare RST a 1 e azzerarlo', build: counterDisplay },
   { id: 'dual', title: 'Alimentatore duale con presa centrale', hint: 'Trasformatore 230 V → 12+12 V, ponte di Graetz e due condensatori: circa +17 V e −17 V rispetto alla presa centrale', build: dualSupply },
+  { id: 'motor', title: 'Motoriduttore IG22', hint: 'Chiudi S1: all’avvio la corrente fa uno spunto, poi scende a circa 0,2 A e il motore gira a 789 giri/min. Alza il carico di M1: la velocità scende e la corrente sale', build: gearMotor },
   { id: 'sensors', title: 'Sensori di temperatura LM35 e TMP36', hint: 'Sposta la temperatura nelle proprietà di U1 e U2: 10 mV per grado. LM35: 0 V a 0 °C; TMP36: 0,5 V a 0 °C', build: sensors },
   { id: 'regulator', title: 'Regolatore 7805', hint: '5 V sul carico da 100 Ω: guarda la potenza e la temperatura del regolatore', build: regulator },
 ];

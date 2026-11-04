@@ -1,5 +1,6 @@
 import { SEGMENT_LEAK, segmentPoint } from './display7';
 import { clockLevel, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicOutputs, readLevel, sequentialSpec } from './logic';
+import { brakeCurrent, MOTOR_LEAK, MotorState, motorRpm, motorState } from './motor';
 import { REGULATOR_GAIN, REGULATOR_LEAK, RegulatorRegion, regulatorPoint, regulatorPower, SensorSupply, sensorGives, sensorSupply, THERMAL_RESTART, THERMAL_SHUTDOWN, THERMAL_STEPS } from './regulator';
 import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams, MosParams } from './compile';
 import { luFactor, luSolve } from './linear';
@@ -272,7 +273,7 @@ export class RealtimeEngine {
       else if (d.kind === 'bjt') this.vCrit[i] = criticalVoltage(d.params.is, d.params.vt);
       else if (d.kind === 'opamp') this.opAmps.push({ index: i, device: d });
     });
-    this.isNonlinear = devices.some((d) => d.kind === 'diode' || d.kind === 'bridge' || d.kind === 'bjt' || d.kind === 'mos' || d.kind === 'opamp' || d.kind === 'regulator' || d.kind === 'display7');
+    this.isNonlinear = devices.some((d) => d.kind === 'diode' || d.kind === 'bridge' || d.kind === 'bjt' || d.kind === 'mos' || d.kind === 'opamp' || d.kind === 'regulator' || d.kind === 'display7' || d.kind === 'motor');
   }
 
   private voltage(node: number): number {
@@ -330,6 +331,13 @@ export class RealtimeEngine {
           break;
         case 'isource':
           this.addG(d.a, d.b, 1 / CURRENT_SOURCE_LEAK);
+          break;
+        case 'motor':
+          // R and L as one branch from a to e; the inertia from e to b, with a leak for when nothing drives it
+          this.addBranchColumns(d.a, d.e, d.branch);
+          base[d.branch * n + d.branch] = -(d.params.r + (h > 0 ? (2 * d.params.l) / h : 0));
+          if (h > 0) this.addG(d.e, d.b, (2 * d.params.c) / h);
+          this.addG(d.e, d.b, 1 / MOTOR_LEAK);
           break;
         case 'regulator':
           this.addG(d.a, d.base, 1 / REGULATOR_LEAK);
@@ -420,6 +428,14 @@ export class RealtimeEngine {
           break;
         case 'inductor':
           rhs[d.branch] = h > 0 ? ((-2 * d.l) / h) * this.iPrev[i] - this.vPrev[i] : 0;
+          break;
+        case 'motor':
+          rhs[d.branch] = h > 0 ? ((-2 * d.params.l) / h) * this.iPrev[i] - this.vPrev[i] : 0;
+          if (h > 0) {
+            const ieq = ((2 * d.params.c) / h) * this.vPrev2[i] + this.iPrev2[i];
+            if (d.e >= 0) rhs[d.e] += ieq;
+            if (d.b >= 0) rhs[d.b] -= ieq;
+          }
           break;
         case 'vsource':
           rhs[d.branch] = d.wave(t) * sourceScale;
@@ -698,6 +714,18 @@ export class RealtimeEngine {
       if (d.kind === 'mos' && this.stampMos(i, d)) limited = true;
       if (d.kind === 'opamp' && this.stampOpAmp(i, d)) limited = true;
       if (d.kind === 'regulator' && this.stampRegulator(i, d)) limited = true;
+      if (d.kind === 'motor') {
+        // Friction and load: a current that takes the sign of the speed, smoothly
+        const v = this.voltage(d.e) - this.voltage(d.b);
+        const { i: current, g } = brakeCurrent(d.params, v);
+        const ieq = current - g * v;
+        this.addLu(d.e, d.e, g);
+        this.addLu(d.e, d.b, -g);
+        this.addLu(d.b, d.e, -g);
+        this.addLu(d.b, d.b, g);
+        this.addRhs(d.e, -ieq);
+        this.addRhs(d.b, ieq);
+      }
       if (d.kind === 'bridge') {
         // Four diodes, each stamped as a lone one would be
         d.cathodes.forEach((cathode, k) => {
@@ -809,6 +837,14 @@ export class RealtimeEngine {
       } else if (d.kind === 'inductor') {
         this.vPrev[i] = h > 0 ? this.voltage(d.a) - this.voltage(d.b) : 0;
         this.iPrev[i] = this.x[d.branch];
+      } else if (d.kind === 'motor') {
+        // The inductance alone, without the drop on the resistance; the inertia as a capacitor
+        const current = this.x[d.branch];
+        this.vPrev[i] = h > 0 ? this.voltage(d.a) - this.voltage(d.e) - d.params.r * current : 0;
+        this.iPrev[i] = current;
+        const v = this.voltage(d.e) - this.voltage(d.b);
+        this.iPrev2[i] = h > 0 ? ((2 * d.params.c) / h) * (v - this.vPrev2[i]) - this.iPrev2[i] : 0;
+        this.vPrev2[i] = v;
       } else if (d.kind === 'transformer') {
         this.vPrev[i] = h > 0 ? this.voltage(d.ap) - this.voltage(d.b) : 0;
         this.vPrev2[i] = h > 0 ? this.voltage(d.cp) - this.voltage(d.d) : 0;
@@ -1017,6 +1053,7 @@ export class RealtimeEngine {
       case 'vsource':
       case 'opamp':
       case 'transformer':
+      case 'motor':
         return this.x[d.branch];
       case 'diode': {
         const v = this.voltage(d.junction) - this.voltage(d.b);
@@ -1033,6 +1070,14 @@ export class RealtimeEngine {
       case 'ctransformer':
         return this.x[d.branches[0]];
     }
+  }
+
+  /** How fast a motor turns and what it is doing, for the display. */
+  motorStatus(index: number): { rpm: number; state: MotorState } | null {
+    const d = this.compiled.devices[index];
+    if (d.kind !== 'motor') return null;
+    const rpm = motorRpm(d.params, this.voltage(d.e) - this.voltage(d.b));
+    return { rpm, state: motorState(d.params, this.voltage(d.a) - this.voltage(d.b), this.x[d.branch], rpm) };
   }
 
   /** What a regulator is doing, for the display. */

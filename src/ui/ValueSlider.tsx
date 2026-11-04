@@ -13,7 +13,7 @@ const STEPS = 1000;
 const DECADES = 1;
 
 /** Linear slider between two limits, for values that have a fixed range. */
-export const RangeSlider: React.FC<Props & { min: number; max: number }> = ({ value, label, onChange, min, max }) => {
+export const RangeSlider: React.FC<Props & { min: number; max: number; step?: number }> = ({ value, label, onChange, min, max, step = 1 }) => {
   const parsed = parseSpiceValue(value);
   const hasRecorded = useRef(false);
 
@@ -24,7 +24,7 @@ export const RangeSlider: React.FC<Props & { min: number; max: number }> = ({ va
       aria-label={`Regola ${label}`}
       min={min}
       max={max}
-      step={1}
+      step={step}
       value={Math.max(min, Math.min(max, parsed ?? (min + max) / 2))}
       onPointerDown={() => {
         hasRecorded.current = false;

@@ -125,6 +125,12 @@ export const LiveReadout: React.FC<{
               ['Vgs', volts(frame.deviceVbe[deviceIndex])],
               ['Id', amps(frame.dotCurrent[transistorFirstDot])],
             ]
+          : frame.motors[deviceIndex]
+          ? [
+              ['Tensione', volts(frame.deviceVoltage[deviceIndex])],
+              ['Corrente', amps(frame.deviceCurrent[deviceIndex])],
+              ['Velocità', `${frame.motors[deviceIndex]!.state === 'stalled' ? 0 : Math.round(frame.motors[deviceIndex]!.rpm)} giri/min`],
+            ]
           : transistorFirstDot === null
           ? [
               ['Tensione', volts(sign * frame.deviceVoltage[deviceIndex])],

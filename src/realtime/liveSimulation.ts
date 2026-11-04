@@ -1,3 +1,4 @@
+import { MotorState } from './motor';
 import { Circuit, Element, Pt, SpiceDef } from '../model/types';
 import { getDevice } from '../library/devices';
 import { computeConnectivity, terminalKey } from '../netlist/connectivity';
@@ -46,6 +47,8 @@ export interface LiveFrame {
   meterAc: Float64Array;
   /** For each device that is a regulator: heat, junction temperature and what it is doing. */
   regulators: (RegulatorDisplay | null)[];
+  /** Each motor: its speed at the output shaft and what it is doing. */
+  motors: ({ rpm: number; state: MotorState } | null)[];
   /** For each logic part: the level of each output, then of each input. */
   logic: (number[] | null)[];
   /** Samples of the probes since the last frame. */
@@ -92,6 +95,8 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
       return [s.a, s.b];
     case 'vsource':
       return [s.pos, s.neg];
+    case 'motor':
+      return [s.plus, s.minus];
     case 'diode':
       return [s.anode, s.cathode];
     case 'bjt':
@@ -375,7 +380,8 @@ export class LiveSimulation {
       meterAc[index] = window.reading.ac;
     });
     const regulators = devices.map((d, i) => (d.kind === 'regulator' ? engine.regulatorStatus(i) : null));
+    const motors = devices.map((_, i) => engine.motorStatus(i));
     const logic = devices.map((d, i) => (d.kind === 'logic' ? engine.logicLevels(i) : null));
-    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, logic, scope: this.takeSamples() };
+    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, logic, scope: this.takeSamples() };
   }
 }
