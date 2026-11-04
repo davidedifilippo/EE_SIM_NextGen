@@ -5,6 +5,7 @@ import { generateNetlist } from '../netlist/generate';
 import { compileCircuit } from './compile';
 import { RealtimeEngine } from './engine';
 import { circuitFromNets, Part } from './testCircuits';
+import { EXAMPLES } from '../samples/examples';
 
 const last = (values: number[]) => values[values.length - 1];
 
@@ -113,5 +114,36 @@ describe('logic parts against ngspice', () => {
     after.engine.step(1e-6);
     after.engine.step(1e-6);
     expect(after.output('u1')).toBeLessThan(0.1);
+  });
+});
+
+describe('truth tables and displays against ngspice', () => {
+  it('a decoder lights the same segments of the display in both engines', async () => {
+    const circuit = EXAMPLES.find((e) => e.id === 'sevenseg')!.build();
+    const compiled = compileCircuit(circuit);
+    if (!compiled.ok) throw new Error(compiled.errors.join());
+    const engine = new RealtimeEngine(compiled.compiled);
+    engine.initialize();
+    const netlist = generateNetlist(circuit, { type: 'tran', step: '1u', stop: '10u', maxStep: '1u' });
+    expect(netlist.errors).toEqual([]);
+    const result = await runTransient(netlist.text);
+    const display = compiled.compiled.devices[compiled.compiled.elementIds.indexOf('ds1')];
+    if (display.kind !== 'display7') throw new Error('not a display');
+    ['a', 'b', 'c', 'd', 'e', 'f', 'g'].forEach((segment, k) => {
+      const ng = last(result.voltages.get(netlist.nodeOf.get(terminalKey('ds1', segment))!)!);
+      expect(engine.nodeVoltage(display.segments[k])).toBeCloseTo(ng, 2);
+    });
+  });
+
+  it('a table of its own gives the same output', async () => {
+    // XNOR, written by hand; the layout of the tests needs no pin in the middle of a side
+    const xnor: Part = { def: 'truthtable', tag: 'U1', nets: ['a', 'b', 'y'], props: { table: '1 0 0 1', vdd: '5' } };
+    for (const [a, b] of [['1', '1'], ['1', '0'], ['0', '0']] as const) {
+      const parts = [input('IN1', 'a', a), input('IN2', 'b', b), xnor, R('RL', 'y', '0', '10k')];
+      const { at } = await precise(parts, '10u', '1u');
+      const real = realtime(parts).output('u1');
+      expect(real).toBeCloseTo(last(at('rl', 'a')), 3);
+      expect(real > 2.5).toBe(a === b);
+    }
   });
 });

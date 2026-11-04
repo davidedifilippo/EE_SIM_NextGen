@@ -6,8 +6,9 @@ import { computeConnectivity, terminalKey } from './connectivity';
 import { internalResistance, sourceAcSpec, sourceDcSpec, sourceSpec } from './source';
 import { parseSpiceValue } from './values';
 import { METER_TEST_CURRENT, meterResistance } from '../realtime/meter';
-import { gateExpression, levelExpression, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicParams } from '../realtime/logic';
+import { gateExpression, levelExpression, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicParams, tableExpression } from '../realtime/logic';
 import { contactResistances } from '../realtime/switches';
+import { SEGMENT_LEAK, segmentColor, segmentExpression } from '../realtime/display7';
 import { REGULATOR_GAIN, REGULATOR_LEAK, REGULATOR_STIFFNESS, regulatorParams } from '../realtime/regulator';
 
 export interface TranAnalysis {
@@ -241,6 +242,18 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         if (name) lines.push(`${name} ${s.pins.map(node).join(' ')} ${model}`);
         break;
       }
+      case 'display7': {
+        const name = uniqueName('X', el.tag);
+        if (!name) break;
+        const { forward } = segmentColor(el.props[s.colorProp]);
+        const common = node(s.common);
+        s.segments.forEach((segment, k) => {
+          const pin = node(segment);
+          lines.push(`BS${k}${name} ${pin} ${common} I=${segmentExpression(`v(${pin})`, `v(${common})`, forward)}`);
+          lines.push(`RS${k}${name} ${pin} ${common} ${SEGMENT_LEAK}`);
+        });
+        break;
+      }
       case 'switch': {
         const name = uniqueName('R', el.tag);
         if (!name) break;
@@ -252,17 +265,26 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
       case 'logic': {
         const params = logicParams(el, s);
         if (!params) {
-          errors.push(`${el.tag}: alimentazione non valida "${el.props[s.vddProp] ?? ''}"`);
+          errors.push(`${el.tag}: ${s.gate === 'table' ? 'tabella di verità o alimentazione non valida' : `alimentazione non valida "${el.props[s.vddProp] ?? ''}"`}`);
           break;
         }
         const name = uniqueName('X', el.tag);
         if (!name) break;
-        // The same parts as in the real-time engine: inputs to ground, the output behind its resistance
+        // The same parts as in the real-time engine: inputs to ground, each output behind its resistance
         s.inputs.forEach((input, k) => lines.push(`RI${k}${name} ${node(input)} 0 ${LOGIC_INPUT_RESISTANCE}`));
-        const levels = s.inputs.map((input) => levelExpression(`v(${node(input)})`, params.vdd));
-        const inner = `xl${name}`;
-        lines.push(`BL${name} ${inner} 0 V=${params.vdd}*${gateExpression(s.gate, levels, params.state)}`);
-        lines.push(`RL${name} ${inner} ${node(s.output)} ${LOGIC_OUTPUT_RESISTANCE}`);
+        let levels = s.inputs.map((input) => levelExpression(`v(${node(input)})`, params.vdd));
+        if (params.table) {
+          // Each level once, as a node of its own: the rows of a table use them many times over
+          levels = s.inputs.map((input, k) => {
+            lines.push(`BV${k}${name} xv${k}${name} 0 V=${levelExpression(`v(${node(input)})`, params.vdd)}`);
+            return `v(xv${k}${name})`;
+          });
+        }
+        s.outputs.forEach((output, j) => {
+          const expression = params.table ? tableExpression(params.table, j, levels) : gateExpression(s.gate, levels, params.state);
+          lines.push(`BL${j}${name} xl${j}${name} 0 V=${params.vdd}*${expression}`);
+          lines.push(`RL${j}${name} xl${j}${name} ${node(output)} ${LOGIC_OUTPUT_RESISTANCE}`);
+        });
         break;
       }
       case 'meter': {

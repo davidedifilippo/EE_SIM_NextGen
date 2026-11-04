@@ -75,6 +75,16 @@ describe('the examples', () => {
     expect(led('1', '1')).toBeGreaterThan(5e-3);
   });
 
+  it('seven segments: 0101 lights the segments of a 5', () => {
+    const circuit = example('sevenseg');
+    const compiled = compileCircuit(circuit);
+    if (!compiled.ok) throw new Error(compiled.errors.join());
+    const engine = new RealtimeEngine(compiled.compiled);
+    engine.initialize();
+    const lit = engine.terminalCurrents(compiled.compiled.elementIds.indexOf('ds1')).slice(0, 7).map((i) => (i > 1e-3 ? '1' : '0')).join('');
+    expect(lit).toBe('1011011');
+  });
+
   it('transistor switch: the collector conducts only while the base is driven', () => {
     const { engine, current } = start('switch');
     const collector = () => Math.abs(current('rc'));

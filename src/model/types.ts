@@ -50,10 +50,12 @@ export type SpiceDef =
   | { kind: 'regulator'; input: string; output: string; ref: string; vNominal: number; polarity: 1 | -1; iq: number }
   | { kind: 'block'; pins: string[]; modelProp: string }
   | { kind: 'meter'; a: string; b: string; modeProp: string }
+  /** Seven LED segments to a common cathode, in one part. */
+  | { kind: 'display7'; segments: string[]; common: string; colorProp: string }
   /** A contact worked by hand: the common, and one way or two. */
   | { kind: 'switch'; switchKind: SwitchKind; common: string; ways: string[] }
   /** A gate or a logic input: supply in a property, inputs read against half of it, one output behind a resistance to ground. */
-  | { kind: 'logic'; gate: GateKind; inputs: string[]; output: string; vddProp: string; stateProp?: string }
+  | { kind: 'logic'; gate: GateKind; inputs: string[]; outputs: string[]; vddProp: string; stateProp?: string; /** For a truth table: where its rows are kept, or rows that never change. */ tableProp?: string; fixedTable?: string }
   | { kind: 'transformer'; p1: string; p2: string; s1: string; s2: string; ratioProp: string; inductanceProp: string; couplingProp: string };
 
 export interface ComponentDef {

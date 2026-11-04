@@ -24,7 +24,7 @@ import { LiveOverlay } from '../ui/LiveOverlay';
 import { useTheme } from '../ui/theme';
 import { MeterReadings } from '../ui/MeterReadings';
 import { RegulatorStatus } from '../ui/RegulatorStatus';
-import { LedGlow, LogicLevels } from '../ui/LogicView';
+import { LedGlow, LogicLevels, SegmentGlow } from '../ui/LogicView';
 import { regulatorSummaries, RegulatorSummary } from '../ui/regulatorPower';
 import { LiveLegendHandle } from '../ui/LiveControls';
 import { liveTraces, nextSlot, ScopeTrace, traceLabel } from '../ui/scopeTraces';
@@ -122,6 +122,7 @@ export function useWorkbench() {
   const hasRegulator = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'regulator'), [resolved]);
   const hasLogic = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'logic'), [resolved]);
   const hasLed = useMemo(() => resolved.elements.some((el) => el.def === 'led'), [resolved]);
+  const hasDisplay = useMemo(() => resolved.elements.some((el) => el.def === 'display7'), [resolved]);
   const labels = useMemo(
     () =>
       live.errors.length === 0 &&
@@ -131,10 +132,11 @@ export function useWorkbench() {
           {hasMeter && <MeterReadings circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasRegulator && <RegulatorStatus circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasLed && <LedGlow circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
+          {hasDisplay && <SegmentGlow circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasLogic && <LogicLevels circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
         </>
       ),
-    [showValues, isDc, hasMeter, hasRegulator, hasLed, hasLogic, live.errors.length, resolved, live.layout, live.frameRef],
+    [showValues, isDc, hasMeter, hasRegulator, hasLed, hasDisplay, hasLogic, live.errors.length, resolved, live.layout, live.frameRef],
   );
 
   const latestCircuitForKeys = useRef(circuit);

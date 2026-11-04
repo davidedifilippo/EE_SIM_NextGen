@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { getDevice } from '../library/devices';
 import { Circuit } from '../model/types';
 import { LiveFrame, LiveLayout } from '../realtime/liveSimulation';
+import { SEGMENT_LINES, segmentColor } from '../realtime/display7';
 
 interface Props {
   circuit: Circuit;
@@ -94,6 +95,46 @@ export const LedGlow: React.FC<Props> = ({ circuit, layout, frameRef }) => {
     <g ref={rootRef} pointerEvents="none" data-testid="led-glow">
       {leds.map(({ el, color }) => (
         <circle key={el.id} cx={el.x} cy={el.y} r={17} fill={color} opacity={0} style={{ filter: `drop-shadow(0 0 6px ${color})` }} />
+      ))}
+    </g>
+  );
+};
+
+/** The segments of each seven segment display, lit by the current through them, in the colour of the display. */
+export const SegmentGlow: React.FC<Props> = ({ circuit, layout, frameRef }) => {
+  const rootRef = useRef<SVGGElement>(null);
+  const displays = useMemo(() => {
+    const byId = new Map(circuit.elements.map((el) => [el.id, el]));
+    return layout.devices.flatMap((device, index) => {
+      const el = byId.get(device.elementId)!;
+      return el.def === 'display7' ? [{ el, index, firstDot: device.firstDot, color: segmentColor(el.props.color).color }] : [];
+    });
+  }, [circuit, layout]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const groups = [...root.querySelectorAll<SVGGElement>('[data-display]')];
+    const refresh = () => {
+      const frame = frameRef.current;
+      if (!frame) return;
+      displays.forEach(({ firstDot }, i) => {
+        groups[i]?.querySelectorAll('line').forEach((line, k) => line.setAttribute('opacity', String(ledBrightness(frame.dotCurrent[firstDot + k] ?? 0))));
+      });
+    };
+    refresh();
+    const timer = setInterval(refresh, REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [frameRef, displays]);
+
+  return (
+    <g ref={rootRef} pointerEvents="none" data-testid="segment-glow">
+      {displays.map(({ el, color }) => (
+        <g key={el.id} data-display={el.id} transform={`translate(${el.x}, ${el.y}) rotate(${el.rot})${el.flip ? ' scale(1, -1)' : ''}`}>
+          {SEGMENT_LINES.map(([x1, y1, x2, y2], k) => (
+            <line key={k} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={4} strokeLinecap="round" opacity={0} style={{ filter: `drop-shadow(0 0 3px ${color})` }} />
+          ))}
+        </g>
       ))}
     </g>
   );

@@ -7,6 +7,7 @@ import { METER_TEST_CURRENT, meterResistance } from './meter';
 import { GateKind, logicParams } from './logic';
 import { RegulatorParams, regulatorParams } from './regulator';
 import { contactResistances } from './switches';
+import { segmentColor } from './display7';
 import { internalResistance, sourceSpec } from '../netlist/source';
 import { parseSpiceValue } from '../netlist/values';
 import { parseWaveform, Waveform } from './waveform';
@@ -87,10 +88,12 @@ export type CompiledDevice =
   | { kind: 'opamp'; element: number; a: NodeIndex; b: NodeIndex; plus: NodeIndex; minus: NodeIndex; high: number; low: number; /** Time constant of the open loop pole; 0 for no limit. */ tau: number; branch: number }
   /** a is the input, b the output and base the reference. */
   | { kind: 'regulator'; element: number; a: NodeIndex; b: NodeIndex; base: NodeIndex; params: RegulatorParams }
+  /** a is the first segment, b the common cathode; forward is the voltage where the segments start to light. */
+  | { kind: 'display7'; element: number; a: NodeIndex; b: NodeIndex; segments: NodeIndex[]; forward: number }
   /** a is the common, b the first way; g holds the conductance to each way, set by the state of the contact. */
   | { kind: 'switch'; element: number; a: NodeIndex; b: NodeIndex; ways: NodeIndex[]; g: number[] }
   /** a is the output, b is ground; the output is held for a whole step, so the matrix never changes with it. */
-  | { kind: 'logic'; element: number; a: NodeIndex; b: NodeIndex; inputs: NodeIndex[]; gate: GateKind; vdd: number; state: boolean }
+  | { kind: 'logic'; element: number; a: NodeIndex; b: NodeIndex; outputs: NodeIndex[]; inputs: NodeIndex[]; gate: GateKind; vdd: number; state: boolean; table: number[] | null }
   /** a and b are the primary, c and d the secondary, each winding with its branch current; the primed nodes come after their series resistances. */
   | { kind: 'transformer'; element: number; a: NodeIndex; b: NodeIndex; c: NodeIndex; d: NodeIndex; ap: NodeIndex; cp: NodeIndex; l1: number; l2: number; m: number; branch: number; branch2: number };
 
@@ -284,6 +287,12 @@ export function compileCircuit(circuit: Circuit): CompileResult {
       case 'block':
         errors.push(`${el.tag}: un sottocircuito non si può animare. Usa l'Analisi precisa`);
         break;
+      case 'display7': {
+        const [segments, b] = [s.segments.map(node), node(s.common)];
+        const forward = segmentColor(el.props[s.colorProp]).forward;
+        pending.push({ element, needsBranch: false, build: () => ({ kind: 'display7', element, a: segments[0], b, segments, forward }) });
+        break;
+      }
       case 'switch': {
         const [a, ways] = [node(s.common), s.ways.map(node)];
         const g = contactResistances(s.switchKind, el.props).map((r) => 1 / r);
@@ -293,11 +302,12 @@ export function compileCircuit(circuit: Circuit): CompileResult {
       case 'logic': {
         const params = logicParams(el, s);
         if (!params) {
-          errors.push(`${el.tag}: alimentazione non valida "${el.props[s.vddProp] ?? ''}"`);
+          errors.push(`${el.tag}: ${s.gate === 'table' ? 'tabella di verità o alimentazione non valida' : `alimentazione non valida "${el.props[s.vddProp] ?? ''}"`}`);
           break;
         }
-        const [a, inputs] = [node(s.output), s.inputs.map(node)];
-        pending.push({ element, needsBranch: false, build: () => ({ kind: 'logic', element, a, b: -1, inputs, gate: s.gate, vdd: params.vdd, state: params.state }) });
+        const [outputs, inputs] = [s.outputs.map(node), s.inputs.map(node)];
+        const { vdd, state, table } = params;
+        pending.push({ element, needsBranch: false, build: () => ({ kind: 'logic', element, a: outputs[0], b: -1, outputs, inputs, gate: s.gate, vdd, state, table }) });
         break;
       }
       case 'meter': {
@@ -437,7 +447,7 @@ export function compileCircuit(circuit: Circuit): CompileResult {
 
   const signature = JSON.stringify([
     branch,
-    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.inputs] : d.kind === 'switch' ? d.ways : 0]),
+    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.outputs, ...d.inputs] : d.kind === 'switch' ? d.ways : d.kind === 'display7' ? d.segments : 0]),
   ]);
   return { ok: true, compiled: { size: branch, devices, netIndex, elementIds, signature } };
 }

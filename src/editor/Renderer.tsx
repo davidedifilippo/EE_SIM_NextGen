@@ -213,10 +213,14 @@ const ElementItem: React.FC<{
   const isTransistor = def.spice.kind === 'bjt' || def.spice.kind === 'mos';
   const isBesideLabel = elem.rot === 90 || elem.rot === 270 || isTransistor;
   const isBlock = def.spice.kind === 'block';
+  // A box with named pins: a subcircuit, a truth table, a decoder, a display
+  const isNamedBox = isBlock || def.spice.kind === 'display7' || (def.spice.kind === 'logic' && def.spice.gate === 'table');
   const isRegulator = def.spice.kind === 'regulator';
   // The box is as tall as its pins: its labels go beyond it
   const blockReach = Math.max(...def.terminals.map((t) => Math.abs(t.y))) + 16;
-  const blockPinNames = isBlock ? String(elem.props.pinNames ?? '').split(' ') : [];
+  const blockPinNames = isBlock ? String(elem.props.pinNames ?? '').split(' ') : isNamedBox ? def.terminals.map((t) => t.id) : [];
+  // The pin names sit inside the box, next to the edge: the parts drawn here have it at 24 from the center, a subcircuit at 34
+  const pinNameX = isBlock ? 31 : 21;
   const firstProp = def.props[0];
   // A choice shows its name, as the LED its colour; a logic part shows its level on itself already
   const firstValue = !firstProp ? '' : firstProp.type === 'choice' ? (firstProp.options?.find((o) => o.value === String(elem.props[firstProp.key]))?.label ?? '') : String(elem.props[firstProp.key] ?? '');
@@ -229,7 +233,7 @@ const ElementItem: React.FC<{
     ? { x: 0, textAnchor: 'middle' as const }
     : isTransistor && elem.rot === 180
       ? { x: -28, textAnchor: 'end' as const }
-      : { x: isTransistor ? 28 : def.spice.kind === 'meter' ? 32 : isBlock ? blockReach + 6 : isRegulator ? 26 : 24, textAnchor: 'start' as const };
+      : { x: isTransistor ? 28 : def.spice.kind === 'meter' ? 32 : isNamedBox ? blockReach + 6 : isRegulator ? 26 : 24, textAnchor: 'start' as const };
 
   return (
     <g
@@ -359,12 +363,12 @@ const ElementItem: React.FC<{
         })}
 
       {/* The name of each pin, next to it inside the box: upright, whatever the rotation */}
-      {isBlock &&
+      {isNamedBox &&
         def.terminals.map((t, k) => {
           const isOnStart = (t.x < 0) === (elem.rot === 0);
           const anchor = elem.rot === 90 || elem.rot === 270 ? 'middle' : isOnStart ? 'start' : 'end';
           return (
-            <text key={t.id} transform={`translate(${Math.sign(t.x) * 31} ${t.y}) rotate(${-elem.rot})`} y={3} textAnchor={anchor} fontSize={9} fill="var(--sch-muted)" pointerEvents="none">
+            <text key={t.id} transform={`translate(${Math.sign(t.x) * pinNameX} ${t.y}) rotate(${-elem.rot})`} y={3} textAnchor={anchor} fontSize={9} fill="var(--sch-muted)" pointerEvents="none">
               {blockPinNames[k]?.slice(0, 7)}
             </text>
           );
@@ -373,10 +377,10 @@ const ElementItem: React.FC<{
       {/* Labels are counter-rotated so they stay upright and keep their world position */}
       {def.tagPrefix && (
         <g transform={`${elem.flip ? 'scale(1, -1) ' : ''}rotate(${-elem.rot})`} pointerEvents="none" fontSize={11}>
-          <text y={isBesideLabel ? -4 : def.id === 'multimeter' ? -85 : def.spice.kind === 'meter' ? -33 : isBlock ? -blockReach - 4 : isRegulator ? -25 : -24} fontWeight={700} fill="var(--sch-ink)" {...labelProps}>
+          <text y={isBesideLabel ? -4 : def.id === 'multimeter' ? -85 : def.spice.kind === 'meter' ? -33 : isNamedBox ? -blockReach - 4 : isRegulator ? -25 : -24} fontWeight={700} fill="var(--sch-ink)" {...labelProps}>
             {elem.tag}
           </text>
-          <text y={isBesideLabel ? 10 : isBlock ? blockReach + 13 : 34} fill="var(--sch-muted)" {...labelProps}>
+          <text y={isBesideLabel ? 10 : isNamedBox ? blockReach + 13 : 34} fill="var(--sch-muted)" {...labelProps}>
             {value}
           </text>
         </g>

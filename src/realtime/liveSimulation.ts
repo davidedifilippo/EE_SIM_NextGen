@@ -46,7 +46,7 @@ export interface LiveFrame {
   meterAc: Float64Array;
   /** For each device that is a regulator: heat, junction temperature and what it is doing. */
   regulators: (RegulatorDisplay | null)[];
-  /** For each logic part: the level of its output, then of each input. */
+  /** For each logic part: the level of each output, then of each input. */
   logic: (number[] | null)[];
   /** Samples of the probes since the last frame. */
   scope: ScopeSamples | null;
@@ -102,9 +102,11 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
     case 'transformer':
       return [s.p1, s.p2, s.s1, s.s2];
     case 'logic':
-      return [s.output, ...s.inputs];
+      return [...s.outputs, ...s.inputs];
     case 'switch':
       return [s.common, ...s.ways];
+    case 'display7':
+      return [...s.segments, s.common];
   }
 };
 
@@ -130,7 +132,7 @@ export function buildLiveLayout(circuit: Circuit, compiled: CompiledCircuit): Li
     const firstDot = dots.length;
     // Through a two-terminal device in one run; a transformer has one per winding; in a transistor or a
     // gate, each lead meets at the center, where a gate takes its supply
-    const isPerLead = def.spice.kind === 'logic';
+    const isPerLead = def.spice.kind === 'logic' || def.spice.kind === 'display7';
     if (isPerLead) points.forEach((p) => dots.push({ a: p, b: { x: el.x, y: el.y } }));
     else if (points.length === 2) dots.push({ a: points[0], b: points[1] });
     else if (points.length === 4) dots.push({ a: points[0], b: points[1] }, { a: points[2], b: points[3] });
@@ -336,7 +338,7 @@ export class LiveSimulation {
       if (d.kind === 'bjt' || d.kind === 'mos') deviceVbe[i] = engine.nodeVoltage(d.base) - engine.nodeVoltage(d.b);
       if (d.kind === 'regulator') deviceVbe[i] = engine.nodeVoltage(d.b) - engine.nodeVoltage(d.base);
       const { firstDot } = layout.devices[i];
-      if (d.kind === 'logic') currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
+      if (d.kind === 'logic' || d.kind === 'display7') currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
       else if (currents.length === 2) dotCurrent[firstDot] = currents[0];
       else if (currents.length === 4) [dotCurrent[firstDot], dotCurrent[firstDot + 1]] = [currents[0], currents[2]];
       else currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));

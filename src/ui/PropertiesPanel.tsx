@@ -1,3 +1,4 @@
+import { TruthTableEditor } from './TruthTableEditor';
 import React from 'react';
 import { Circuit, Element, SpiceModel } from '../model/types';
 import { blockId, canMirror, getDevice } from '../library/devices';
@@ -90,12 +91,17 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
       {deviceIndex >= 0 && (
         <LiveReadout deviceIndex={deviceIndex} sign={single ? drawingSign(single) : 1} transistorFirstDot={def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' ? layout!.devices[deviceIndex].firstDot : null} isMos={def?.spice.kind === 'mos'} windingsFirstDot={def?.spice.kind === 'transformer' ? layout!.devices[deviceIndex].firstDot : null} regulatorFirstDot={def?.spice.kind === 'regulator' ? layout!.devices[deviceIndex].firstDot : null} frameRef={frameRef} />
       )}
+      {single && def?.spice.kind === 'logic' && def.spice.gate === 'table' && def.spice.tableProp && (
+        <TruthTableEditor element={single} inputs={def.spice.inputs} outputs={def.spice.outputs} onChange={(patch) => update(patch)} />
+      )}
       {single && def?.spice.kind === 'vsource' && <SourceInspector props={single.props} isDcOnly={def.id !== 'vsource'} onChange={(props, record) => update({ props }, record)} />}
       {single &&
         def?.spice.kind !== 'vsource' &&
         def?.props.map((p) => {
           // With a manufacturer's model the bandwidth is in the model
           if (p.key === 'gbw' && single.props.model) return null;
+          // A truth table has its own grid above
+          if (def.spice.kind === 'logic' && p.key === def.spice.tableProp) return null;
           const value = String(single.props[p.key] ?? '');
           const isOpAmpModel = p.modelType === 'OPAMP';
           const isRegulatorModel = p.modelType === 'REGULATOR';

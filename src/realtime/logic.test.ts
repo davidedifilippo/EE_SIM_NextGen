@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gateExpression, gateOutput, GateKind, levelExpression, readLevel } from './logic';
+import { emptyTable, formatTable, gateExpression, gateOutput, GateKind, levelExpression, logicOutputs, parseTable, readLevel, tableExpression, tableRow } from './logic';
 
 const GATES: GateKind[] = ['and', 'or', 'nand', 'nor', 'xor'];
 const TABLES: Record<string, boolean[]> = {
@@ -61,5 +61,38 @@ describe('gateExpression', () => {
 
   it('passes half way at half the supply', () => {
     expect(evaluate(levelExpression('2.5', 5))).toBeCloseTo(0.5, 9);
+  });
+});
+
+describe('truth tables', () => {
+  it('read and write rows, the first output in bit 0', () => {
+    const table = parseTable('00 01 10 11', 2, 2)!;
+    expect(table).toEqual([0, 2, 1, 3]);
+    expect(formatTable(table, 2)).toBe('00 01 10 11');
+    expect(emptyTable(3, 2)).toBe('00 00 00 00 00 00 00 00');
+  });
+
+  it('refuse rows of the wrong number or length', () => {
+    expect(parseTable('0 1 1', 2, 1)).toBeNull();
+    expect(parseTable('0 1 1 2', 2, 1)).toBeNull();
+    expect(parseTable('01 1 1 0', 2, 1)).toBeNull();
+  });
+
+  it('take the first input as the most significant bit', () => {
+    expect(tableRow([true, false])).toBe(2);
+    expect(tableRow([false, true, true])).toBe(3);
+    const majority = parseTable('0 0 0 1 0 1 1 1', 3, 1)!;
+    expect(logicOutputs('table', [true, true, false], false, majority)).toBe(1);
+    expect(logicOutputs('table', [true, false, false], false, majority)).toBe(0);
+  });
+
+  it('give ngspice the same table, whichever way the expression is written', () => {
+    for (const text of ['0 0 0 1 0 1 1 1', '1 1 1 0 1 1 1 1', '0 0 0 0 0 0 0 0', '1 1 1 1 1 1 1 1']) {
+      const table = parseTable(text, 3, 1)!;
+      for (let row = 0; row < 8; row++) {
+        const levels = [(row >> 2) & 1, (row >> 1) & 1, row & 1].map(String);
+        expect(evaluate(tableExpression(table, 0, levels))).toBeCloseTo(table[row] & 1, 9);
+      }
+    }
   });
 });

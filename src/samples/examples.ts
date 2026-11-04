@@ -170,6 +170,39 @@ const switches = (): Circuit => ({
   models: [],
 });
 
+const sevenSegment = (): Circuit => {
+  // The digit 5 at the start: D C B A = 0 1 0 1
+  const bits = { D: '0', C: '1', B: '0', A: '1' };
+  const names = ['D', 'C', 'B', 'A'] as const;
+  // The inputs further apart than the pins of the driver, so that their boxes and names do not touch
+  const inputY = (k: number) => -105 + 50 * k;
+  const pinY = (k: number) => -30 + 20 * k;
+  const segments = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+  const segmentY = (k: number) => -60 + 20 * k;
+  // Resistors on two columns, so that each name and value has room
+  const resistorX = (k: number) => (k % 2 === 0 ? 100 : 180);
+  return {
+    title: 'Driver BCD e display a 7 segmenti',
+    elements: [
+      ...names.map((name, k) => part(`in${name}`, 'logicinput', -160, inputY(k), 0, `IN${name}`, { state: bits[name] })),
+      part('u1', 'bcd7seg', 0, 0, 0, 'U1'),
+      ...segments.map((name, k) => part(`r${name}`, 'resistor', resistorX(k), segmentY(k), 0, `R${k + 1}`, { value: '220' })),
+      part('ds1', 'display7', 320, 0, 0, 'DS1', { color: 'rosso' }),
+      ground(380, 40),
+    ],
+    wires: [
+      // Each wire turns at its own x: on a shared one the vertical runs would lie on top of each other
+      ...names.map((name, k) => wire(`win${name}`, [-120, inputY(k)], [-100 + 15 * k, inputY(k)], [-100 + 15 * k, pinY(k)], [-40, pinY(k)])),
+      ...segments.flatMap((name, k) => [
+        wire(`wo${name}`, [40, segmentY(k)], [resistorX(k) - 40, segmentY(k)]),
+        wire(`ws${name}`, [resistorX(k) + 40, segmentY(k)], [280, segmentY(k)]),
+      ]),
+      wire('wk', [360, 0], [380, 0], [380, 40]),
+    ],
+    models: [],
+  };
+};
+
 const regulator = (): Circuit => ({
   title: 'Regolatore 7805',
   elements: [
@@ -194,5 +227,6 @@ export const EXAMPLES: Example[] = [
   { id: 'switch', title: 'Transistor come interruttore', hint: 'Un’onda quadra tra 0 e 5 V, a 1 Hz, accende e spegne la corrente nel collettore', build: transistorSwitch },
   { id: 'gates', title: 'Porte logiche e LED', hint: 'Tocca 0 e 1 sugli ingressi: il LED rosso si accende con AND, il verde con XOR', build: gates },
   { id: 'switches', title: 'Pulsante, interruttore e porta logica', hint: 'Chiudi l’interruttore e tieni premuto il pulsante: il LED si accende solo con entrambi', build: switches },
+  { id: 'sevenseg', title: 'Driver BCD e display a 7 segmenti', hint: 'Tocca gli ingressi D C B A: il display mostra la cifra del numero binario, da 0 a 9', build: sevenSegment },
   { id: 'regulator', title: 'Regolatore 7805', hint: '5 V sul carico da 100 Ω: guarda la potenza e la temperatura del regolatore', build: regulator },
 ];

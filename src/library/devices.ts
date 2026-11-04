@@ -1,8 +1,9 @@
 import { METER_MODES } from '../realtime/meterModes';
 import { MAX_BLOCK_PINS, MIN_BLOCK_PINS } from './blockPins';
 import { ComponentDef, Prim, Rotation, Circuit, Element, Pt } from '../model/types';
-import { GateKind } from '../realtime/logic';
+import { emptyTable, GateKind, MAX_TABLE_INPUTS, MAX_TABLE_OUTPUTS } from '../realtime/logic';
 import { closedWay, SwitchKind } from '../realtime/switches';
+import { SEGMENT_COLORS, SEGMENT_LINES } from '../realtime/display7';
 import { SourceShape, sourceShape } from '../netlist/source';
 
 
@@ -498,9 +499,73 @@ function gateDevice(gate: GateKind, name: string, body: Prim[], searchTerms: str
     terminals: [...(isNot ? [{ id: 'a', x: -40, y: 0 }] : GATE_INPUTS), { id: 'y', x: 40, y: 0 }],
     symbol: body,
     props: [SUPPLY_PROP],
-    spice: { kind: 'logic', gate, inputs: isNot ? ['a'] : ['a', 'b'], output: 'y', vddProp: 'vdd' },
+    spice: { kind: 'logic', gate, inputs: isNot ? ['a'] : ['a', 'b'], outputs: ['y'], vddProp: 'vdd' },
   };
 }
+
+/** Pins in a column, centred on the part, 20 apart. */
+const column = (ids: string[], x: number) => ids.map((id, k) => ({ id, x, y: (k - (ids.length - 1) / 2) * 20 }));
+
+/** A box with inputs on the left and outputs on the right: a truth table, or a decoder built on one. */
+function tableBox(inputs: string[], outputs: string[]): Pick<ComponentDef, 'terminals' | 'symbol'> {
+  const terminals = [...column(inputs, -40), ...column(outputs, 40)];
+  const half = (Math.max(inputs.length, outputs.length) * 20) / 2 + 4;
+  return {
+    terminals,
+    symbol: [
+      ...terminals.map((t): Prim => ({ t: 'line', x1: t.x, y1: t.y, x2: Math.sign(t.x) * 24, y2: t.y })),
+      { t: 'rect', x: -24, y: -half, w: 48, h: 2 * half, fill: 'var(--sch-part-soft)' },
+    ],
+  };
+}
+
+const LETTERS = 'ABCDEF';
+
+/** The id of the truth table with so many inputs and outputs. */
+export const tableId = (inputs: number, outputs: number) => (inputs === 2 && outputs === 1 ? 'truthtable' : `truthtable_${inputs}x${outputs}`);
+
+function truthTableDevice(inputs: number, outputs: number): ComponentDef {
+  const [inIds, outIds] = [[...LETTERS.slice(0, inputs)], Array.from({ length: outputs }, (_, j) => `Y${j + 1}`)];
+  return {
+    id: tableId(inputs, outputs),
+    category: 'Logica',
+    name: 'Tabella di verità',
+    tagPrefix: 'U',
+    searchTerms: 'tabella verita logica combinatoria truth table',
+    ...tableBox(inIds, outIds),
+    props: [{ key: 'table', label: 'Tabella', type: 'text', default: emptyTable(inputs, outputs) }, SUPPLY_PROP],
+    spice: { kind: 'logic', gate: 'table', inputs: inIds, outputs: outIds, vddProp: 'vdd', tableProp: 'table' },
+    isHidden: !(inputs === 2 && outputs === 1),
+  };
+}
+
+/** Segments a to g of each BCD digit, 0 to 9; 10 to 15 leave the display dark. */
+const BCD_SEGMENTS = ['1111110', '0110000', '1101101', '1111001', '0110011', '1011011', '1011111', '1110000', '1111111', '1111011'];
+const BCD_TABLE = Array.from({ length: 16 }, (_, row) => BCD_SEGMENTS[row] ?? '0000000').join(' ');
+
+const SEGMENT_IDS = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+const DISPLAY_PINS = [...column(SEGMENT_IDS, -40), { id: 'k', x: 40, y: 0 }];
+
+const DISPLAY7: ComponentDef = {
+  id: 'display7',
+  category: 'Logica',
+  name: 'Display 7 segmenti',
+  tagPrefix: 'DS',
+  searchTerms: 'display 7 segmenti led cifra catodo comune',
+  terminals: DISPLAY_PINS,
+  symbol: [
+    ...column(SEGMENT_IDS, -40).map((t): Prim => ({ t: 'line', x1: -40, y1: t.y, x2: -24, y2: t.y })),
+    { t: 'line', x1: 30, y1: 0, x2: 40, y2: 0 },
+    { t: 'rect', x: -24, y: -74, w: 54, h: 148, fill: 'var(--sch-part-soft)' },
+    // The segments dark; the animation lights them over these
+    ...SEGMENT_LINES.map(([x1, y1, x2, y2]): Prim => ({ t: 'line', x1, y1, x2, y2, w: 4, stroke: 'var(--sch-grid)' })),
+  ],
+  props: [{ key: 'color', label: 'Colore', type: 'choice', default: 'rosso', options: SEGMENT_COLORS.map(({ value, label }) => ({ value, label })) }],
+  spice: { kind: 'display7', segments: SEGMENT_IDS, common: 'k', colorProp: 'color' },
+};
+
+const TRUTH_TABLES: ComponentDef[] = [];
+for (let i = 1; i <= MAX_TABLE_INPUTS; i++) for (let o = 1; o <= MAX_TABLE_OUTPUTS; o++) TRUTH_TABLES.push(truthTableDevice(i, o));
 
 const LOGIC: ComponentDef[] = [
   {
@@ -518,13 +583,23 @@ const LOGIC: ComponentDef[] = [
       { key: 'state', label: 'Livello', type: 'choice', default: '0', options: [{ value: '0', label: '0' }, { value: '1', label: '1' }] },
       SUPPLY_PROP,
     ],
-    spice: { kind: 'logic', gate: 'input', inputs: [], output: 'y', vddProp: 'vdd', stateProp: 'state' },
+    spice: { kind: 'logic', gate: 'input', inputs: [], outputs: ['y'], vddProp: 'vdd', stateProp: 'state' },
   },
   gateDevice('and', 'AND', [...GATE_LEADS, { t: 'path', d: AND_BODY, fill: 'var(--sch-part)' }, output(18)], 'and e'),
   gateDevice('or', 'OR', [...GATE_LEADS, { t: 'path', d: OR_BODY, fill: 'var(--sch-part)' }, output(18)], 'or o'),
   gateDevice('not', 'NOT', [{ t: 'line', x1: -40, y1: 0, x2: -18, y2: 0 }, { t: 'path', d: 'M -18 -15 L 12 0 L -18 15 Z', fill: 'var(--sch-part)' }, bubble(12), output(20)], 'not inverter invertitore'),
   gateDevice('nand', 'NAND', [...GATE_LEADS, { t: 'path', d: AND_BODY, fill: 'var(--sch-part)' }, bubble(18), output(26)], 'nand'),
   gateDevice('nor', 'NOR', [...GATE_LEADS, { t: 'path', d: OR_BODY, fill: 'var(--sch-part)' }, bubble(18), output(26)], 'nor'),
+  {
+    id: 'bcd7seg',
+    category: 'Logica',
+    name: 'Driver BCD 7 segmenti',
+    tagPrefix: 'U',
+    searchTerms: 'decoder decodificatore bcd 7 segmenti 4511 display',
+    ...tableBox(['D', 'C', 'B', 'A'], ['a', 'b', 'c', 'd', 'e', 'f', 'g']),
+    props: [SUPPLY_PROP],
+    spice: { kind: 'logic', gate: 'table', inputs: ['D', 'C', 'B', 'A'], outputs: ['a', 'b', 'c', 'd', 'e', 'f', 'g'], vddProp: 'vdd', fixedTable: BCD_TABLE },
+  },
   gateDevice('xor', 'XOR', [...GATE_LEADS, { t: 'path', d: 'M -30 -18 Q -20 0 -30 18' }, { t: 'path', d: OR_BODY, fill: 'var(--sch-part)' }, output(18)], 'xor or esclusivo'),
 ];
 
@@ -607,7 +682,7 @@ const REGULATORS = [
   regulatorDevice('LM337', 1.25, -1, true),
 ];
 
-DEVICES.push(...REGULATORS, ...LOGIC, ...SWITCHES);
+DEVICES.push(...REGULATORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES);
 for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));

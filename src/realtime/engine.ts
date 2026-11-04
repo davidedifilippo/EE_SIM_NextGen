@@ -1,4 +1,5 @@
-import { gateOutput, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, readLevel } from './logic';
+import { SEGMENT_LEAK, segmentPoint } from './display7';
+import { LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicOutputs, readLevel } from './logic';
 import { REGULATOR_GAIN, REGULATOR_LEAK, RegulatorRegion, regulatorPoint, regulatorPower, THERMAL_RESTART, THERMAL_SHUTDOWN, THERMAL_STEPS } from './regulator';
 import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams, MosParams } from './compile';
 import { luFactor, luSolve } from './linear';
@@ -210,8 +211,8 @@ export class RealtimeEngine {
   private readonly regulatorTj: Float64Array;
   private readonly regulatorIsOff: Uint8Array;
   private readonly regulatorState: Int8Array;
-  /** Per logic part: its output level, and the level each input last read, one bit per input. */
-  private readonly logicOut: Uint8Array;
+  /** Per logic part: its output levels and the level each input last read, one bit each. */
+  private readonly logicOut: Int32Array;
   private readonly logicIn: Int32Array;
   private readonly unitRhs: Float64Array;
   private readonly opAmps: { index: number; device: Extract<CompiledDevice, { kind: 'opamp' }> }[] = [];
@@ -246,7 +247,7 @@ export class RealtimeEngine {
     this.regulatorTj = Float64Array.from(devices, (d) => (d.kind === 'regulator' ? d.params.ambient : 0));
     this.regulatorIsOff = new Uint8Array(devices.length);
     this.regulatorState = new Int8Array(devices.length);
-    this.logicOut = new Uint8Array(devices.length);
+    this.logicOut = new Int32Array(devices.length);
     this.logicIn = new Int32Array(devices.length);
     this.resetLogic();
     this.unitRhs = new Float64Array(size);
@@ -257,7 +258,7 @@ export class RealtimeEngine {
       else if (d.kind === 'bjt') this.vCrit[i] = criticalVoltage(d.params.is, d.params.vt);
       else if (d.kind === 'opamp') this.opAmps.push({ index: i, device: d });
     });
-    this.isNonlinear = devices.some((d) => d.kind === 'diode' || d.kind === 'bjt' || d.kind === 'mos' || d.kind === 'opamp' || d.kind === 'regulator');
+    this.isNonlinear = devices.some((d) => d.kind === 'diode' || d.kind === 'bjt' || d.kind === 'mos' || d.kind === 'opamp' || d.kind === 'regulator' || d.kind === 'display7');
   }
 
   private voltage(node: number): number {
@@ -342,8 +343,11 @@ export class RealtimeEngine {
         case 'switch':
           d.ways.forEach((way, k) => this.addG(d.a, way, d.g[k]));
           break;
+        case 'display7':
+          for (const segment of d.segments) this.addG(segment, d.b, 1 / SEGMENT_LEAK);
+          break;
         case 'logic':
-          this.addG(d.a, -1, 1 / LOGIC_OUTPUT_RESISTANCE);
+          for (const output of d.outputs) this.addG(output, -1, 1 / LOGIC_OUTPUT_RESISTANCE);
           for (const input of d.inputs) this.addG(input, -1, 1 / LOGIC_INPUT_RESISTANCE);
           break;
         case 'bjt':
@@ -396,8 +400,10 @@ export class RealtimeEngine {
           if (d.b >= 0) rhs[d.b] += d.current * sourceScale;
           break;
         case 'logic':
-          // The output as the current source of its Norton equivalent
-          if (d.a >= 0 && this.logicOut[i]) rhs[d.a] += (d.vdd / LOGIC_OUTPUT_RESISTANCE) * sourceScale;
+          // Each output as the current source of its Norton equivalent
+          d.outputs.forEach((output, j) => {
+            if (output >= 0 && (this.logicOut[i] >> j) & 1) rhs[output] += (d.vdd / LOGIC_OUTPUT_RESISTANCE) * sourceScale;
+          });
           break;
         case 'transformer':
           if (h > 0) {
@@ -634,6 +640,20 @@ export class RealtimeEngine {
       if (d.kind === 'mos' && this.stampMos(i, d)) limited = true;
       if (d.kind === 'opamp' && this.stampOpAmp(i, d)) limited = true;
       if (d.kind === 'regulator' && this.stampRegulator(i, d)) limited = true;
+      if (d.kind === 'display7') {
+        // Each segment as a conductance and a current source, linearized where it is now
+        for (const segment of d.segments) {
+          const v = this.voltage(segment) - this.voltage(d.b);
+          const { i: current, g } = segmentPoint(v, d.forward);
+          const ieq = current - g * v;
+          this.addLu(segment, segment, g);
+          this.addLu(segment, d.b, -g);
+          this.addLu(d.b, segment, -g);
+          this.addLu(d.b, d.b, g);
+          this.addRhs(segment, -ieq);
+          this.addRhs(d.b, ieq);
+        }
+      }
       if (d.kind !== 'diode') return;
       const raw = this.voltage(d.junction) - this.voltage(d.b);
       const v = limitDiode(raw, this.vIter[i], d.params, this.vCrit[i]);
@@ -735,7 +755,7 @@ export class RealtimeEngine {
     this.compiled.devices.forEach((d, i) => {
       if (d.kind !== 'logic') return;
       this.logicIn[i] = 0;
-      this.logicOut[i] = gateOutput(d.gate, d.inputs.map(() => false), d.state) ? 1 : 0;
+      this.logicOut[i] = logicOutputs(d.gate, d.inputs.map(() => false), d.state, d.table);
     });
   }
 
@@ -754,7 +774,7 @@ export class RealtimeEngine {
         return level;
       });
       this.logicIn[i] = bits;
-      const out = gateOutput(d.gate, levels, d.state) ? 1 : 0;
+      const out = logicOutputs(d.gate, levels, d.state, d.table);
       if (out !== this.logicOut[i]) {
         this.logicOut[i] = out;
         hasChanged = true;
@@ -763,11 +783,11 @@ export class RealtimeEngine {
     return hasChanged;
   }
 
-  /** Level of the output, then of each input, of a logic part. */
+  /** Level of each output, then of each input, of a logic part. */
   logicLevels(index: number): number[] {
     const d = this.compiled.devices[index];
     if (d.kind !== 'logic') return [];
-    return [this.logicOut[index], ...d.inputs.map((_, k) => (this.logicIn[index] >> k) & 1)];
+    return [...d.outputs.map((_, j) => (this.logicOut[index] >> j) & 1), ...d.inputs.map((_, k) => (this.logicIn[index] >> k) & 1)];
   }
 
   /** DC operating point at the current time, with capacitors open and inductors shorted. */
@@ -894,6 +914,7 @@ export class RealtimeEngine {
       case 'regulator':
       case 'logic':
       case 'switch':
+      case 'display7':
         return this.terminalCurrents(index)[0];
     }
   }
@@ -925,14 +946,22 @@ export class RealtimeEngine {
       return [polarity * (i + iq), -polarity * i, -polarity * iq];
     }
     if (d.kind === 'opamp') return [this.x[d.branch], 0, 0];
+    if (d.kind === 'display7') {
+      // Into each segment pin, out of the common
+      const segments = d.segments.map((segment) => {
+        const v = this.voltage(segment) - this.voltage(d.b);
+        return segmentPoint(v, d.forward).i + v / SEGMENT_LEAK;
+      });
+      return [...segments, -segments.reduce((sum, i) => sum + i, 0)];
+    }
     if (d.kind === 'switch') {
       // Into the common, out of each way
       const toWays = d.ways.map((way, k) => d.g[k] * (this.voltage(d.a) - this.voltage(way)));
       return [toWays.reduce((sum, i) => sum + i, 0), ...toWays.map((i) => -i)];
     }
     if (d.kind === 'logic') {
-      const out = (this.voltage(d.a) - (this.logicOut[index] ? d.vdd : 0)) / LOGIC_OUTPUT_RESISTANCE;
-      return [out, ...d.inputs.map((node) => this.voltage(node) / LOGIC_INPUT_RESISTANCE)];
+      const outs = d.outputs.map((node, j) => (this.voltage(node) - ((this.logicOut[index] >> j) & 1 ? d.vdd : 0)) / LOGIC_OUTPUT_RESISTANCE);
+      return [...outs, ...d.inputs.map((node) => this.voltage(node) / LOGIC_INPUT_RESISTANCE)];
     }
     if (d.kind === 'transformer') return [this.x[d.branch], -this.x[d.branch], this.x[d.branch2], -this.x[d.branch2]];
     if (d.kind !== 'bjt') {
