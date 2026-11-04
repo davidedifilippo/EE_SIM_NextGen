@@ -8,6 +8,7 @@ import { GateKind, logicParams } from './logic';
 import { RegulatorParams, regulatorParams } from './regulator';
 import { contactResistances } from './switches';
 import { segmentColor } from './display7';
+import { ctTransformerParams } from './ctTransformer';
 import { internalResistance, sourceSpec } from '../netlist/source';
 import { parseSpiceValue } from '../netlist/values';
 import { parseWaveform, Waveform } from './waveform';
@@ -88,6 +89,17 @@ export type CompiledDevice =
   | { kind: 'opamp'; element: number; a: NodeIndex; b: NodeIndex; plus: NodeIndex; minus: NodeIndex; high: number; low: number; /** Time constant of the open loop pole; 0 for no limit. */ tau: number; branch: number }
   /** a is the input, b the output and base the reference. */
   | { kind: 'regulator'; element: number; a: NodeIndex; b: NodeIndex; base: NodeIndex; params: RegulatorParams }
+  /**
+   * Three coupled windings: the primary, the upper and the lower half of the secondary. starts and ends
+   * are their terminals, inner the node after the series resistance; m holds the self and mutual
+   * inductances, row by row.
+   */
+  | { kind: 'ctransformer'; element: number; a: NodeIndex; b: NodeIndex; starts: NodeIndex[]; ends: NodeIndex[]; inner: NodeIndex[]; r: number[]; m: number[]; core: number; branches: number[] }
+  /**
+   * a is the positive output and b the negative one. The four diodes go from ac1 and ac2 to the
+   * positive, and from the negative to ac1 and ac2; junction is the node after the series resistance of each.
+   */
+  | { kind: 'bridge'; element: number; a: NodeIndex; b: NodeIndex; ac1: NodeIndex; ac2: NodeIndex; anodes: NodeIndex[]; cathodes: NodeIndex[]; junctions: NodeIndex[]; params: DiodeParams }
   /** a is the first segment, b the common cathode; forward is the voltage where the segments start to light. */
   | { kind: 'display7'; element: number; a: NodeIndex; b: NodeIndex; segments: NodeIndex[]; forward: number }
   /** a is the common, b the first way; g holds the conductance to each way, set by the state of the contact. */
@@ -287,6 +299,38 @@ export function compileCircuit(circuit: Circuit): CompileResult {
       case 'block':
         errors.push(`${el.tag}: un sottocircuito non si può animare. Usa l'Analisi precisa`);
         break;
+      case 'ctransformer': {
+        const params = ctTransformerParams(el.props[s.primaryProp], el.props[s.secondaryProp], el.props[s.powerProp]);
+        if (!params) {
+          errors.push(`${el.tag}: tensioni o potenza non valide`);
+          break;
+        }
+        const [p1, p2, s1, ct, s2] = [node(s.p1), node(s.p2), node(s.s1), node(s.ct), node(s.s2)];
+        const { inductances: l, resistances: r, coupling, coreResistance: core } = params;
+        const m = [0, 1, 2].flatMap((i) => [0, 1, 2].map((j) => (i === j ? l[i] : coupling * Math.sqrt(l[i] * l[j]))));
+        pending.push({
+          element,
+          needsBranch: false,
+          build: (_, nextNode) => ({ kind: 'ctransformer', element, a: p1, b: p2, starts: [p1, s1, ct], ends: [p2, ct, s2], inner: [nextNode(), nextNode(), nextNode()], r, m, core, branches: [] }),
+        });
+        break;
+      }
+      case 'bridge': {
+        const card = modelCard(el.tag, String(el.props[s.modelProp] ?? ''), 'D');
+        if (!card) break;
+        const params = parseDiodeModel(card);
+        const [ac1, ac2, plus, minus] = [node(s.ac1), node(s.ac2), node(s.plus), node(s.minus)];
+        const [anodes, cathodes] = [
+          [ac1, ac2, minus, minus],
+          [plus, plus, ac1, ac2],
+        ];
+        pending.push({
+          element,
+          needsBranch: false,
+          build: (_, nextNode) => ({ kind: 'bridge', element, a: plus, b: minus, ac1, ac2, anodes, cathodes, junctions: anodes.map((anode) => (params.rs > 0 ? nextNode() : anode)), params }),
+        });
+        break;
+      }
       case 'display7': {
         const [segments, b] = [s.segments.map(node), node(s.common)];
         const forward = segmentColor(el.props[s.colorProp]).forward;
@@ -442,12 +486,13 @@ export function compileCircuit(circuit: Circuit): CompileResult {
   const devices = pending.map((p, i) => {
     const shell = shells[i];
     if (shell.kind === 'transformer') return { ...shell, branch: branch++, branch2: branch++ };
+    if (shell.kind === 'ctransformer') return { ...shell, branches: [branch++, branch++, branch++] };
     return p.needsBranch ? { ...shell, branch: branch++ } : shell;
   }) as CompiledDevice[];
 
   const signature = JSON.stringify([
     branch,
-    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.outputs, ...d.inputs] : d.kind === 'switch' ? d.ways : d.kind === 'display7' ? d.segments : 0]),
+    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.outputs, ...d.inputs] : d.kind === 'switch' ? d.ways : d.kind === 'display7' ? d.segments : d.kind === 'bridge' ? [d.ac1, d.ac2, ...d.junctions] : d.kind === 'ctransformer' ? [...d.starts, ...d.ends, ...d.inner] : 0]),
   ]);
   return { ok: true, compiled: { size: branch, devices, netIndex, elementIds, signature } };
 }

@@ -214,6 +214,11 @@ export class RealtimeEngine {
   /** Per logic part: its output levels and the level each input last read, one bit each. */
   private readonly logicOut: Int32Array;
   private readonly logicIn: Int32Array;
+  /** Per centre-tapped transformer: voltage and current of each of its three windings at the last accepted point. */
+  private readonly vPrevW: Float64Array;
+  private readonly iPrevW: Float64Array;
+  /** Junction voltage of each of the four diodes of a bridge, for the limiter, four per device. */
+  private readonly vIterBridge: Float64Array;
   private readonly unitRhs: Float64Array;
   private readonly opAmps: { index: number; device: Extract<CompiledDevice, { kind: 'opamp' }> }[] = [];
   private opAmpChanges = 0;
@@ -249,16 +254,19 @@ export class RealtimeEngine {
     this.regulatorState = new Int8Array(devices.length);
     this.logicOut = new Int32Array(devices.length);
     this.logicIn = new Int32Array(devices.length);
+    this.vIterBridge = new Float64Array(devices.length * 4);
+    this.vPrevW = new Float64Array(devices.length * 3);
+    this.iPrevW = new Float64Array(devices.length * 3);
     this.resetLogic();
     this.unitRhs = new Float64Array(size);
     this.vCrit = new Float64Array(devices.length);
     devices.forEach((d, i) => {
-      if (d.kind === 'diode') this.vCrit[i] = criticalVoltage(d.params.is, d.params.nvt);
+      if (d.kind === 'diode' || d.kind === 'bridge') this.vCrit[i] = criticalVoltage(d.params.is, d.params.nvt);
       else if (d.kind === 'mos') this.vCrit[i] = criticalVoltage(d.params.body.is, d.params.body.nvt);
       else if (d.kind === 'bjt') this.vCrit[i] = criticalVoltage(d.params.is, d.params.vt);
       else if (d.kind === 'opamp') this.opAmps.push({ index: i, device: d });
     });
-    this.isNonlinear = devices.some((d) => d.kind === 'diode' || d.kind === 'bjt' || d.kind === 'mos' || d.kind === 'opamp' || d.kind === 'regulator' || d.kind === 'display7');
+    this.isNonlinear = devices.some((d) => d.kind === 'diode' || d.kind === 'bridge' || d.kind === 'bjt' || d.kind === 'mos' || d.kind === 'opamp' || d.kind === 'regulator' || d.kind === 'display7');
   }
 
   private voltage(node: number): number {
@@ -346,6 +354,20 @@ export class RealtimeEngine {
         case 'display7':
           for (const segment of d.segments) this.addG(segment, d.b, 1 / SEGMENT_LEAK);
           break;
+        case 'ctransformer':
+          // Iron losses across each half of the secondary
+          for (let w = 1; w < 3; w++) this.addG(d.starts[w], d.ends[w], 1 / d.core);
+          for (let w = 0; w < 3; w++) {
+            this.addG(d.starts[w], d.inner[w], 1 / d.r[w]);
+            this.addG(d.starts[w], -1, TRANSFORMER_LEAK_CONDUCTANCE);
+            this.addBranchColumns(d.inner[w], d.ends[w], d.branches[w]);
+            // Trapezoidal companion of the coupled windings, as for the transformer with two
+            if (h > 0) for (let v = 0; v < 3; v++) base[d.branches[w] * n + d.branches[v]] = (-2 * d.m[3 * w + v]) / h;
+          }
+          break;
+        case 'bridge':
+          if (d.params.rs > 0) d.anodes.forEach((anode, k) => this.addG(anode, d.junctions[k], 1 / d.params.rs));
+          break;
         case 'logic':
           for (const output of d.outputs) this.addG(output, -1, 1 / LOGIC_OUTPUT_RESISTANCE);
           for (const input of d.inputs) this.addG(input, -1, 1 / LOGIC_INPUT_RESISTANCE);
@@ -373,6 +395,7 @@ export class RealtimeEngine {
     let first = this.n;
     for (const d of this.compiled.devices) {
       if ((d.kind === 'inductor' || d.kind === 'vsource' || d.kind === 'opamp' || d.kind === 'transformer') && d.branch < first) first = d.branch;
+      if (d.kind === 'ctransformer' && d.branches[0] < first) first = d.branches[0];
     }
     return first;
   }
@@ -404,6 +427,15 @@ export class RealtimeEngine {
           d.outputs.forEach((output, j) => {
             if (output >= 0 && (this.logicOut[i] >> j) & 1) rhs[output] += (d.vdd / LOGIC_OUTPUT_RESISTANCE) * sourceScale;
           });
+          break;
+        case 'ctransformer':
+          if (h > 0) {
+            for (let w = 0; w < 3; w++) {
+              let sum = -this.vPrevW[3 * i + w];
+              for (let v = 0; v < 3; v++) sum += ((-2 * d.m[3 * w + v]) / h) * this.iPrevW[3 * i + v];
+              rhs[d.branches[w]] = sum;
+            }
+          }
           break;
         case 'transformer':
           if (h > 0) {
@@ -640,6 +672,25 @@ export class RealtimeEngine {
       if (d.kind === 'mos' && this.stampMos(i, d)) limited = true;
       if (d.kind === 'opamp' && this.stampOpAmp(i, d)) limited = true;
       if (d.kind === 'regulator' && this.stampRegulator(i, d)) limited = true;
+      if (d.kind === 'bridge') {
+        // Four diodes, each stamped as a lone one would be
+        d.cathodes.forEach((cathode, k) => {
+          const j = d.junctions[k];
+          const raw = this.voltage(j) - this.voltage(cathode);
+          const v = limitDiode(raw, this.vIterBridge[4 * i + k], d.params, this.vCrit[i]);
+          if (v !== raw) limited = true;
+          this.vIterBridge[4 * i + k] = v;
+          const point = diodeOperatingPoint(v, d.params);
+          const g = point.g + GMIN;
+          const ieq = point.i + GMIN * v - g * v;
+          this.addLu(j, j, g);
+          this.addLu(j, cathode, -g);
+          this.addLu(cathode, j, -g);
+          this.addLu(cathode, cathode, g);
+          this.addRhs(j, -ieq);
+          this.addRhs(cathode, ieq);
+        });
+      }
       if (d.kind === 'display7') {
         // Each segment as a conductance and a current source, linearized where it is now
         for (const segment of d.segments) {
@@ -737,6 +788,11 @@ export class RealtimeEngine {
         this.vPrev2[i] = h > 0 ? this.voltage(d.cp) - this.voltage(d.d) : 0;
         this.iPrev[i] = this.x[d.branch];
         this.iPrev2[i] = this.x[d.branch2];
+      } else if (d.kind === 'ctransformer') {
+        for (let w = 0; w < 3; w++) {
+          this.vPrevW[3 * i + w] = h > 0 ? this.voltage(d.inner[w]) - this.voltage(d.ends[w]) : 0;
+          this.iPrevW[3 * i + w] = this.x[d.branches[w]];
+        }
       } else if (d.kind === 'regulator' && h > 0) {
         const { input, output } = this.regulatorVoltages(d);
         const heat = regulatorPower(d.params, input, output, this.regulatorCurrent(i, d).i);
@@ -796,6 +852,7 @@ export class RealtimeEngine {
     this.vIter.fill(0);
     this.vIterBc.fill(0);
     this.vIterBody.fill(0);
+    this.vIterBridge.fill(0);
     this.opAmpState.fill(LINEAR);
     this.regulatorIsOff.fill(0);
     this.regulatorState.fill(REGULATOR_ACTIVE);
@@ -806,6 +863,7 @@ export class RealtimeEngine {
       this.vIter.fill(0);
       this.vIterBc.fill(0);
       this.vIterBody.fill(0);
+    this.vIterBridge.fill(0);
       this.opAmpState.fill(LINEAR);
       this.regulatorState.fill(REGULATOR_ACTIVE);
       for (let scale = 0.1; scale < 1.05; scale += 0.1) {
@@ -839,6 +897,9 @@ export class RealtimeEngine {
     this.vIter.set(previous.vIter);
     this.vIterBc.set(previous.vIterBc);
     this.vIterBody.set(previous.vIterBody);
+    this.vIterBridge.set(previous.vIterBridge);
+    this.vPrevW.set(previous.vPrevW);
+    this.iPrevW.set(previous.iPrevW);
     this.opAmpState.set(previous.opAmpState);
     this.regulatorTj.set(previous.regulatorTj);
     this.regulatorIsOff.set(previous.regulatorIsOff);
@@ -853,7 +914,8 @@ export class RealtimeEngine {
     // Newton has nothing to hold on to: from zero, the limiter walks there safely
     this.compiled.devices.forEach((d, i) => {
       const before = previous.compiled.devices[i];
-      if ((d.kind === 'diode' || d.kind === 'bjt' || d.kind === 'mos') && before.kind === d.kind && JSON.stringify(before.params) !== JSON.stringify(d.params)) {
+      if ((d.kind === 'diode' || d.kind === 'bjt' || d.kind === 'mos' || d.kind === 'bridge') && before.kind === d.kind && JSON.stringify(before.params) !== JSON.stringify(d.params)) {
+        this.vIterBridge.fill(0, 4 * i, 4 * i + 4);
         this.vIter[i] = 0;
         this.vIterBc[i] = 0;
         this.vIterBody[i] = 0;
@@ -867,6 +929,7 @@ export class RealtimeEngine {
     const startIter = this.vIter.slice();
     const startIterBc = this.vIterBc.slice();
     const startIterBody = this.vIterBody.slice();
+    const startIterBridge = this.vIterBridge.slice();
     const startOpAmpState = this.opAmpState.slice();
     const startRegulatorState = this.regulatorState.slice();
     if (this.solve(this.time + h, h, 1)) {
@@ -880,6 +943,7 @@ export class RealtimeEngine {
     this.vIter.set(startIter);
     this.vIterBc.set(startIterBc);
     this.vIterBody.set(startIterBody);
+    this.vIterBridge.set(startIterBridge);
     this.opAmpState.set(startOpAmpState);
     this.regulatorState.set(startRegulatorState);
     this.step(h / 2, depth + 1);
@@ -915,7 +979,10 @@ export class RealtimeEngine {
       case 'logic':
       case 'switch':
       case 'display7':
+      case 'bridge':
         return this.terminalCurrents(index)[0];
+      case 'ctransformer':
+        return this.x[d.branches[0]];
     }
   }
 
@@ -946,6 +1013,19 @@ export class RealtimeEngine {
       return [polarity * (i + iq), -polarity * i, -polarity * iq];
     }
     if (d.kind === 'opamp') return [this.x[d.branch], 0, 0];
+    if (d.kind === 'ctransformer') {
+      const [p, upper, lower] = d.branches.map((b) => this.x[b]);
+      // Into p1, p2, s1, the centre tap and s2
+      return [p, -p, upper, lower - upper, -lower];
+    }
+    if (d.kind === 'bridge') {
+      const [i1, i2, i3, i4] = d.cathodes.map((cathode, k) => {
+        const v = this.voltage(d.junctions[k]) - this.voltage(cathode);
+        return diodeOperatingPoint(v, d.params).i + GMIN * v;
+      });
+      // Into ac1, ac2, the positive and the negative output
+      return [i1 - i3, i2 - i4, -(i1 + i2), i3 + i4];
+    }
     if (d.kind === 'display7') {
       // Into each segment pin, out of the common
       const segments = d.segments.map((segment) => {

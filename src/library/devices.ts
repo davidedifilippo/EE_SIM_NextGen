@@ -543,6 +543,99 @@ function truthTableDevice(inputs: number, outputs: number): ComponentDef {
 const BCD_SEGMENTS = ['1111110', '0110000', '1101101', '1111001', '0110011', '1011011', '1011111', '1110000', '1111111', '1111011'];
 const BCD_TABLE = Array.from({ length: 16 }, (_, row) => BCD_SEGMENTS[row] ?? '0000000').join(' ');
 
+/** A small diode on the edge of the bridge, from its anode corner to its cathode corner. */
+function edgeDiode(ax: number, ay: number, kx: number, ky: number): Prim[] {
+  const [mx, my] = [(ax + kx) / 2, (ay + ky) / 2];
+  const length = Math.hypot(kx - ax, ky - ay);
+  const [ux, uy] = [(kx - ax) / length, (ky - ay) / length];
+  const [px, py] = [-uy, ux];
+  const size = 5;
+  const at = (along: number, across: number) => `${(mx + ux * along + px * across).toFixed(2)} ${(my + uy * along + py * across).toFixed(2)}`;
+  return [
+    { t: 'path', d: `M ${at(-size, -size)} L ${at(size, 0)} L ${at(-size, size)} Z`, fill: 'var(--sch-ink)' },
+    { t: 'path', d: `M ${at(size, -size)} L ${at(size, size)}`, w: 1.8 },
+  ];
+}
+
+const BRIDGE: ComponentDef = {
+  id: 'bridge',
+  category: 'Semiconduttori',
+  name: 'Ponte di Graetz',
+  tagPrefix: 'D',
+  searchTerms: 'ponte graetz raddrizzatore diodi bridge rectifier',
+  terminals: [
+    { id: 'ac1', x: 0, y: -40 },
+    { id: 'ac2', x: 0, y: 40 },
+    { id: 'plus', x: 40, y: 0 },
+    { id: 'minus', x: -40, y: 0 },
+  ],
+  symbol: [
+    { t: 'line', x1: 0, y1: -40, x2: 0, y2: -22 },
+    { t: 'line', x1: 0, y1: 40, x2: 0, y2: 22 },
+    { t: 'line', x1: 22, y1: 0, x2: 40, y2: 0 },
+    { t: 'line', x1: -40, y1: 0, x2: -22, y2: 0 },
+    { t: 'path', d: 'M 0 -22 L 22 0 L 0 22 L -22 0 Z' },
+    // All four point towards the positive output, on the right
+    ...edgeDiode(-22, 0, 0, -22),
+    ...edgeDiode(0, -22, 22, 0),
+    ...edgeDiode(-22, 0, 0, 22),
+    ...edgeDiode(0, 22, 22, 0),
+    { t: 'path', d: 'M 28 -10 H 36 M 32 -14 V -6', w: 1.2 },
+    { t: 'path', d: 'M -36 -10 H -28', w: 1.2 },
+    { t: 'path', d: 'M 5 -32 Q 7.5 -35 10 -32 T 15 -32', w: 1.2 },
+    { t: 'path', d: 'M 5 32 Q 7.5 29 10 32 T 15 32', w: 1.2 },
+  ],
+  props: [{ key: 'model', label: 'Modello dei diodi', type: 'model', default: 'DIODO_1A', modelType: 'D' }],
+  spice: { kind: 'bridge', ac1: 'ac1', ac2: 'ac2', plus: 'plus', minus: 'minus', modelProp: 'model' },
+};
+
+/** Half loops of a winding along x, from y1 to y2, bulging away from the core. */
+const coil = (x: number, y1: number, y2: number, side: 1 | -1): Prim => {
+  const turns = Math.round(Math.abs(y2 - y1) / 10);
+  const step = (y2 - y1) / turns;
+  const arcs = Array.from({ length: turns }, () => `a 5 5 0 0 ${side === 1 ? 1 : 0} 0 ${step}`).join(' ');
+  return { t: 'path', d: `M ${x} ${y1} ${arcs}` };
+};
+
+const CT_TRANSFORMER: ComponentDef = {
+  id: 'cttransformer',
+  category: 'Passivi',
+  name: 'Trasformatore a presa centrale',
+  tagPrefix: 'T',
+  searchTerms: 'trasformatore presa centrale centrale 12+12 alimentatore duale rete',
+  terminals: [
+    { id: 'p1', x: -40, y: -40 },
+    { id: 'p2', x: -40, y: 40 },
+    { id: 's1', x: 40, y: -40 },
+    { id: 'ct', x: 40, y: 0 },
+    { id: 's2', x: 40, y: 40 },
+  ],
+  symbol: [
+    { t: 'line', x1: -40, y1: -40, x2: -14, y2: -40 },
+    { t: 'line', x1: -14, y1: -40, x2: -14, y2: -30 },
+    { t: 'line', x1: -40, y1: 40, x2: -14, y2: 40 },
+    { t: 'line', x1: -14, y1: 30, x2: -14, y2: 40 },
+    coil(-14, -30, 30, -1),
+    { t: 'line', x1: 14, y1: -40, x2: 40, y2: -40 },
+    { t: 'line', x1: 14, y1: -40, x2: 14, y2: -30 },
+    { t: 'line', x1: 14, y1: 40, x2: 40, y2: 40 },
+    { t: 'line', x1: 14, y1: 30, x2: 14, y2: 40 },
+    coil(14, -30, 0, 1),
+    coil(14, 0, 30, 1),
+    { t: 'line', x1: 14, y1: 0, x2: 40, y2: 0 },
+    { t: 'line', x1: -3, y1: -32, x2: -3, y2: 32 },
+    { t: 'line', x1: 3, y1: -32, x2: 3, y2: 32 },
+    { t: 'circle', cx: -20, cy: -34, r: 2, fill: 'var(--sch-ink)' },
+    { t: 'circle', cx: 20, cy: -34, r: 2, fill: 'var(--sch-ink)' },
+  ],
+  props: [
+    { key: 'primary', label: 'Tensione del primario (V efficaci)', type: 'text', default: '230' },
+    { key: 'secondary', label: 'Tensione di ogni metà del secondario (V efficaci, a carico nominale)', type: 'text', default: '12' },
+    { key: 'power', label: 'Potenza nominale (VA)', type: 'text', default: '15' },
+  ],
+  spice: { kind: 'ctransformer', p1: 'p1', p2: 'p2', s1: 's1', ct: 'ct', s2: 's2', primaryProp: 'primary', secondaryProp: 'secondary', powerProp: 'power' },
+};
+
 const SEGMENT_IDS = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
 const DISPLAY_PINS = [...column(SEGMENT_IDS, -40), { id: 'k', x: 40, y: 0 }];
 
@@ -682,7 +775,7 @@ const REGULATORS = [
   regulatorDevice('LM337', 1.25, -1, true),
 ];
 
-DEVICES.push(...REGULATORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES);
+DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES);
 for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));

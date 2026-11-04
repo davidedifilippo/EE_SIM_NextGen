@@ -107,6 +107,10 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
       return [s.common, ...s.ways];
     case 'display7':
       return [...s.segments, s.common];
+    case 'bridge':
+      return [s.ac1, s.ac2, s.plus, s.minus];
+    case 'ctransformer':
+      return [s.p1, s.p2, s.s1, s.ct, s.s2];
   }
 };
 
@@ -132,8 +136,10 @@ export function buildLiveLayout(circuit: Circuit, compiled: CompiledCircuit): Li
     const firstDot = dots.length;
     // Through a two-terminal device in one run; a transformer has one per winding; in a transistor or a
     // gate, each lead meets at the center, where a gate takes its supply
-    const isPerLead = def.spice.kind === 'logic' || def.spice.kind === 'display7';
+    const isPerLead = def.spice.kind === 'logic' || def.spice.kind === 'display7' || def.spice.kind === 'bridge';
     if (isPerLead) points.forEach((p) => dots.push({ a: p, b: { x: el.x, y: el.y } }));
+    // One run per winding: the primary, and each half of the secondary to the centre tap
+    else if (def.spice.kind === 'ctransformer') dots.push({ a: points[0], b: points[1] }, { a: points[2], b: points[3] }, { a: points[3], b: points[4] });
     else if (points.length === 2) dots.push({ a: points[0], b: points[1] });
     else if (points.length === 4) dots.push({ a: points[0], b: points[1] }, { a: points[2], b: points[3] });
     else points.forEach((p) => dots.push({ a: p, b: { x: el.x, y: el.y } }));
@@ -212,6 +218,7 @@ export class LiveSimulation {
         case 'vbe':
           if (device.kind === 'regulator') return () => engine.nodeVoltage(device.b) - engine.nodeVoltage(device.base);
           if (device.kind === 'transformer') return () => engine.nodeVoltage(device.c) - engine.nodeVoltage(device.d);
+          if (device.kind === 'ctransformer') return () => engine.nodeVoltage(device.starts[1]) - engine.nodeVoltage(device.ends[2]);
           return device.kind === 'bjt' || device.kind === 'mos' ? () => engine.nodeVoltage(device.base) - engine.nodeVoltage(device.b) : () => NaN;
         case 'ib':
           if (device.kind === 'regulator') return () => -engine.terminalCurrents(index)[1];
@@ -335,10 +342,12 @@ export class LiveSimulation {
       deviceCurrent[i] = currents[0];
       deviceVoltage[i] = engine.nodeVoltage(d.a) - engine.nodeVoltage(d.b);
       if (d.kind === 'transformer') deviceVbe[i] = engine.nodeVoltage(d.c) - engine.nodeVoltage(d.d);
+      if (d.kind === 'ctransformer') deviceVbe[i] = engine.nodeVoltage(d.starts[1]) - engine.nodeVoltage(d.ends[2]);
       if (d.kind === 'bjt' || d.kind === 'mos') deviceVbe[i] = engine.nodeVoltage(d.base) - engine.nodeVoltage(d.b);
       if (d.kind === 'regulator') deviceVbe[i] = engine.nodeVoltage(d.b) - engine.nodeVoltage(d.base);
       const { firstDot } = layout.devices[i];
-      if (d.kind === 'logic' || d.kind === 'display7') currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
+      if (d.kind === 'logic' || d.kind === 'display7' || d.kind === 'bridge') currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
+      else if (d.kind === 'ctransformer') [dotCurrent[firstDot], dotCurrent[firstDot + 1], dotCurrent[firstDot + 2]] = [currents[0], currents[2], -currents[4]];
       else if (currents.length === 2) dotCurrent[firstDot] = currents[0];
       else if (currents.length === 4) [dotCurrent[firstDot], dotCurrent[firstDot + 1]] = [currents[0], currents[2]];
       else currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));

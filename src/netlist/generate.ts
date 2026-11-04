@@ -9,6 +9,7 @@ import { METER_TEST_CURRENT, meterResistance } from '../realtime/meter';
 import { gateExpression, levelExpression, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicParams, tableExpression } from '../realtime/logic';
 import { contactResistances } from '../realtime/switches';
 import { SEGMENT_LEAK, segmentColor, segmentExpression } from '../realtime/display7';
+import { ctTransformerParams } from '../realtime/ctTransformer';
 import { REGULATOR_GAIN, REGULATOR_LEAK, REGULATOR_STIFFNESS, regulatorParams } from '../realtime/regulator';
 
 export interface TranAnalysis {
@@ -240,6 +241,34 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         }
         const name = uniqueName('X', el.tag);
         if (name) lines.push(`${name} ${s.pins.map(node).join(' ')} ${model}`);
+        break;
+      }
+      case 'ctransformer': {
+        const params = ctTransformerParams(el.props[s.primaryProp], el.props[s.secondaryProp], el.props[s.powerProp]);
+        if (!params) {
+          errors.push(`${el.tag}: tensioni o potenza non valide`);
+          break;
+        }
+        const name = uniqueName('T', el.tag);
+        if (!name) break;
+        const starts = [node(s.p1), node(s.s1), node(s.ct)];
+        const ends = [node(s.p2), node(s.ct), node(s.s2)];
+        const windings = ['P', 'A', 'B'].map((w) => `L${w}${name}`);
+        starts.forEach((start, w) => {
+          lines.push(`RW${w}${name} ${start} xw${w}${name} ${params.resistances[w]}`, `${windings[w]} xw${w}${name} ${ends[w]} ${params.inductances[w]}`);
+          lines.push(`RG${w}${name} ${start} 0 ${TRANSFORMER_LEAK}`);
+        });
+        lines.push(`RC1${name} ${starts[1]} ${ends[1]} ${params.coreResistance}`, `RC2${name} ${starts[2]} ${ends[2]} ${params.coreResistance}`);
+        lines.push(`K1${name} ${windings[0]} ${windings[1]} ${params.coupling}`, `K2${name} ${windings[0]} ${windings[2]} ${params.coupling}`, `K3${name} ${windings[1]} ${windings[2]} ${params.coupling}`);
+        break;
+      }
+      case 'bridge': {
+        const model = useModel(el.tag, String(el.props[s.modelProp] ?? '').trim(), 'D');
+        if (model === null) break;
+        const name = uniqueName('D', el.tag);
+        if (!name) break;
+        const [ac1, ac2, plus, minus] = [node(s.ac1), node(s.ac2), node(s.plus), node(s.minus)];
+        lines.push(`${name}_1 ${ac1} ${plus} ${model}`, `${name}_2 ${ac2} ${plus} ${model}`, `${name}_3 ${minus} ${ac1} ${model}`, `${name}_4 ${minus} ${ac2} ${model}`);
         break;
       }
       case 'display7': {

@@ -24,6 +24,9 @@ const MP1: SpiceModel = { name: 'MP1', card: '.model MP1 PMOS(VTO=-2 KP=0.1 LAMB
  * LEDs by colour, sized for their usual forward voltage at 10 mA: about 1.9 V for red, 2 V yellow,
  * 2.1 V green, 3 V blue and 3.1 V white. Generic, not the parts of a maker.
  */
+/** A generic rectifier diode of 1 A and 1000 V, for bridges and power supplies: round values, not the part of a maker. */
+export const DIODE_1A: SpiceModel = { name: 'DIODO_1A', card: '.model DIODO_1A D(IS=7n RS=0.04 N=1.8 BV=1000 IBV=5n)' };
+
 export const LED_MODELS: SpiceModel[] = [
   { name: 'LED_ROSSO', card: '.model LED_ROSSO D(IS=2.94e-18 N=2 RS=5)' },
   { name: 'LED_GIALLO', card: '.model LED_GIALLO D(IS=4.26e-19 N=2 RS=5)' },
@@ -32,7 +35,7 @@ export const LED_MODELS: SpiceModel[] = [
   { name: 'LED_BIANCO', card: '.model LED_BIANCO D(IS=2.48e-28 N=2 RS=5)' },
 ];
 
-const LIBRARY: SpiceModel[] = [D1N4148, DZ5V1, Q2N3904, Q2N3906, MN1, MP1, ...LED_MODELS];
+const LIBRARY: SpiceModel[] = [D1N4148, DZ5V1, Q2N3904, Q2N3906, MN1, MP1, DIODE_1A, ...LED_MODELS];
 
 /** A model of the circuit, or of the library. The circuit's own take precedence. */
 export function findModel(circuit: Circuit, name: string): SpiceModel | undefined {

@@ -50,6 +50,10 @@ export type SpiceDef =
   | { kind: 'regulator'; input: string; output: string; ref: string; vNominal: number; polarity: 1 | -1; iq: number }
   | { kind: 'block'; pins: string[]; modelProp: string }
   | { kind: 'meter'; a: string; b: string; modeProp: string }
+  /** A mains transformer with a centre tap on the secondary, sized from its plate. */
+  | { kind: 'ctransformer'; p1: string; p2: string; s1: string; ct: string; s2: string; primaryProp: string; secondaryProp: string; powerProp: string }
+  /** Four diodes in a bridge: two alternating inputs, the positive and the negative output. */
+  | { kind: 'bridge'; ac1: string; ac2: string; plus: string; minus: string; modelProp: string }
   /** Seven LED segments to a common cathode, in one part. */
   | { kind: 'display7'; segments: string[]; common: string; colorProp: string }
   /** A contact worked by hand: the common, and one way or two. */

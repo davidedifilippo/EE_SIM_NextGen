@@ -224,7 +224,11 @@ const ElementItem: React.FC<{
   const firstProp = def.props[0];
   // A choice shows its name, as the LED its colour; a logic part shows its level on itself already
   const firstValue = !firstProp ? '' : firstProp.type === 'choice' ? (firstProp.options?.find((o) => o.value === String(elem.props[firstProp.key]))?.label ?? '') : String(elem.props[firstProp.key] ?? '');
-  const value = def.spice.kind === 'vsource' ? sourceLabel(elem.props) : def.spice.kind === 'isource' ? currentLabel(elem.props.value) : def.spice.kind === 'opamp' || def.spice.kind === 'meter' || def.spice.kind === 'logic' || isRegulator ? '' : def.spice.kind === 'transformer' ? `${elem.props.ratio}:1` : firstValue;
+  const value = def.spice.kind === 'vsource' ? sourceLabel(elem.props) : def.spice.kind === 'isource' ? currentLabel(elem.props.value) : def.spice.kind === 'opamp' || def.spice.kind === 'meter' || def.spice.kind === 'logic' || isRegulator ? '' : def.spice.kind === 'transformer' ? `${elem.props.ratio}:1` : def.spice.kind === 'ctransformer' ? `${elem.props.primary}/${elem.props.secondary}+${elem.props.secondary} V · ${elem.props.power} VA` : firstValue;
+  // Parts whose drawing fills the space the labels usually take: name and value go below them, or,
+  // beside a bridge on its side, below its lead
+  const labelsBelow: [number, number] | null =
+    (def.spice.kind === 'ctransformer' || def.spice.kind === 'bridge') && !isBesideLabel ? [56, 69] : def.spice.kind === 'bridge' ? [18, 31] : null;
   const labelProps = isRegulator && elem.rot === 180
     ? { x: 8, textAnchor: 'start' as const } // Clear of the lead that now goes up
     : def.spice.kind === 'opamp' && !isBesideLabel
@@ -377,10 +381,10 @@ const ElementItem: React.FC<{
       {/* Labels are counter-rotated so they stay upright and keep their world position */}
       {def.tagPrefix && (
         <g transform={`${elem.flip ? 'scale(1, -1) ' : ''}rotate(${-elem.rot})`} pointerEvents="none" fontSize={11}>
-          <text y={isBesideLabel ? -4 : def.id === 'multimeter' ? -85 : def.spice.kind === 'meter' ? -33 : isNamedBox ? -blockReach - 4 : isRegulator ? -25 : -24} fontWeight={700} fill="var(--sch-ink)" {...labelProps}>
+          <text y={labelsBelow ? labelsBelow[0] : isBesideLabel ? -4 : def.id === 'multimeter' ? -85 : def.spice.kind === 'meter' ? -33 : isNamedBox ? -blockReach - 4 : isRegulator ? -25 : -24} fontWeight={700} fill="var(--sch-ink)" {...labelProps}>
             {elem.tag}
           </text>
-          <text y={isBesideLabel ? 10 : isNamedBox ? blockReach + 13 : 34} fill="var(--sch-muted)" {...labelProps}>
+          <text y={labelsBelow ? labelsBelow[1] : isBesideLabel ? 10 : isNamedBox ? blockReach + 13 : 34} fill="var(--sch-muted)" {...labelProps}>
             {value}
           </text>
         </g>

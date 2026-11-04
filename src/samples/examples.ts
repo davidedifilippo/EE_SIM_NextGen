@@ -203,6 +203,40 @@ const sevenSegment = (): Circuit => {
   };
 };
 
+const dualSupply = (): Circuit => ({
+  title: 'Alimentatore duale con presa centrale',
+  elements: [
+    part('v1', 'vsource', -280, 0, 90, 'V1', sine('325', '50')),
+    part('t1', 'cttransformer', -100, 0, 0, 'T1'),
+    // Turned so that the alternating inputs face left and right, the positive up, the negative down
+    part('d1', 'bridge', 40, 0, 270, 'D1'),
+    part('c1', 'capacitor', 160, -20, 90, 'C1', { value: '2200u' }),
+    part('rl1', 'resistor', 240, -20, 90, 'RL1', { value: '100' }),
+    part('c2', 'capacitor', 160, 100, 90, 'C2', { value: '2200u' }),
+    part('rl2', 'resistor', 240, 100, 90, 'RL2', { value: '100' }),
+    ground(-280, 80),
+    ground(-40, 0, 'gnd2'),
+    // Beside the point between the two capacitors and between the two loads, as drawn by hand
+    ground(200, 40, 'gnd3'),
+    ground(280, 40, 'gnd4'),
+  ],
+  wires: [
+    wire('w1', [-280, -40], [-140, -40]),
+    wire('w2', [-280, 40], [-140, 40]),
+    wire('w3', [-280, 40], [-280, 80]),
+    wire('w4', [-60, -40], [-20, -40], [-20, 0], [0, 0]),
+    wire('w5', [-60, 0], [-40, 0]),
+    wire('w6', [-60, 40], [-40, 40], [-40, 100], [100, 100], [100, 0], [80, 0]),
+    wire('w7', [40, -40], [40, -60], [240, -60]),
+    wire('w8', [160, 20], [160, 60]),
+    wire('w9', [240, 20], [240, 60]),
+    wire('w11', [160, 40], [200, 40]),
+    wire('w12', [240, 40], [280, 40]),
+    wire('w10', [40, 40], [40, 140], [240, 140]),
+  ],
+  models: [],
+});
+
 const regulator = (): Circuit => ({
   title: 'Regolatore 7805',
   elements: [
@@ -228,5 +262,6 @@ export const EXAMPLES: Example[] = [
   { id: 'gates', title: 'Porte logiche e LED', hint: 'Tocca 0 e 1 sugli ingressi: il LED rosso si accende con AND, il verde con XOR', build: gates },
   { id: 'switches', title: 'Pulsante, interruttore e porta logica', hint: 'Chiudi l’interruttore e tieni premuto il pulsante: il LED si accende solo con entrambi', build: switches },
   { id: 'sevenseg', title: 'Driver BCD e display a 7 segmenti', hint: 'Tocca gli ingressi D C B A: il display mostra la cifra del numero binario, da 0 a 9', build: sevenSegment },
+  { id: 'dual', title: 'Alimentatore duale con presa centrale', hint: 'Trasformatore 230 V → 12+12 V, ponte di Graetz e due condensatori: circa +17 V e −17 V rispetto alla presa centrale', build: dualSupply },
   { id: 'regulator', title: 'Regolatore 7805', hint: '5 V sul carico da 100 Ω: guarda la potenza e la temperatura del regolatore', build: regulator },
 ];
