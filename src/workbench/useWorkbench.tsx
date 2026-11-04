@@ -11,7 +11,7 @@ import { circuitFromFragment, isCircuitFragment } from '../storage/shareLink';
 import { clearOfCircuit, Clip, copySelection, moveInView, moveToCenter, PASTE_STEP, pasteClipboard } from '../editor/clipboard';
 import { Box } from '../utils/geometry';
 import { libraryAtStart, mergeModels, saveLibrary } from '../storage/modelLibrary';
-import { INVALID_FILE, loadAutosave, MAX_FILE_BYTES, parseCircuitFile, saveAutosave } from '../storage/circuitFile';
+import { downloadCircuit, INVALID_FILE, loadAutosave, MAX_FILE_BYTES, parseCircuitFile, saveAutosave } from '../storage/circuitFile';
 import { Series } from '../ui/TransientChart';
 import { AcResult, DcResult, TranResult } from '../engine/ngspice';
 import { preloadEngine, simulate, simulateAc, simulateDc } from '../engine/ngspiceClient';
@@ -83,6 +83,7 @@ export function useWorkbench() {
   /** What to look at in the example just opened. */
   const [exampleHint, setExampleHint] = useState<string | null>(null);
   const [isSharing, setIsSharing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [theme, setTheme] = useTheme();
 
   // ngspice arrives in the background once the page is up, so the first analysis finds it ready
@@ -441,7 +442,13 @@ export function useWorkbench() {
     setErrors([]);
   };
 
-  return { isSharing, setIsSharing, forSaving, openCircuit, newCircuit, fileInputRef, openExample, openFile, undo, redo, history, redoStack, theme, setTheme, liveRunning, setLiveRunning, speed, speedChoice, setSpeedChoice, signalPeriod, showValues, setShowValues, isDc, analysisKind, setAnalysisKind, stop, setStop, step, setStep, sweptId, setDcSource, generators, dcFrom, setDcFrom, dcTo, setDcTo, dcStep, setDcStep, familyId, setDcFamilySource, dcFamilyFrom, setDcFamilyFrom, dcFamilyTo, setDcFamilyTo, dcFamilyStep, setDcFamilyStep, acFrom, setAcFrom, acTo, setAcTo, runSimulation, running, activeDef, setActiveDef, selectedIds, setSelectedIds, exampleHint, setExampleHint, resolved, documentId, circuit, handleChange, deleteSelected, rotateSelected, mirrorSelected, selectAll, copySelected, cutSelected, duplicateSelected, clipboard, paste, viewRef, overlay, labels, legendRef, live, library, importModels, removeModel, scopeIds, traces, setTraces, toggleProbe, traceLabels, errors, setErrors, run, setRun, isStale, closeResults };
+  /** The title becomes the name of the file; changing it is not an edit to undo. */
+  const saveAs = (title: string) => {
+    handleChange({ ...circuit, title }, false);
+    downloadCircuit({ ...forSaving, title });
+  };
+
+  return { isSharing, setIsSharing, isSaving, setIsSaving, saveAs, forSaving, openCircuit, newCircuit, fileInputRef, openExample, openFile, undo, redo, history, redoStack, theme, setTheme, liveRunning, setLiveRunning, speed, speedChoice, setSpeedChoice, signalPeriod, showValues, setShowValues, isDc, analysisKind, setAnalysisKind, stop, setStop, step, setStep, sweptId, setDcSource, generators, dcFrom, setDcFrom, dcTo, setDcTo, dcStep, setDcStep, familyId, setDcFamilySource, dcFamilyFrom, setDcFamilyFrom, dcFamilyTo, setDcFamilyTo, dcFamilyStep, setDcFamilyStep, acFrom, setAcFrom, acTo, setAcTo, runSimulation, running, activeDef, setActiveDef, selectedIds, setSelectedIds, exampleHint, setExampleHint, resolved, documentId, circuit, handleChange, deleteSelected, rotateSelected, mirrorSelected, selectAll, copySelected, cutSelected, duplicateSelected, clipboard, paste, viewRef, overlay, labels, legendRef, live, library, importModels, removeModel, scopeIds, traces, setTraces, toggleProbe, traceLabels, errors, setErrors, run, setRun, isStale, closeResults };
 }
 
 export type Workbench = ReturnType<typeof useWorkbench>;

@@ -4,6 +4,7 @@ import { Logo } from '../ui/Logo';
 import { ResultsView } from '../ui/ResultsView';
 import { ScopePanel } from '../ui/ScopePanel';
 import { SharePanel } from '../ui/SharePanel';
+import { SavePanel } from '../ui/SavePanel';
 import { CanvasArea, CircuitFileInput, EditButtons, Library, Properties } from '../workbench/parts';
 import { Workbench } from '../workbench/useWorkbench';
 import { LONG_PRESS_MS } from '../editor/SchematicCanvas';
@@ -80,6 +81,7 @@ export const MobileApp: React.FC<{ wb: Workbench; onFullLayout: () => void }> = 
   return (
     <div className="mobile-app">
       {wb.isSharing && <SharePanel circuit={wb.forSaving} onClose={() => wb.setIsSharing(false)} />}
+      {wb.isSaving && <SavePanel circuit={wb.circuit} onSave={wb.saveAs} onClose={() => wb.setIsSaving(false)} />}
       {isMenuOpen && <MobileMenu wb={wb} onFullLayout={onFullLayout} onClose={() => setIsMenuOpen(false)} />}
       <CircuitFileInput wb={wb} />
       <header className="mobile-bar">

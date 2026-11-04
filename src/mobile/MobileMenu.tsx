@@ -1,5 +1,4 @@
 import React from 'react';
-import { downloadCircuit } from '../storage/circuitFile';
 import { ExamplesSelect, SpeedSelect, ThemeSelect, ValuesToggle } from '../workbench/parts';
 import { Workbench } from '../workbench/useWorkbench';
 
@@ -21,7 +20,7 @@ export const MobileMenu: React.FC<Props> = ({ wb, onFullLayout, onClose }) => {
         <button onClick={act(wb.newCircuit)}>Nuovo</button>
         <button onClick={act(() => wb.fileInputRef.current?.click())}>Apri…</button>
         <ExamplesSelect wb={wb} onOpened={onClose} />
-        <button onClick={act(() => downloadCircuit(wb.forSaving))}>Salva</button>
+        <button onClick={act(() => wb.setIsSaving(true))}>Salva…</button>
         <button onClick={act(() => wb.setIsSharing(true))}>Condividi</button>
         <hr />
         <SpeedSelect wb={wb} />

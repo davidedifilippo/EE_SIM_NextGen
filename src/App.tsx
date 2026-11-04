@@ -1,6 +1,6 @@
 import React from 'react';
-import { downloadCircuit } from './storage/circuitFile';
 import { SharePanel } from './ui/SharePanel';
+import { SavePanel } from './ui/SavePanel';
 import { Logo } from './ui/Logo';
 import { ScopePanel } from './ui/ScopePanel';
 import { AnalysisControls } from './ui/AnalysisControls';
@@ -12,6 +12,7 @@ import { Workbench } from './workbench/useWorkbench';
 export const App: React.FC<{ wb: Workbench; onPhoneLayout: () => void }> = ({ wb, onPhoneLayout }) => (
   <div className="app">
     {wb.isSharing && <SharePanel circuit={wb.forSaving} onClose={() => wb.setIsSharing(false)} />}
+    {wb.isSaving && <SavePanel circuit={wb.circuit} onSave={wb.saveAs} onClose={() => wb.setIsSaving(false)} />}
     <header className="toolbar">
       <h1>
         <Logo />
@@ -20,7 +21,7 @@ export const App: React.FC<{ wb: Workbench; onPhoneLayout: () => void }> = ({ wb
         <button onClick={wb.newCircuit}>Nuovo</button>
         <button onClick={() => wb.fileInputRef.current?.click()}>Apri</button>
         <ExamplesSelect wb={wb} />
-        <button className="primary" onClick={() => downloadCircuit(wb.forSaving)}>
+        <button className="primary" onClick={() => wb.setIsSaving(true)}>
           Salva
         </button>
         <button onClick={() => wb.setIsSharing(true)}>Condividi</button>

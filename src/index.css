@@ -600,6 +600,17 @@ button.close-results {
   font-size: 12px;
 }
 
+.share-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.share-panel label input {
+  font-family: inherit;
+  font-size: 15px;
+}
+
 .share-warning {
   color: var(--warning-text);
 }
