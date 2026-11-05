@@ -324,6 +324,37 @@ const gearMotor = (): Circuit => ({
   models: [],
 });
 
+/** A 5 V relay, switched by hand, that turns on a 12 V gear motor: two circuits joined only by the ground. */
+const relayMotor = (): Circuit => ({
+  title: 'Relè che comanda un motore',
+  elements: [
+    part('v1', 'dcsupply', 0, 40, 90, 'V1', { amplitude: '5' }),
+    part('s1', 'switch', 80, 0, 0, 'S1'),
+    // Across the coil: at turn-off it carries the current of the coil, which would otherwise spark
+    part('d1', 'diode', 200, 40, 270, 'D1', { model: 'DIODO_1A' }),
+    part('k1', 'relay5', 320, 40, 0, 'K1'),
+    part('m1', 'motor_ig22', 440, -80, 180, 'M1', { load: '0' }),
+    part('d2', 'diode', 440, -160, 0, 'D2', { model: 'DIODO_1A' }),
+    part('v2', 'dcsupply', 560, 20, 90, 'V2', { amplitude: '12' }),
+    ground(120, 80),
+  ],
+  wires: [
+    wire('w1', [0, 0], [40, 0]),
+    wire('w2', [120, 0], [200, 0]),
+    wire('w3', [200, 0], [300, 0]),
+    wire('w4', [0, 80], [120, 80]),
+    wire('w5', [120, 80], [200, 80]),
+    wire('w6', [200, 80], [300, 80]),
+    wire('w7', [300, 80], [340, 80]),
+    wire('w8', [340, 0], [340, -80], [400, -80]),
+    wire('w9', [480, -80], [560, -80], [560, -20]),
+    wire('w10', [560, 60], [560, 80], [340, 80]),
+    wire('w11', [400, -80], [400, -160]),
+    wire('w12', [480, -80], [480, -160]),
+  ],
+  models: [],
+});
+
 /** What Nuovo opens: an empty sheet, but with the ground that every circuit needs. */
 export const emptyCircuit = (): Circuit => ({ title: 'Circuito', elements: [ground(0, 0)], wires: [], models: [] });
 
@@ -340,6 +371,7 @@ export const EXAMPLES: Example[] = [
   { id: 'counter', title: 'Contatore decimale e display', hint: 'Un clock da 1 Hz fa avanzare il contatore: il display conta da 0 a 9 e ricomincia. Tocca IN1 per portare RST a 1 e azzerarlo', build: counterDisplay },
   { id: 'dual', title: 'Alimentatore duale con presa centrale', hint: 'Trasformatore 230 V → 12+12 V, ponte di Graetz e due condensatori: circa +17 V e −17 V rispetto alla presa centrale', build: dualSupply },
   { id: 'motor', title: 'Motoriduttore IG22', hint: 'Chiudi S1: all’avvio la corrente fa uno spunto, poi scende a circa 0,2 A e il motore gira a 789 giri/min. Alza il carico di M1: la velocità scende e la corrente sale', build: gearMotor },
+  { id: 'relay', title: 'Relè che comanda un motore', hint: 'Chiudi S1: la bobina di K1 si eccita, il contatto 13–14 si chiude e il motore da 12 V parte. Riapri S1: D1 porta la corrente della bobina e il contatto si riapre', build: relayMotor },
   { id: 'sensors', title: 'Sensori di temperatura LM35 e TMP36', hint: 'Sposta la temperatura nelle proprietà di U1 e U2: 10 mV per grado. LM35: 0 V a 0 °C; TMP36: 0,5 V a 0 °C', build: sensors },
   { id: 'regulator', title: 'Regolatore 7805', hint: '5 V sul carico da 100 Ω: guarda la potenza e la temperatura del regolatore', build: regulator },
 ];

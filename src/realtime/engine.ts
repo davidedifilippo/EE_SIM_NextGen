@@ -4,6 +4,8 @@ import { brakeCurrent, MOTOR_LEAK, MotorState, motorRpm, motorState } from './mo
 import { REGULATOR_GAIN, REGULATOR_LEAK, RegulatorRegion, regulatorPoint, regulatorPower, SensorSupply, sensorGives, sensorSupply, THERMAL_RESTART, THERMAL_SHUTDOWN, THERMAL_STEPS } from './regulator';
 import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams, MosParams } from './compile';
 import { luFactor, luSolve } from './linear';
+import { nextRelayState } from './relay';
+import { CONTACT_CLOSED, CONTACT_OPEN } from './switches';
 import { CURRENT_SOURCE_LEAK, OPAMP_GAIN, TRANSFORMER_WINDING_RESISTANCE } from '../netlist/generate';
 
 /** Same default as SPICE: minimum conductance across a junction. */
@@ -219,6 +221,8 @@ export class RealtimeEngine {
   private readonly logicIn: Int32Array;
   /** Per logic part with a memory: its state, such as the count of a counter. */
   private readonly logicState: Int32Array;
+  /** 1 for a relay whose contact is closed: it moves only between steps, so each step stays linear. */
+  private readonly relayClosed: Uint8Array;
   /** Per centre-tapped transformer: voltage and current of each of its three windings at the last accepted point. */
   private readonly vPrevW: Float64Array;
   private readonly iPrevW: Float64Array;
@@ -261,6 +265,7 @@ export class RealtimeEngine {
     this.logicOut = new Int32Array(devices.length);
     this.logicIn = new Int32Array(devices.length);
     this.logicState = new Int32Array(devices.length);
+    this.relayClosed = new Uint8Array(devices.length);
     this.vIterBridge = new Float64Array(devices.length * 4);
     this.vPrevW = new Float64Array(devices.length * 3);
     this.iPrevW = new Float64Array(devices.length * 3);
@@ -309,7 +314,7 @@ export class RealtimeEngine {
     base.fill(0);
     for (let i = 0; i < n; i++) base[i * n + i] = 0;
 
-    this.compiled.devices.forEach((d) => {
+    this.compiled.devices.forEach((d, i) => {
       switch (d.kind) {
         case 'resistor':
           this.addG(d.a, d.b, d.g);
@@ -365,6 +370,16 @@ export class RealtimeEngine {
         case 'switch':
           d.ways.forEach((way, k) => this.addG(d.a, way, d.g[k]));
           break;
+        case 'pot':
+          this.addG(d.a, d.w, d.g1);
+          this.addG(d.w, d.b, d.g2);
+          break;
+        case 'relay':
+          // The coil as one branch, R and L together as on the motor; the contact as it stands
+          this.addBranchColumns(d.a, d.b, d.branch);
+          base[d.branch * n + d.branch] = -(d.spec.coilResistance + (h > 0 ? (2 * d.spec.coilInductance) / h : 0));
+          this.addG(d.c, d.d, 1 / (this.relayClosed[i] ? CONTACT_CLOSED : CONTACT_OPEN));
+          break;
         case 'display7':
           for (const segment of d.segments) this.addG(segment, d.b, 1 / SEGMENT_LEAK);
           break;
@@ -408,7 +423,7 @@ export class RealtimeEngine {
   private branchStart(): number {
     let first = this.n;
     for (const d of this.compiled.devices) {
-      if ((d.kind === 'inductor' || d.kind === 'vsource' || d.kind === 'opamp' || d.kind === 'transformer') && d.branch < first) first = d.branch;
+      if ((d.kind === 'inductor' || d.kind === 'vsource' || d.kind === 'opamp' || d.kind === 'transformer' || d.kind === 'motor' || d.kind === 'relay') && d.branch < first) first = d.branch;
       if (d.kind === 'ctransformer' && d.branches[0] < first) first = d.branches[0];
     }
     return first;
@@ -428,6 +443,9 @@ export class RealtimeEngine {
           break;
         case 'inductor':
           rhs[d.branch] = h > 0 ? ((-2 * d.l) / h) * this.iPrev[i] - this.vPrev[i] : 0;
+          break;
+        case 'relay':
+          rhs[d.branch] = h > 0 ? ((-2 * d.spec.coilInductance) / h) * this.iPrev[i] - this.vPrev[i] : 0;
           break;
         case 'motor':
           rhs[d.branch] = h > 0 ? ((-2 * d.params.l) / h) * this.iPrev[i] - this.vPrev[i] : 0;
@@ -845,6 +863,11 @@ export class RealtimeEngine {
         const v = this.voltage(d.e) - this.voltage(d.b);
         this.iPrev2[i] = h > 0 ? ((2 * d.params.c) / h) * (v - this.vPrev2[i]) - this.iPrev2[i] : 0;
         this.vPrev2[i] = v;
+      } else if (d.kind === 'relay') {
+        // The inductance of the coil alone, as on the motor
+        const current = this.x[d.branch];
+        this.vPrev[i] = h > 0 ? this.voltage(d.a) - this.voltage(d.b) - d.spec.coilResistance * current : 0;
+        this.iPrev[i] = current;
       } else if (d.kind === 'transformer') {
         this.vPrev[i] = h > 0 ? this.voltage(d.ap) - this.voltage(d.b) : 0;
         this.vPrev2[i] = h > 0 ? this.voltage(d.cp) - this.voltage(d.d) : 0;
@@ -917,6 +940,28 @@ export class RealtimeEngine {
     return hasChanged;
   }
 
+  /**
+   * Moves the contact of each relay with the coil current of the accepted point, for the next step. True
+   * if one moved: the matrix then has to be stamped again.
+   */
+  private updateRelays(): boolean {
+    let hasChanged = false;
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind !== 'relay') return;
+      const isClosed = nextRelayState(d.spec, this.relayClosed[i] === 1, this.x[d.branch]);
+      if (isClosed === (this.relayClosed[i] === 1)) return;
+      this.relayClosed[i] = isClosed ? 1 : 0;
+      hasChanged = true;
+    });
+    if (hasChanged) this.stampedStep = null;
+    return hasChanged;
+  }
+
+  /** Whether the contact of a relay is closed, for the display. */
+  relayIsClosed(index: number): boolean | null {
+    return this.compiled.devices[index]?.kind === 'relay' ? this.relayClosed[index] === 1 : null;
+  }
+
   /** Level of each output, then of each input, of a logic part. */
   logicLevels(index: number): number[] {
     const d = this.compiled.devices[index];
@@ -934,6 +979,8 @@ export class RealtimeEngine {
     this.opAmpState.fill(LINEAR);
     this.regulatorIsOff.fill(0);
     this.regulatorState.fill(REGULATOR_ACTIVE);
+    this.relayClosed.fill(0);
+    this.stampedStep = null;
     this.resetLogic();
     if (!this.solve(this.time, 0, 1)) {
       // Source stepping: bring the sources up gradually, each solution seeding the next
@@ -951,6 +998,10 @@ export class RealtimeEngine {
     // Gates feeding gates settle in as many rounds as the longest chain. A loop that never settles,
     // as a ring of inverters, is left as it is: the animation then shows it running
     for (let round = 0; round < LOGIC_SETTLE_ROUNDS && this.updateLogic(this.time); round++) {
+      if (!this.solve(this.time, 0, 1)) throw new SolverError('Punto di lavoro non trovato');
+    }
+    // A relay with its coil already fed starts pulled in; what its contact feeds may move another
+    for (let round = 0; round < LOGIC_SETTLE_ROUNDS && this.updateRelays(); round++) {
       if (!this.solve(this.time, 0, 1)) throw new SolverError('Punto di lavoro non trovato');
     }
     // A sensor out of its supply range gives nothing from the start, as in the netlist
@@ -990,6 +1041,7 @@ export class RealtimeEngine {
     this.logicOut.set(previous.logicOut);
     this.logicIn.set(previous.logicIn);
     this.logicState.set(previous.logicState);
+    this.relayClosed.set(previous.relayClosed);
     // An input switched by hand gives its new level at once
     this.compiled.devices.forEach((d, i) => {
       if (d.kind === 'logic' && d.gate === 'input') this.logicOut[i] = d.state ? 1 : 0;
@@ -1018,6 +1070,7 @@ export class RealtimeEngine {
     const startRegulatorState = this.regulatorState.slice();
     if (this.solve(this.time + h, h, 1)) {
       this.commit(h);
+      this.updateRelays();
       this.updateLogic(this.time + h);
       this.updateSensors();
       this.time += h;
@@ -1054,6 +1107,7 @@ export class RealtimeEngine {
       case 'opamp':
       case 'transformer':
       case 'motor':
+      case 'relay':
         return this.x[d.branch];
       case 'diode': {
         const v = this.voltage(d.junction) - this.voltage(d.b);
@@ -1064,6 +1118,7 @@ export class RealtimeEngine {
       case 'regulator':
       case 'logic':
       case 'switch':
+      case 'pot':
       case 'display7':
       case 'bridge':
         return this.terminalCurrents(index)[0];
@@ -1145,6 +1200,16 @@ export class RealtimeEngine {
       // Into the common, out of each way
       const toWays = d.ways.map((way, k) => d.g[k] * (this.voltage(d.a) - this.voltage(way)));
       return [toWays.reduce((sum, i) => sum + i, 0), ...toWays.map((i) => -i)];
+    }
+    if (d.kind === 'pot') {
+      // Into a, into b, and into the wiper what the two halves give it
+      const [va, vb, vw] = [this.voltage(d.a), this.voltage(d.b), this.voltage(d.w)];
+      const [ia, ib] = [d.g1 * (va - vw), d.g2 * (vb - vw)];
+      return [ia, ib, -(ia + ib)];
+    }
+    if (d.kind === 'relay') {
+      const contact = (this.voltage(d.c) - this.voltage(d.d)) / (this.relayClosed[index] ? CONTACT_CLOSED : CONTACT_OPEN);
+      return [this.x[d.branch], -this.x[d.branch], contact, -contact];
     }
     if (d.kind === 'logic') {
       const outs = d.outputs.map((node, j) => (this.voltage(node) - ((this.logicOut[index] >> j) & 1 ? d.vdd : 0)) / LOGIC_OUTPUT_RESISTANCE);

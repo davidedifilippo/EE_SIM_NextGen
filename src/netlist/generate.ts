@@ -7,7 +7,9 @@ import { internalResistance, sourceAcSpec, sourceDcSpec, sourceSpec } from './so
 import { parseSpiceValue } from './values';
 import { METER_TEST_CURRENT, meterResistance } from '../realtime/meter';
 import { gateExpression, levelExpression, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicParams, nextStateTable, outputTable, sequentialSpec, tableExpression } from '../realtime/logic';
-import { contactResistances } from '../realtime/switches';
+import { CONTACT_CLOSED, CONTACT_OPEN, contactResistances } from '../realtime/switches';
+import { potResistances } from '../realtime/pot';
+import { relayThresholds } from '../realtime/relay';
 import { SEGMENT_LEAK, segmentColor, segmentExpression } from '../realtime/display7';
 import { ctTransformerParams } from '../realtime/ctTransformer';
 import { MOTOR_LEAK, motorParamsOf } from '../realtime/motor';
@@ -144,6 +146,8 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
 
   const lines: string[] = [];
   let needsLatchModel = false;
+  /** One switch model for each kind of relay in the circuit. */
+  const relayModels = new Map<string, string>();
   const usedNames = new Set<string>();
   const usedModels = new Map<string, SpiceModel>();
   let hasAcSource = false;
@@ -312,6 +316,33 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         // As it stands now: a push button counts at rest, as nobody presses it during the analysis
         const resistances = contactResistances(s.switchKind, { ...el.props, pressed: '0' });
         s.ways.forEach((way, k) => lines.push(`${name}${s.ways.length > 1 ? `_${k + 1}` : ''} ${node(s.common)} ${node(way)} ${resistances[k]}`));
+        break;
+      }
+      case 'pot': {
+        const halves = potResistances(el, s.valueProp, s.positionProp);
+        if (!halves) {
+          errors.push(`${el.tag}: resistenza o posizione del cursore non valide`);
+          break;
+        }
+        const name = uniqueName('R', el.tag);
+        if (!name) break;
+        const wiper = node(s.wiper);
+        lines.push(`${name}_A ${node(s.a)} ${wiper} ${halves[0]}`, `${name}_B ${wiper} ${node(s.b)} ${halves[1]}`);
+        break;
+      }
+      case 'relay': {
+        const name = uniqueName('X', el.tag);
+        if (!name) break;
+        // The coil as R and L; the contact as a switch driven by the size of the coil current, with the
+        // hysteresis between pick-up and drop-out, as in the real-time engine
+        const { coilResistance, coilInductance } = s.spec;
+        const { pickup, dropout } = relayThresholds(s.spec);
+        const [coil1, coil2, inner, control] = [node(s.coil1), node(s.coil2), `xk${name}`, `xc${name}`];
+        const model = `RELAY_${el.def.toUpperCase()}`;
+        relayModels.set(model, `.model ${model} SW(VT=${(pickup + dropout) / 2} VH=${(pickup - dropout) / 2} RON=${CONTACT_CLOSED} ROFF=${CONTACT_OPEN})`);
+        lines.push(`RK${name} ${coil1} ${inner} ${coilResistance}`, `LK${name} ${inner} ${coil2} ${coilInductance}`);
+        lines.push(`BK${name} ${control} 0 V=abs(v(${coil1})-v(${inner}))/${coilResistance}`);
+        lines.push(`SK${name} ${node(s.c1)} ${node(s.c2)} ${control} 0 ${model}`);
         break;
       }
       case 'logic': {
@@ -555,6 +586,7 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         ? `.dc ${sweptName(analysis.source)} ${analysis.from} ${analysis.to} ${analysis.step}${familyPart}`
         : `.tran ${analysis.step} ${analysis.stop}${analysis.maxStep ? ` 0 ${analysis.maxStep}` : ''}`;
   if (needsLatchModel) lines.push(LATCH_SWITCH_MODEL, LATCH_FORCE_MODEL);
+  lines.push(...relayModels.values());
   const text = [circuit.title, ...lines, ...modelCards.map((m) => m.card), command, '.end', ''].join('\n');
   return { text, errors, nodeOf };
 }

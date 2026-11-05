@@ -69,6 +69,19 @@ export interface SensorSpec {
   vAbsMax: number;
 }
 
+/**
+ * A relay from its datasheet: the coil, and the voltages at which it picks up and drops out at most and
+ * at least. The contact closes above the first and opens below the second, with the coil current.
+ */
+export interface RelaySpec {
+  coilVolts: number;
+  coilResistance: number;
+  /** Not on the datasheets: estimated for a coil of this size. */
+  coilInductance: number;
+  pickup: number;
+  dropout: number;
+}
+
 /** OPAMP is a subcircuit with five pins, in place of the ideal part; REGULATOR one with three, in place of the simple behaviour; SUBCKT is any subcircuit, as a block of its own. */
 export type ModelType = 'D' | 'NPN' | 'PNP' | 'NMOS' | 'PMOS' | 'OPAMP' | 'SUBCKT' | 'REGULATOR';
 
@@ -87,6 +100,10 @@ export type SpiceDef =
   | { kind: 'regulator'; input: string; output: string; ref: string; vNominal: number; polarity: 1 | -1; iq: number; sensor?: SensorSpec }
   /** A geared DC motor from its plate; the load is a braking torque in kgf·cm. */
   | { kind: 'motor'; plus: string; minus: string; plate: MotorPlate; loadProp: string }
+  /** The resistance between the ends a and b, and the wiper on it at a position from 0 (at a) to 100 (at b). */
+  | { kind: 'pot'; a: string; b: string; wiper: string; valueProp: string; positionProp: string }
+  /** The coil between coil1 and coil2; a normally open contact between c1 and c2. */
+  | { kind: 'relay'; coil1: string; coil2: string; c1: string; c2: string; spec: RelaySpec }
   | { kind: 'block'; pins: string[]; modelProp: string }
   | { kind: 'meter'; a: string; b: string; modeProp: string }
   /** A mains transformer with a centre tap on the secondary, sized from its plate. */

@@ -86,7 +86,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
     <div className="properties">
       <strong>{def ? def.name : singleWire ? 'Filo' : `${selectedIds.size} oggetti selezionati`}</strong>
       {deviceIndex >= 0 && (
-        <LiveReadout deviceIndex={deviceIndex} sign={single ? drawingSign(single) : 1} transistorFirstDot={def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' ? layout!.devices[deviceIndex].firstDot : null} isMos={def?.spice.kind === 'mos'} windingsFirstDot={def?.spice.kind === 'transformer' ? layout!.devices[deviceIndex].firstDot : null} regulatorFirstDot={def?.spice.kind === 'regulator' ? layout!.devices[deviceIndex].firstDot : null} isSensor={def?.spice.kind === 'regulator' && !!def.spice.sensor} frameRef={frameRef} />
+        <LiveReadout deviceIndex={deviceIndex} sign={single ? drawingSign(single) : 1} transistorFirstDot={def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' ? layout!.devices[deviceIndex].firstDot : null} isMos={def?.spice.kind === 'mos'} windingsFirstDot={def?.spice.kind === 'transformer' || def?.spice.kind === 'relay' ? layout!.devices[deviceIndex].firstDot : null} isPot={def?.spice.kind === 'pot'} regulatorFirstDot={def?.spice.kind === 'regulator' ? layout!.devices[deviceIndex].firstDot : null} isSensor={def?.spice.kind === 'regulator' && !!def.spice.sensor} frameRef={frameRef} />
       )}
       {single && def?.spice.kind === 'logic' && def.spice.gate === 'table' && def.spice.tableProp && (
         <TruthTableEditor element={single} inputs={def.spice.inputs} outputs={def.spice.outputs} onChange={(patch) => update(patch)} />
@@ -153,7 +153,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
                 ) : (
                   <input value={value} onChange={(e) => setValue(e.target.value)} />
                 )}
-                {(def.spice.kind === 'passive' || def.spice.kind === 'isource') && <ValueSlider value={value} label={p.label} onChange={setValue} />}
+                {(def.spice.kind === 'passive' || def.spice.kind === 'isource' || (def.spice.kind === 'pot' && p.key === def.spice.valueProp)) && <ValueSlider value={value} label={p.label} onChange={setValue} />}
                 {p.type === 'range' && <RangeSlider value={value} label={p.label} min={p.min ?? 0} max={p.max ?? 100} step={p.step} onChange={setValue} />}
               </label>
               {p.type === 'model' && <ModelImporter library={library} onImport={addModels} onRemove={onRemoveModel} />}
@@ -178,6 +178,14 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
       {single && def?.spice.kind === 'motor' && (
         <p className="hint">
           {def.spice.plate.volts} V nominali: a vuoto {def.spice.plate.noLoadRpm} giri/min e {String(def.spice.plate.noLoadCurrent).replace('.', ',')} A, in stallo {String(def.spice.plate.stallCurrent).replace('.', ',')} A e {String(def.spice.plate.stallTorque).replace('.', ',')} kgf·cm. Il carico frena l'albero d'uscita; oltre la coppia di stallo il motore si blocca. Induttanza e inerzia sono stimate.
+        </p>
+      )}
+      {single && def?.spice.kind === 'pot' && (
+        <p className="hint">Il cursore va da 0 % sull'estremo a, a sinistra nel simbolo non ruotato, a 100 % sull'estremo b. All'oscilloscopio, Cursore è la tensione del cursore verso massa.</p>
+      )}
+      {single && def?.spice.kind === 'relay' && (
+        <p className="hint">
+          Bobina da {def.spice.spec.coilVolts} V, {def.spice.spec.coilResistance} Ω: il contatto si chiude sopra {String(def.spice.spec.pickup).replace('.', ',')} V e si riapre sotto {String(def.spice.spec.dropout).replace('.', ',')} V, i limiti del datasheet. Bobina A1–A2, contatto normalmente aperto 13–14. Senza un diodo sulla bobina, allo spegnimento compare una sovratensione. L'induttanza è stimata e il contatto scatta senza ritardo meccanico.
         </p>
       )}
       {single && def?.spice.kind === 'regulator' && def.spice.sensor && (

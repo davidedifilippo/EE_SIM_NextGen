@@ -82,14 +82,16 @@ export const LiveReadout: React.FC<{
   /** Set for a transistor: where its dots start, collector or drain first. */
   transistorFirstDot: number | null;
   isMos: boolean;
-  /** Set for a transformer: where the dots of its windings start. */
+  /** Set for a transformer or a relay: where the dots of its windings, or of coil and contact, start. */
   windingsFirstDot: number | null;
+  /** A potentiometer: the voltage of its wiper too. */
+  isPot?: boolean;
   /** Set for a regulator: where the dots of its pins start. */
   regulatorFirstDot: number | null;
   /** A temperature sensor: no heat to show. */
   isSensor?: boolean;
   frameRef: React.MutableRefObject<LiveFrame | null>;
-}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor = false, frameRef }) => {
+}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor = false, isPot = false, frameRef }) => {
   const [rows, setRows] = React.useState<[string, string][] | null>(null);
 
   React.useEffect(() => {
@@ -99,7 +101,22 @@ export const LiveReadout: React.FC<{
       const volts = (v: number | undefined) => formatEngineering(v ?? 0, 'V');
       const amps = (i: number | undefined) => formatEngineering(i ?? 0, 'A');
       const regulator = frame.regulators[deviceIndex];
+      const relay = frame.relays[deviceIndex];
       setRows(
+        relay !== null && relay !== undefined && windingsFirstDot !== null
+          ? [
+              ['Bobina', volts(frame.deviceVoltage[deviceIndex])],
+              ['I bobina', amps(frame.deviceCurrent[deviceIndex])],
+              ['Contatto', relay ? 'Chiuso' : 'Aperto'],
+              ['I contatto', amps(frame.dotCurrent[windingsFirstDot + 1])],
+            ]
+          : isPot
+          ? [
+              ['Tensione', volts(frame.deviceVoltage[deviceIndex])],
+              ['Corrente', amps(frame.deviceCurrent[deviceIndex])],
+              ['Cursore', volts(frame.deviceVbe[deviceIndex])],
+            ]
+          : 
         regulator && regulatorFirstDot !== null
           ? [
               [isSensor ? 'Vs' : 'Vin', volts(frame.deviceVoltage[deviceIndex] + frame.deviceVbe[deviceIndex])],
@@ -147,7 +164,7 @@ export const LiveReadout: React.FC<{
     refresh();
     const timer = setInterval(refresh, 200);
     return () => clearInterval(timer);
-  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor, frameRef]);
+  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor, isPot, frameRef]);
 
   if (!rows) return null;
   return (

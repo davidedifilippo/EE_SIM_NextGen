@@ -1,6 +1,6 @@
 import { METER_MODES } from '../realtime/meterModes';
 import { MAX_BLOCK_PINS, MIN_BLOCK_PINS } from './blockPins';
-import { ComponentDef, Prim, Rotation, Circuit, Element, Pt, SensorSpec, MotorPlate } from '../model/types';
+import { ComponentDef, Prim, Rotation, Circuit, Element, Pt, SensorSpec, MotorPlate, RelaySpec } from '../model/types';
 import { emptyTable, GateKind, MAX_TABLE_INPUTS, MAX_TABLE_OUTPUTS } from '../realtime/logic';
 import { closedWay, SwitchKind } from '../realtime/switches';
 import { SEGMENT_COLORS, SEGMENT_LINES } from '../realtime/display7';
@@ -806,6 +806,69 @@ const SWITCHES: ComponentDef[] = [
   ]),
 ];
 
+/** A resistance with a wiper on it: the arrow comes down from the wiper terminal onto the body. */
+const POTENTIOMETER: ComponentDef = {
+  id: 'potentiometer',
+  category: 'Passivi',
+  name: 'Potenziometro',
+  tagPrefix: 'P',
+  searchTerms: 'potenziometro reostato resistenza variabile partitore cursore',
+  terminals: [...twoPin('a', 'b'), { id: 'w', x: 0, y: -40 }],
+  symbol: [
+    ...leads(20),
+    { t: 'rect', x: -20, y: -8, w: 40, h: 16, fill: 'var(--sch-part)' },
+    { t: 'line', x1: 0, y1: -40, x2: 0, y2: -14 },
+    { t: 'path', d: 'M -5 -17 L 0 -9 L 5 -17 Z', fill: 'var(--sch-ink)' },
+  ],
+  props: [
+    { key: 'value', label: 'Resistenza', type: 'text', default: '10k' },
+    { key: 'position', label: 'Cursore (%)', type: 'range', default: '50', min: 0, max: 100, step: 1 },
+  ],
+  spice: { kind: 'pot', a: 'a', b: 'b', wiper: 'w', valueProp: 'value', positionProp: 'position' },
+};
+
+/** The blade of the relay contact, from its pivot on the lower contact: at rest, and pulled in by the coil. */
+export const RELAY_BLADE = { open: { x1: 20, y1: 14, x2: 8, y2: -12 }, closed: { x1: 20, y1: 14, x2: 20, y2: -14 } };
+
+/**
+ * A relay with one normally open contact: the coil on the left, A1 above and A2 below; the contact on
+ * the right, 13 above and 14 below, its blade linked to the coil by a dashed line.
+ */
+function relayDevice(id: string, spec: RelaySpec, searchTerms: string): ComponentDef {
+  return {
+    id,
+    category: 'Passivi',
+    name: `Relè SPST ${spec.coilVolts} V`,
+    tagPrefix: 'K',
+    searchTerms: `relè rele relay bobina contatto spst normalmente aperto ${searchTerms}`,
+    terminals: [
+      { id: 'A1', x: -20, y: -40 },
+      { id: 'A2', x: -20, y: 40 },
+      { id: '13', x: 20, y: -40 },
+      { id: '14', x: 20, y: 40 },
+    ],
+    symbol: [
+      { t: 'line', x1: -20, y1: -40, x2: -20, y2: -12 },
+      { t: 'line', x1: -20, y1: 12, x2: -20, y2: 40 },
+      { t: 'rect', x: -30, y: -12, w: 20, h: 24, fill: 'var(--sch-part)' },
+      { t: 'line', x1: 20, y1: -40, x2: 20, y2: -14 },
+      { t: 'line', x1: 20, y1: 14, x2: 20, y2: 40 },
+      { t: 'path', d: 'M -10 0 L -6 0 M -2 0 L 2 0 M 6 0 L 10 0' },
+      { t: 'line', ...RELAY_BLADE.open, w: 2 },
+      contact(20, -14),
+      contact(20, 14),
+    ],
+    props: [],
+    spice: { kind: 'relay', coil1: 'A1', coil2: 'A2', c1: '13', c2: '14', spec },
+  };
+}
+
+/** Typical values of the small relays of the Arduino modules, as the SRD series: the coil inductance is estimated. */
+const RELAYS = [
+  relayDevice('relay5', { coilVolts: 5, coilResistance: 70, coilInductance: 0.2, pickup: 3.75, dropout: 0.5 }, '5v srd-05vdc arduino modulo'),
+  relayDevice('relay12', { coilVolts: 12, coilResistance: 400, coilInductance: 1.2, pickup: 9, dropout: 1.2 }, '12v srd-12vdc'),
+];
+
 const REGULATORS = [
   ...[5, 6, 8, 9, 12, 15, 24].map((v) => regulatorDevice(`78${String(v).padStart(2, '0')}`, v, 1)),
   ...[5, 12, 15].map((v) => regulatorDevice(`79${String(v).padStart(2, '0')}`, v, -1)),
@@ -895,7 +958,7 @@ const SENSORS = [
   sensorDevice('TMP36', { offset: 0.5, slope: 0.01, tempProp: 'temp', iMax: 10e-3, dropout: 1, vMin: 2.7, vMax: 5.5, vAbsMax: 7 }, 50e-6, [-40, 125]),
 ];
 
-DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES);
+DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, ...RELAYS);
 for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));
