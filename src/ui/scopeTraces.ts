@@ -43,6 +43,10 @@ export function elementProbes(el: Element): ProbeChoice[] {
   if (spice.kind === 'mcu') {
     return spice.pins.map((terminal) => ({ label: terminal, probe: { id: `pin:${el.id}:${terminal}`, kind: 'pin', elementId: el.id, terminal } }));
   }
+  // A 555: the voltage of the pins that tell how it works
+  if (spice.kind === 'timer') {
+    return [spice.out, spice.thr, spice.trig, spice.dis, spice.ctrl].map((terminal) => ({ label: terminal, probe: { id: `pin:${el.id}:${terminal}`, kind: 'pin', elementId: el.id, terminal } }));
+  }
   if (spice.kind === 'relay') return [choice('V bobina', 'voltage'), choice('I bobina', 'current'), choice('V contatto', 'vbe'), choice('I contatto', 'ib')];
   if (spice.kind === 'pot') {
     return [choice('Tensione', 'voltage'), choice('Corrente', 'current'), { label: 'Cursore', probe: { id: `pin:${el.id}:${spice.wiper}`, kind: 'pin', elementId: el.id, terminal: spice.wiper } }];

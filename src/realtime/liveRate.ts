@@ -3,6 +3,7 @@ import { getDevice } from '../library/devices';
 import { sourceSpec } from '../netlist/source';
 import { waveformStats } from './waveform';
 import { parseSpiceValue } from '../netlist/values';
+import { timerEstimate } from './timer555';
 
 /** Solver steps per second of real time: the step size follows from the chosen speed. */
 export const LIVE_STEPS_PER_SECOND = 2400;
@@ -29,7 +30,7 @@ export const GOOD_SAMPLES_PER_PERIOD = 40;
 /** Below this the trace no longer shows the signal: corners, then frequencies that are not there. */
 export const MIN_SAMPLES_PER_PERIOD = 20;
 
-/** The frequency of each periodic generator: the signal sources and the logic clocks. */
+/** The frequency of each periodic generator: the signal sources, the logic clocks and the 555 timers. */
 export function generatorFrequencies(circuit: Circuit): number[] {
   const frequencies: number[] = [];
   for (const el of circuit.elements) {
@@ -40,6 +41,11 @@ export function generatorFrequencies(circuit: Circuit): number[] {
       frequency = spec ? waveformStats(spec)?.frequency : null;
     } else if (spice?.kind === 'logic' && spice.gate === 'clock') {
       frequency = parseSpiceValue(String(el.props.frequency ?? ''));
+    } else if (spice?.kind === 'timer') {
+      // A 555 in the circuits of the books: the frequency of an astable; a monostable counts as one
+      // period per pulse, so that its pulse lasts about as long on the screen as on the bench
+      const estimate = timerEstimate(circuit, el);
+      frequency = estimate?.kind === 'astable' ? estimate.frequency : estimate ? 1 / estimate.duration : null;
     }
     if (frequency && frequency > 0) frequencies.push(frequency);
   }

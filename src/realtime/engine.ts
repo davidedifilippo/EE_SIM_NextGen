@@ -5,6 +5,7 @@ import { REGULATOR_GAIN, REGULATOR_LEAK, RegulatorRegion, regulatorPoint, regula
 import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams, MosParams } from './compile';
 import { luFactor, luSolve } from './linear';
 import { nextRelayState } from './relay';
+import { nextTimerState, supplyResistance, TIMER_INPUT_RESISTANCE, TIMER_OFF_RESISTANCE, TIMER_RESET_PULLUP, timerSupply } from './timer555';
 import { ArduinoUno, LED_PIN, PIN_MAX_CURRENT, PinMode, SUPPLY_MAX_CURRENT, UNO_PINS, UNO_SUPPLY_RESISTANCE, UNO_VCC } from './arduino';
 import { CONTACT_CLOSED, CONTACT_OPEN } from './switches';
 import { CURRENT_SOURCE_LEAK, OPAMP_GAIN, TRANSFORMER_WINDING_RESISTANCE } from '../netlist/generate';
@@ -224,6 +225,8 @@ export class RealtimeEngine {
   private readonly logicState: Int32Array;
   /** 1 for a relay whose contact is closed: it moves only between steps, so each step stays linear. */
   private readonly relayClosed: Uint8Array;
+  /** 1 for a 555 whose output is high: as a relay, it moves only between steps. */
+  private readonly timerHigh: Uint8Array;
   /** The microcontroller of each Arduino, which runs between the steps; it passes to the next engine with the same program. */
   private readonly mcus: (ArduinoUno | null)[];
   /** Per centre-tapped transformer: voltage and current of each of its three windings at the last accepted point. */
@@ -269,6 +272,7 @@ export class RealtimeEngine {
     this.logicIn = new Int32Array(devices.length);
     this.logicState = new Int32Array(devices.length);
     this.relayClosed = new Uint8Array(devices.length);
+    this.timerHigh = new Uint8Array(devices.length);
     this.mcus = devices.map((d) => (d.kind === 'mcu' ? new ArduinoUno(d.program) : null));
     this.vIterBridge = new Float64Array(devices.length * 4);
     this.vPrevW = new Float64Array(devices.length * 3);
@@ -382,6 +386,21 @@ export class RealtimeEngine {
           d.pins.forEach((pin, k) => this.addG(pin, d.b, 1 / uno.pinResistance(k)));
           break;
         }
+        case 'timer': {
+          // The divider, the current at rest, the inputs, then the output stage and the discharge as the flip-flop stands
+          const { spec } = d;
+          this.addG(d.vcc, d.ctrl, 1 / spec.divider);
+          this.addG(d.ctrl, d.lower, 1 / spec.divider);
+          this.addG(d.lower, d.b, 1 / spec.divider);
+          this.addG(d.vcc, d.b, 1 / supplyResistance(spec));
+          this.addG(d.trig, d.b, 1 / TIMER_INPUT_RESISTANCE);
+          this.addG(d.thr, d.b, 1 / TIMER_INPUT_RESISTANCE);
+          this.addG(d.reset, d.vcc, 1 / TIMER_RESET_PULLUP);
+          if (this.timerHigh[i]) this.addG(d.a, d.vcc, 1 / spec.rHigh);
+          else this.addG(d.a, d.b, 1 / spec.rLow);
+          this.addG(d.dis, d.b, 1 / (this.timerHigh[i] ? TIMER_OFF_RESISTANCE : spec.rDischarge));
+          break;
+        }
         case 'pot':
           this.addG(d.a, d.w, d.g1);
           this.addG(d.w, d.b, d.g2);
@@ -467,6 +486,14 @@ export class RealtimeEngine {
           });
           break;
         }
+        case 'timer':
+          // High, the output is the supply less its drop: the drop as a current against the conductance to VCC
+          if (this.timerHigh[i] && d.spec.highDrop > 0) {
+            const current = (d.spec.highDrop / d.spec.rHigh) * sourceScale;
+            if (d.a >= 0) rhs[d.a] -= current;
+            if (d.vcc >= 0) rhs[d.vcc] += current;
+          }
+          break;
         case 'relay':
           rhs[d.branch] = h > 0 ? ((-2 * d.spec.coilInductance) / h) * this.iPrev[i] - this.vPrev[i] : 0;
           break;
@@ -981,6 +1008,37 @@ export class RealtimeEngine {
     return hasChanged;
   }
 
+  /** Moves the flip-flop of each 555 with the voltages of the accepted point. True if one moved: the matrix changes. */
+  private updateTimers(): boolean {
+    let hasChanged = false;
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind !== 'timer') return;
+      const ground = this.voltage(d.b);
+      const at = (node: number) => this.voltage(node) - ground;
+      const isHigh = nextTimerState(d.spec, this.timerHigh[i] === 1, { trig: at(d.trig), thr: at(d.thr), ctrl: at(d.ctrl), lower: at(d.lower), reset: at(d.reset) });
+      if (isHigh === (this.timerHigh[i] === 1)) return;
+      this.timerHigh[i] = isHigh ? 1 : 0;
+      hasChanged = true;
+    });
+    if (hasChanged) this.stampedStep = null;
+    return hasChanged;
+  }
+
+  /** A 555: whether its output is high, and what is beyond its limits. */
+  timerStatus(index: number): { isHigh: boolean; warnings: string[] } | null {
+    const d = this.compiled.devices[index];
+    if (d?.kind !== 'timer') return null;
+    const supply = timerSupply(d.spec, this.voltage(d.vcc) - this.voltage(d.b));
+    const out = this.terminalCurrents(index)[2];
+    return {
+      isHigh: this.timerHigh[index] === 1,
+      warnings: [
+        ...(supply === 'over' ? [`Oltre il massimo di ${d.spec.vAbsMax} V`] : supply === 'out' ? ['Alimentazione fuori campo'] : []),
+        ...(Math.abs(out) > d.spec.iMax ? [`OUT oltre ${d.spec.iMax * 1e3} mA`] : []),
+      ],
+    };
+  }
+
   /** Runs each microcontroller over the step to come, with the inputs of the last accepted point. */
   private runMcus(h: number) {
     for (const uno of this.mcus) {
@@ -1053,6 +1111,7 @@ export class RealtimeEngine {
     this.regulatorIsOff.fill(0);
     this.regulatorState.fill(REGULATOR_ACTIVE);
     this.relayClosed.fill(0);
+    this.timerHigh.fill(0);
     this.stampedStep = null;
     this.resetLogic();
     if (!this.solve(this.time, 0, 1)) {
@@ -1074,8 +1133,9 @@ export class RealtimeEngine {
       if (!this.solve(this.time, 0, 1)) throw new SolverError('Punto di lavoro non trovato');
     }
     this.updateMcuInputs();
-    // A relay with its coil already fed starts pulled in; what its contact feeds may move another
-    for (let round = 0; round < LOGIC_SETTLE_ROUNDS && this.updateRelays(); round++) {
+    // A relay with its coil already fed starts pulled in; what its contact feeds may move another.
+    // A 555 starts as its pins say: with an empty capacitor on TRIG, high
+    for (let round = 0; round < LOGIC_SETTLE_ROUNDS && (this.updateRelays() || this.updateTimers()); round++) {
       if (!this.solve(this.time, 0, 1)) throw new SolverError('Punto di lavoro non trovato');
     }
     // A sensor out of its supply range gives nothing from the start, as in the netlist
@@ -1116,6 +1176,7 @@ export class RealtimeEngine {
     this.logicIn.set(previous.logicIn);
     this.logicState.set(previous.logicState);
     this.relayClosed.set(previous.relayClosed);
+    this.timerHigh.set(previous.timerHigh);
     previous.mcus.forEach((uno, i) => {
       if (uno) this.mcus[i] = uno;
     });
@@ -1150,6 +1211,7 @@ export class RealtimeEngine {
     if (this.solve(this.time + h, h, 1)) {
       this.commit(h);
       this.updateRelays();
+      this.updateTimers();
       this.updateMcuInputs();
       this.updateLogic(this.time + h);
       this.updateSensors();
@@ -1200,6 +1262,7 @@ export class RealtimeEngine {
       case 'switch':
       case 'pot':
       case 'mcu':
+      case 'timer':
       case 'display7':
       case 'bridge':
         return this.terminalCurrents(index)[0];
@@ -1281,6 +1344,20 @@ export class RealtimeEngine {
       // Into the common, out of each way
       const toWays = d.ways.map((way, k) => d.g[k] * (this.voltage(d.a) - this.voltage(way)));
       return [toWays.reduce((sum, i) => sum + i, 0), ...toWays.map((i) => -i)];
+    }
+    if (d.kind === 'timer') {
+      // Into each pin, in the order of the chip: GND, TRIG, OUT, RESET, CTRL, THR, DIS, VCC
+      const v = (node: number) => this.voltage(node);
+      const { spec } = d;
+      const isHigh = this.timerHigh[index] === 1;
+      const trig = (v(d.trig) - v(d.b)) / TIMER_INPUT_RESISTANCE;
+      const thr = (v(d.thr) - v(d.b)) / TIMER_INPUT_RESISTANCE;
+      const reset = (v(d.reset) - v(d.vcc)) / TIMER_RESET_PULLUP;
+      const ctrl = (v(d.ctrl) - v(d.vcc)) / spec.divider + (v(d.ctrl) - v(d.lower)) / spec.divider;
+      const out = isHigh ? (v(d.a) - v(d.vcc) + spec.highDrop) / spec.rHigh : (v(d.a) - v(d.b)) / spec.rLow;
+      const dis = (v(d.dis) - v(d.b)) / (isHigh ? TIMER_OFF_RESISTANCE : spec.rDischarge);
+      const vcc = (v(d.vcc) - v(d.ctrl)) / spec.divider + (v(d.vcc) - v(d.b)) / supplyResistance(spec) - reset - (isHigh ? out : 0);
+      return [-(trig + out + reset + ctrl + thr + dis + vcc), trig, out, reset, ctrl, thr, dis, vcc];
     }
     if (d.kind === 'mcu') {
       // Into each pin, into the 5V, and back out of the ground

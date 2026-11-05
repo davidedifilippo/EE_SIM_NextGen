@@ -1,7 +1,7 @@
 // Adapted from PowerCad_NextGen (see THIRD_PARTY_NOTICES.md).
 import React from 'react';
 import { Circuit, ComponentDef, Element, Prim, Pt, Rotation, Wire } from '../model/types';
-import { canRotate, elementSymbol, getDevice } from '../library/devices';
+import { canRotate, elementSymbol, getDevice, TIMER_EDGE } from '../library/devices';
 import { sourceLabel } from '../netlist/source';
 import { METER_MODES } from '../realtime/meterModes';
 import { parseSpiceValue } from '../netlist/values';
@@ -214,18 +214,18 @@ const ElementItem: React.FC<{
   const isBesideLabel = elem.rot === 90 || elem.rot === 270 || isTransistor;
   const isBlock = def.spice.kind === 'block';
   // A box with named pins: a subcircuit, a truth table, a decoder, a display
-  const isNamedBox = isBlock || def.spice.kind === 'display7' || def.spice.kind === 'mcu' || (def.spice.kind === 'logic' && (def.spice.gate === 'table' || def.spice.gate === 'dff' || def.spice.gate === 'counter' || def.spice.gate === 'tff' || def.spice.gate === 'jkff' || def.spice.gate === 'srff' || def.spice.gate === 'srlatch' || def.spice.gate === 'network'));
+  const isNamedBox = isBlock || def.spice.kind === 'display7' || def.spice.kind === 'mcu' || def.spice.kind === 'timer' || (def.spice.kind === 'logic' && (def.spice.gate === 'table' || def.spice.gate === 'dff' || def.spice.gate === 'counter' || def.spice.gate === 'tff' || def.spice.gate === 'jkff' || def.spice.gate === 'srff' || def.spice.gate === 'srlatch' || def.spice.gate === 'network'));
   const isRegulator = def.spice.kind === 'regulator';
   const isSensor = def.spice.kind === 'regulator' && !!def.spice.sensor;
   // The box is as tall as its pins: its labels go beyond it
   const blockReach = Math.max(...def.terminals.map((t) => Math.abs(t.y))) + 16;
   const blockPinNames = isBlock ? String(elem.props.pinNames ?? '').split(' ') : isNamedBox ? def.terminals.map((t) => t.id) : [];
   // The pin names sit inside the box, next to the edge: the parts drawn here have it at 24 from the center, a subcircuit at 34
-  const pinNameX = isBlock || def.spice.kind === 'mcu' ? 31 : 21;
+  const pinNameX = isBlock || def.spice.kind === 'mcu' ? 31 : def.spice.kind === 'timer' ? TIMER_EDGE - 3 : 21;
   const firstProp = def.props[0];
   // A choice shows its name, as the LED its colour; a logic part shows its level on itself already
   const firstValue = !firstProp ? '' : firstProp.type === 'choice' ? (firstProp.options?.find((o) => o.value === String(elem.props[firstProp.key]))?.label ?? '') : String(elem.props[firstProp.key] ?? '');
-  const value = def.spice.kind === 'vsource' ? sourceLabel(elem.props) : def.spice.kind === 'isource' ? currentLabel(elem.props.value) : def.spice.kind === 'logic' && def.spice.gate === 'network' ? def.name : def.spice.kind === 'opamp' || def.spice.kind === 'meter' || def.spice.kind === 'logic' || def.spice.kind === 'motor' || isRegulator ? '' : def.spice.kind === 'transformer' ? `${elem.props.ratio}:1` : def.spice.kind === 'ctransformer' ? `${elem.props.primary}/${elem.props.secondary}+${elem.props.secondary} V · ${elem.props.power} VA` : def.spice.kind === 'pot' ? `${firstValue} · ${elem.props.position}%` : firstValue;
+  const value = def.spice.kind === 'vsource' ? sourceLabel(elem.props) : def.spice.kind === 'isource' ? currentLabel(elem.props.value) : def.spice.kind === 'logic' && def.spice.gate === 'network' ? def.name : def.spice.kind === 'timer' ? def.spice.spec.name : def.spice.kind === 'opamp' || def.spice.kind === 'meter' || def.spice.kind === 'logic' || def.spice.kind === 'motor' || isRegulator ? '' : def.spice.kind === 'transformer' ? `${elem.props.ratio}:1` : def.spice.kind === 'ctransformer' ? `${elem.props.primary}/${elem.props.secondary}+${elem.props.secondary} V · ${elem.props.power} VA` : def.spice.kind === 'pot' ? `${firstValue} · ${elem.props.position}%` : firstValue;
   // Parts whose drawing fills the space the labels usually take: name and value go below them, or,
   // beside a bridge on its side, below its lead
   const labelsBelow: [number, number] | null =
@@ -372,9 +372,12 @@ const ElementItem: React.FC<{
       {isNamedBox &&
         def.terminals.map((t, k) => {
           const isOnStart = (t.x < 0) === (elem.rot === 0);
-          const anchor = elem.rot === 90 || elem.rot === 270 ? 'middle' : isOnStart ? 'start' : 'end';
+          // A pin above or below the box, as VCC and GND of a 555: its name just inside that edge
+          const isVertical = def.spice.kind === 'timer' && Math.abs(t.x) < TIMER_EDGE;
+          const anchor = isVertical || elem.rot === 90 || elem.rot === 270 ? 'middle' : isOnStart ? 'start' : 'end';
+          const at = isVertical ? `${t.x} ${Math.sign(t.y) * (TIMER_EDGE - 9)}` : `${Math.sign(t.x) * pinNameX} ${t.y}`;
           return (
-            <text key={t.id} transform={`translate(${Math.sign(t.x) * pinNameX} ${t.y}) rotate(${-elem.rot})`} y={3} textAnchor={anchor} fontSize={9} fill="var(--sch-muted)" pointerEvents="none">
+            <text key={t.id} transform={`translate(${at}) rotate(${-elem.rot})`} y={3} textAnchor={anchor} fontSize={9} fill="var(--sch-muted)" pointerEvents="none">
               {blockPinNames[k] === 'nQ' && !isBlock ? 'Q̄' : blockPinNames[k]?.slice(0, 7)}
             </text>
           );

@@ -89,12 +89,14 @@ export const LiveReadout: React.FC<{
   isPot?: boolean;
   /** Set for an Arduino: where the dots of its pins start, the 5V after the twenty of the program. */
   boardFirstDot?: number | null;
+  /** Set for a 555: where the dots of its pins start, OUT the third. */
+  timerFirstDot?: number | null;
   /** Set for a regulator: where the dots of its pins start. */
   regulatorFirstDot: number | null;
   /** A temperature sensor: no heat to show. */
   isSensor?: boolean;
   frameRef: React.MutableRefObject<LiveFrame | null>;
-}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor = false, isPot = false, boardFirstDot = null, frameRef }) => {
+}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor = false, isPot = false, boardFirstDot = null, timerFirstDot = null, frameRef }) => {
   const [rows, setRows] = React.useState<[string, string][] | null>(null);
 
   React.useEffect(() => {
@@ -105,8 +107,17 @@ export const LiveReadout: React.FC<{
       const amps = (i: number | undefined) => formatEngineering(i ?? 0, 'A');
       const regulator = frame.regulators[deviceIndex];
       const relay = frame.relays[deviceIndex];
+      const timer = frame.timers[deviceIndex];
       setRows(
-        boardFirstDot !== null
+        timer && timerFirstDot !== null
+          ? [
+              ['Vcc', volts(frame.deviceVbe[deviceIndex])],
+              ['OUT', volts(frame.deviceVoltage[deviceIndex])],
+              ['Uscita', timer.isHigh ? 'Alta' : 'Bassa'],
+              // Out of OUT is what it gives the load
+              ['I OUT', amps(-frame.dotCurrent[timerFirstDot + 2])],
+            ]
+          : boardFirstDot !== null
           ? [
               ['5V', volts(frame.deviceVoltage[deviceIndex])],
               // Into the 5V pin is what the board takes: out of it, what it gives the circuit
@@ -173,7 +184,7 @@ export const LiveReadout: React.FC<{
     refresh();
     const timer = setInterval(refresh, 200);
     return () => clearInterval(timer);
-  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor, isPot, boardFirstDot, frameRef]);
+  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor, isPot, boardFirstDot, timerFirstDot, frameRef]);
 
   if (!rows) return null;
   return (

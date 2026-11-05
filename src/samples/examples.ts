@@ -464,6 +464,70 @@ const muxExample = (): Circuit => {
   };
 };
 
+/**
+ * A 555 in one of its two circuits, on a 5 V supply with rails above and below. The timer sits at the
+ * origin; the LED on OUT and the capacitor on CTRL are the same in both.
+ */
+function timerCircuit(title: string, middle: { elements: Element[]; wires: Wire[] }): Circuit {
+  return {
+    title,
+    elements: [
+      part('v1', 'dcsupply', -320, 70, 90, 'V1', { amplitude: '5' }),
+      part('u1', 'ne555', 0, 0, 0, 'U1'),
+      part('c2', 'capacitor', 100, 60, 90, 'C2', { value: '10n' }),
+      part('r3', 'resistor', 140, -20, 0, 'R3', { value: '220' }),
+      part('d1', 'led', 220, 20, 90, 'D1', { model: 'LED_ROSSO' }),
+      ground(-160, 180),
+      ...middle.elements,
+    ],
+    wires: [
+      wire('wtop', [-320, 30], [-320, -100], [20, -100]),
+      wire('wbottom', [-320, 110], [-320, 180], [220, 180]),
+      wire('wvcc', [-20, -100], [-20, -60]),
+      wire('wreset', [20, -100], [20, -60]),
+      wire('wgnd', [0, 60], [0, 180]),
+      wire('wctrl', [60, 20], [100, 20]),
+      wire('wc2', [100, 100], [100, 180]),
+      wire('wout', [60, -20], [100, -20]),
+      wire('wled', [180, -20], [220, -20]),
+      wire('wk', [220, 60], [220, 180]),
+      ...middle.wires,
+    ],
+    models: [],
+  };
+}
+
+/** Astable: R1 from VCC to DIS, R2 from DIS to THR and TRIG together, C1 from there to GND. */
+const timerAstable = () =>
+  timerCircuit('555 astabile', {
+    elements: [part('r1', 'resistor', -140, -60, 90, 'R1', { value: '1k' }), part('r2', 'resistor', -100, 20, 90, 'R2', { value: '75k' }), part('c1', 'capacitor', -80, 100, 90, 'C1', { value: '10u' })],
+    wires: [
+      wire('wdis', [-60, -20], [-140, -20]),
+      wire('wthr', [-60, 0], [-80, 0], [-80, 60]),
+      wire('wtrig', [-60, 20], [-80, 20]),
+      wire('wr2', [-100, 60], [-80, 60]),
+      wire('wc1', [-80, 140], [-80, 180]),
+    ],
+  });
+
+/** Monostable: R from VCC to DIS and THR together, C to GND; TRIG held high by R2, a push button takes it low. */
+const timerMonostable = () =>
+  timerCircuit('555 monostabile', {
+    elements: [
+      part('r1', 'resistor', -140, -60, 90, 'R1', { value: '100k' }),
+      part('c1', 'capacitor', -100, 20, 90, 'C1', { value: '10u' }),
+      part('r2', 'resistor', -260, -60, 90, 'R2', { value: '10k' }),
+      part('s1', 'pushno', -220, 140, 90, 'S1'),
+    ],
+    wires: [
+      wire('wdis', [-60, -20], [-140, -20]),
+      wire('wthr', [-60, 0], [-80, 0], [-80, -20]),
+      wire('wc1', [-100, 60], [-100, 180]),
+      wire('wtrig', [-60, 20], [-70, 20], [-70, 100], [-220, 100]),
+      wire('wr2', [-260, -20], [-260, 100], [-220, 100]),
+    ],
+  });
+
 /** What Nuovo opens: an empty sheet, but with the ground that every circuit needs. */
 export const emptyCircuit = (): Circuit => ({ title: 'Circuito', elements: [ground(0, 0)], wires: [], models: [] });
 
@@ -480,6 +544,8 @@ export const EXAMPLES: Example[] = [
   { id: 'counter', title: 'Contatore decimale e display', hint: 'Un clock da 1 Hz fa avanzare il contatore: il display conta da 0 a 9 e ricomincia. Tocca IN1 per portare RST a 1 e azzerarlo', build: counterDisplay },
   { id: 'fulladder', title: 'Full adder', hint: 'Tocca A, B e Cin: il LED rosso è la somma S, il verde il riporto Cout. Nelle proprietà di U1, Mostra l’interno apre i due half adder e l’OR di cui è fatto', build: fullAdderExample },
   { id: 'mux', title: 'Multiplexer 4:1', hint: 'S1 e S0 scelgono quale ingresso tra D0 e D3 arriva al LED: tocca i dati e la selezione. Mostra l’interno, nelle proprietà di U1, apre i tre MUX 2:1 di cui è fatto', build: muxExample },
+  { id: 'astable', title: '555 astabile', hint: 'Il LED lampeggia a circa 1 Hz: f = 1,44/((R1 + 2·R2)·C1) = 0,96 Hz. All’oscilloscopio, THR di U1 sale e scende fra 1/3 e 2/3 di Vcc', build: timerAstable },
+  { id: 'monostable', title: '555 monostabile', hint: 'Tieni premuto S1 un attimo: il LED resta acceso per circa 1,1·R1·C1, 1,1 s, poi si spegne da solo', build: timerMonostable },
   { id: 'dual', title: 'Alimentatore duale con presa centrale', hint: 'Trasformatore 230 V → 12+12 V, ponte di Graetz e due condensatori: circa +17 V e −17 V rispetto alla presa centrale', build: dualSupply },
   { id: 'motor', title: 'Motoriduttore IG22', hint: 'Chiudi S1: all’avvio la corrente fa uno spunto, poi scende a circa 0,2 A e il motore gira a 789 giri/min. Alza il carico di M1: la velocità scende e la corrente sale', build: gearMotor },
   { id: 'relay', title: 'Relè che comanda un motore', hint: 'Chiudi S1: la bobina di K1 si eccita, il contatto 13–14 si chiude e il motore da 12 V parte. Riapri S1: D1 porta la corrente della bobina e il contatto si riapre', build: relayMotor },

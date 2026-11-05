@@ -1,12 +1,13 @@
 import { METER_MODES } from '../realtime/meterModes';
 import { MAX_BLOCK_PINS, MIN_BLOCK_PINS } from './blockPins';
-import { ComponentDef, Prim, Rotation, Circuit, Element, Pt, SensorSpec, MotorPlate, RelaySpec } from '../model/types';
+import { ComponentDef, Prim, Rotation, Circuit, Element, Pt, SensorSpec, MotorPlate, RelaySpec, TimerSpec } from '../model/types';
 import { emptyTable, GateKind, MAX_TABLE_INPUTS, MAX_TABLE_OUTPUTS } from '../realtime/logic';
 import { closedWay, SwitchKind } from '../realtime/switches';
 import { SEGMENT_COLORS, SEGMENT_LINES } from '../realtime/display7';
 import { SourceShape, sourceShape } from '../netlist/source';
 import { CUSTOM_SKETCH, SKETCHES } from '../samples/arduino/sketches';
 import { UNO_PINS } from '../realtime/unoPins';
+import { NE555, TLC555 } from '../realtime/timerSpecs';
 
 
 /** One part for each number of pins, as terminals belong to the kind of part: half on the left, the rest on the right. */
@@ -989,6 +990,43 @@ export const COMPOSITES: ComponentDef[] = [
   compositeDevice('demux8', 'DEMUX 1:8', ['D', 'S2', 'S1', 'S0'], range('Y', 8), 'demultiplexer demux distributore 8 uscite decoder'),
 ];
 
+/**
+ * A 555 as the books draw it: DIS, THR and TRIG on the left, OUT and CTRL on the right, VCC and RESET
+ * above, GND below. The box reaches 40 from the centre on every side.
+ */
+export const TIMER_EDGE = 40;
+const TIMER_TERMINALS = [
+  { id: 'GND', x: 0, y: 60 },
+  { id: 'TRIG', x: -60, y: 20 },
+  { id: 'OUT', x: 60, y: -20 },
+  { id: 'RESET', x: 20, y: -60 },
+  { id: 'CTRL', x: 60, y: 20 },
+  { id: 'THR', x: -60, y: 0 },
+  { id: 'DIS', x: -60, y: -20 },
+  { id: 'VCC', x: -20, y: -60 },
+];
+
+function timerDevice(spec: TimerSpec, searchTerms: string): ComponentDef {
+  return {
+    id: spec.name.toLowerCase(),
+    category: 'Logica',
+    name: `Timer ${spec.name}`,
+    tagPrefix: 'U',
+    searchTerms: `timer 555 astabile monostabile oscillatore temporizzatore ${searchTerms}`,
+    terminals: TIMER_TERMINALS,
+    symbol: [
+      ...TIMER_TERMINALS.map((t): Prim =>
+        Math.abs(t.x) > TIMER_EDGE ? { t: 'line', x1: t.x, y1: t.y, x2: Math.sign(t.x) * TIMER_EDGE, y2: t.y } : { t: 'line', x1: t.x, y1: t.y, x2: t.x, y2: Math.sign(t.y) * TIMER_EDGE },
+      ),
+      { t: 'rect', x: -TIMER_EDGE, y: -TIMER_EDGE, w: 2 * TIMER_EDGE, h: 2 * TIMER_EDGE, fill: 'var(--sch-part-soft)' },
+    ],
+    props: [],
+    spice: { kind: 'timer', gnd: 'GND', trig: 'TRIG', out: 'OUT', reset: 'RESET', ctrl: 'CTRL', thr: 'THR', dis: 'DIS', vcc: 'VCC', spec },
+  };
+}
+
+const TIMERS = [timerDevice(NE555, 'ne555 bipolare'), timerDevice(TLC555, 'tlc555 cmos')];
+
 const REGULATORS = [
   ...[5, 6, 8, 9, 12, 15, 24].map((v) => regulatorDevice(`78${String(v).padStart(2, '0')}`, v, 1)),
   ...[5, 12, 15].map((v) => regulatorDevice(`79${String(v).padStart(2, '0')}`, v, -1)),
@@ -1078,7 +1116,7 @@ const SENSORS = [
   sensorDevice('TMP36', { offset: 0.5, slope: 0.01, tempProp: 'temp', iMax: 10e-3, dropout: 1, vMin: 2.7, vMax: 5.5, vAbsMax: 7 }, 50e-6, [-40, 125]),
 ];
 
-DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, ...RELAYS, ARDUINO_UNO, ...PORTS, ...COMPOSITES);
+DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, ...RELAYS, ARDUINO_UNO, ...PORTS, ...COMPOSITES, ...TIMERS);
 for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));

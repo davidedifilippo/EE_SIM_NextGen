@@ -13,6 +13,7 @@ import { potResistances } from './pot';
 import { parseIntelHex, programKey } from './intelHex';
 import { sketchHex } from '../samples/arduino/sketches';
 import { RelaySpec } from './relay';
+import { TimerSpec } from './timer555';
 import { segmentColor } from './display7';
 import { ctTransformerParams } from './ctTransformer';
 import { internalResistance, sourceSpec } from '../netlist/source';
@@ -116,6 +117,8 @@ export type CompiledDevice =
   | { kind: 'relay'; element: number; a: NodeIndex; b: NodeIndex; c: NodeIndex; d: NodeIndex; branch: number; spec: RelaySpec }
   /** An Arduino Uno: a is its 5V, a source behind a small resistance in its branch, b its ground; pins in the order of the program. */
   | { kind: 'mcu'; element: number; a: NodeIndex; b: NodeIndex; pins: NodeIndex[]; branch: number; program: Uint16Array; programKey: string }
+  /** A 555: a is OUT and b GND; lower is the inner node of the divider at a third of the supply. */
+  | { kind: 'timer'; element: number; a: NodeIndex; b: NodeIndex; trig: NodeIndex; reset: NodeIndex; ctrl: NodeIndex; thr: NodeIndex; dis: NodeIndex; vcc: NodeIndex; lower: NodeIndex; spec: TimerSpec }
   /** a is the common, b the first way; g holds the conductance to each way, set by the state of the contact. */
   | { kind: 'switch'; element: number; a: NodeIndex; b: NodeIndex; ways: NodeIndex[]; g: number[] }
   /** a is the output, b is ground; the output is held for a whole step, so the matrix never changes with it. */
@@ -390,6 +393,11 @@ export function compileCircuit(circuit: Circuit): CompileResult {
         pending.push({ element, needsBranch: true, build: (branch) => ({ kind: 'mcu', element, a, b, pins, branch, program, programKey: key }) });
         break;
       }
+      case 'timer': {
+        const [a, b, trig, reset, ctrl, thr, dis, vcc] = [s.out, s.gnd, s.trig, s.reset, s.ctrl, s.thr, s.dis, s.vcc].map(node);
+        pending.push({ element, needsBranch: false, build: (_, nextNode) => ({ kind: 'timer', element, a, b, trig, reset, ctrl, thr, dis, vcc, lower: nextNode(), spec: s.spec }) });
+        break;
+      }
       case 'relay': {
         const [a, b, c, d] = [node(s.coil1), node(s.coil2), node(s.c1), node(s.c2)];
         pending.push({ element, needsBranch: true, build: (branch) => ({ kind: 'relay', element, a, b, c, d, branch, spec: s.spec }) });
@@ -553,7 +561,7 @@ export function compileCircuit(circuit: Circuit): CompileResult {
 
   const signature = JSON.stringify([
     branch,
-    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'motor' ? d.e : d.kind === 'pot' ? d.w : d.kind === 'relay' ? [d.c, d.d] : d.kind === 'mcu' ? [...d.pins, d.programKey] : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.outputs, ...d.inputs] : d.kind === 'switch' ? d.ways : d.kind === 'display7' ? d.segments : d.kind === 'bridge' ? [d.ac1, d.ac2, ...d.junctions] : d.kind === 'ctransformer' ? [...d.starts, ...d.ends, ...d.inner] : 0]),
+    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'motor' ? d.e : d.kind === 'pot' ? d.w : d.kind === 'relay' ? [d.c, d.d] : d.kind === 'timer' ? [d.trig, d.reset, d.ctrl, d.thr, d.dis, d.vcc, d.lower] : d.kind === 'mcu' ? [...d.pins, d.programKey] : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.outputs, ...d.inputs] : d.kind === 'switch' ? d.ways : d.kind === 'display7' ? d.segments : d.kind === 'bridge' ? [d.ac1, d.ac2, ...d.junctions] : d.kind === 'ctransformer' ? [...d.starts, ...d.ends, ...d.inner] : 0]),
   ]);
   return { ok: true, compiled: { size: branch, devices, netIndex, elementIds, signature } };
 }

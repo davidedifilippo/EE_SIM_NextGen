@@ -84,6 +84,30 @@ export interface RelaySpec {
   dropout: number;
 }
 
+/**
+ * A 555 timer from the typical values of its datasheet: supply range, the internal divider, the output
+ * stage, the discharge transistor and the current it takes at rest.
+ */
+export interface TimerSpec {
+  name: string;
+  vMin: number;
+  vMax: number;
+  vAbsMax: number;
+  /** Each of the three equal resistors of the divider. */
+  divider: number;
+  /** The output high is the supply less this, behind rHigh; low, ground behind rLow. */
+  highDrop: number;
+  rHigh: number;
+  rLow: number;
+  rDischarge: number;
+  /** Current at rest with 5 V, the divider included. */
+  quiescent: number;
+  /** Below this RESET clears the timer. */
+  resetLevel: number;
+  /** The most the output gives or takes. */
+  iMax: number;
+}
+
 /** OPAMP is a subcircuit with five pins, in place of the ideal part; REGULATOR one with three, in place of the simple behaviour; SUBCKT is any subcircuit, as a block of its own. */
 export type ModelType = 'D' | 'NPN' | 'PNP' | 'NMOS' | 'PMOS' | 'OPAMP' | 'SUBCKT' | 'REGULATOR';
 
@@ -106,6 +130,8 @@ export type SpiceDef =
   | { kind: 'pot'; a: string; b: string; wiper: string; valueProp: string; positionProp: string }
   /** An Arduino Uno: its pins in the order of the program, the 5V it gives, its ground; the program from an example or a loaded file. */
   | { kind: 'mcu'; pins: string[]; vcc: string; gnd: string; sketchProp: string; hexProp: string }
+  /** A 555 timer, its pins by function. */
+  | { kind: 'timer'; gnd: string; trig: string; out: string; reset: string; ctrl: string; thr: string; dis: string; vcc: string; spec: TimerSpec }
   /** The coil between coil1 and coil2; a normally open contact between c1 and c2. */
   | { kind: 'relay'; coil1: string; coil2: string; c1: string; c2: string; spec: RelaySpec }
   | { kind: 'block'; pins: string[]; modelProp: string }

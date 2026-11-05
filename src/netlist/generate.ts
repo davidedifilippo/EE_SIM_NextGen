@@ -11,6 +11,7 @@ import { LogicNetwork, gateExpression, levelExpression, LOGIC_INPUT_RESISTANCE, 
 import { CONTACT_CLOSED, CONTACT_OPEN, contactResistances } from '../realtime/switches';
 import { potResistances } from '../realtime/pot';
 import { relayThresholds } from '../realtime/relay';
+import { supplyResistance, TIMER_INPUT_RESISTANCE, TIMER_OFF_RESISTANCE, TIMER_RESET_PULLUP } from '../realtime/timer555';
 import { SEGMENT_LEAK, segmentColor, segmentExpression } from '../realtime/display7';
 import { ctTransformerParams } from '../realtime/ctTransformer';
 import { MOTOR_LEAK, motorParamsOf } from '../realtime/motor';
@@ -151,6 +152,8 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
   let needsLatchModel = false;
   /** One switch model for each kind of relay in the circuit. */
   const relayModels = new Map<string, string>();
+  /** The switches of the output stages, once for each kind of 555. */
+  const timerModels = new Map<string, string[]>();
   const usedNames = new Set<string>();
   const usedModels = new Map<string, SpiceModel>();
   let hasAcSource = false;
@@ -319,6 +322,41 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         // As it stands now: a push button counts at rest, as nobody presses it during the analysis
         const resistances = contactResistances(s.switchKind, { ...el.props, pressed: '0' });
         s.ways.forEach((way, k) => lines.push(`${name}${s.ways.length > 1 ? `_${k + 1}` : ''} ${node(s.common)} ${node(way)} ${resistances[k]}`));
+        break;
+      }
+      case 'timer': {
+        const name = uniqueName('X', el.tag);
+        if (!name) break;
+        const { spec } = s;
+        const [gnd, trig, out, reset, ctrl, thr, dis, vcc, lower] = [...[s.gnd, s.trig, s.out, s.reset, s.ctrl, s.thr, s.dis, s.vcc].map(node), `xl${name}`];
+        const v = (n: string) => (n === '0' ? '0' : `v(${n})`);
+        const above = (difference: string) => `(0.5+0.5*tanh((${difference})/${TIMER_EDGE_WIDTH}))`;
+        // The divider, the current at rest and the inputs, as in the real-time engine
+        lines.push(`RA${name} ${vcc} ${ctrl} ${spec.divider}`, `RB${name} ${ctrl} ${lower} ${spec.divider}`, `RC${name} ${lower} ${gnd} ${spec.divider}`);
+        lines.push(`RQ${name} ${vcc} ${gnd} ${supplyResistance(spec)}`, `RT${name} ${trig} ${gnd} ${TIMER_INPUT_RESISTANCE}`, `RH${name} ${thr} ${gnd} ${TIMER_INPUT_RESISTANCE}`, `RP${name} ${reset} ${vcc} ${TIMER_RESET_PULLUP}`);
+        // The comparators and RESET as smooth levels; the flip-flop as the SR latch: a capacitor the switch joins
+        // to the next state while any of them acts, TRIG before THR and RESET before both
+        const [set, clear, cleared] = [above(`v(${lower})-${v(trig)}`), above(`${v(thr)}-v(${ctrl})`), above(`${spec.resetLevel}-(${v(reset)}-${v(gnd)})`)];
+        lines.push(`BS${name} xs${name} 0 V=${set}`, `BT${name} xt${name} 0 V=${clear}`, `BR${name} xr${name} 0 V=${cleared}`);
+        const [ls, lt, lr] = [`v(xs${name})`, `v(xt${name})`, `v(xr${name})`];
+        // The switch closes only with an input clearly on, and opens once all are clearly off; what it
+        // stores is a full 0 or 1. So the state snaps and stays, as a flip-flop, instead of following a
+        // comparator on its way back
+        const sharp = (level: string) => `(0.5+0.5*tanh((${level}-0.5)/0.01))`;
+        lines.push(`BC${name} xc${name} 0 V=(1-(1-${ls})*(1-${lt})*(1-${lr}))-0.75`);
+        lines.push(`BD${name} xd${name} 0 V=${sharp(ls)}*(1-${sharp(lr)})`, `SM${name} xd${name} xm${name} xc${name} 0 LOGIC_SW`);
+        lines.push(`CM${name} xm${name} 0 ${LATCH_CAPACITANCE}`, `RM${name} xm${name} 0 ${LATCH_LEAK}`);
+        lines.push(`BQ${name} xq${name} 0 V=0.5+0.5*tanh((v(xm${name})-0.5)/0.02)`, `BN${name} xn${name} 0 V=1-v(xq${name})`);
+        // OUT to the supply less its drop when high, to GND when low; DIS to GND when low
+        const model = `TIMER_${spec.name}`;
+        lines.push(`BH${name} xh${name} 0 V=${v(vcc)}-${spec.highDrop}`);
+        lines.push(`SH${name} xh${name} ${out} xq${name} 0 ${model}_H`, `SL${name} ${out} ${gnd} xn${name} 0 ${model}_L`, `SD${name} ${dis} ${gnd} xn${name} 0 ${model}_D`);
+        timerModels.set(model, [
+          `.model ${model}_H SW(VT=0.5 VH=0.1 RON=${spec.rHigh} ROFF=1e12)`,
+          `.model ${model}_L SW(VT=0.5 VH=0.1 RON=${spec.rLow} ROFF=1e12)`,
+          `.model ${model}_D SW(VT=0.5 VH=0.1 RON=${spec.rDischarge} ROFF=${TIMER_OFF_RESISTANCE})`,
+        ]);
+        needsLatchModel = true;
         break;
       }
       case 'mcu':
@@ -600,16 +638,21 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
 
   if (errors.length > 0) return { text: '', errors, nodeOf };
 
+  // An astable has no rest in DC, which ngspice would look for: a circuit with a 555 starts as at power-on,
+  // every capacitor empty
+  const hasTimer = timerModels.size > 0;
   const familyPart = analysis.type === 'dc' && analysis.familySource ? ` ${sweptName(analysis.familySource)} ${analysis.familyFrom} ${analysis.familyTo} ${analysis.familyStep}` : '';
   const command =
     analysis.type === 'ac'
       ? `.ac dec ${analysis.pointsPerDecade} ${analysis.from} ${analysis.to}`
       : analysis.type === 'dc'
         ? `.dc ${sweptName(analysis.source)} ${analysis.from} ${analysis.to} ${analysis.step}${familyPart}`
-        : `.tran ${analysis.step} ${analysis.stop}${analysis.maxStep ? ` 0 ${analysis.maxStep}` : ''}`;
+        : `.tran ${analysis.step} ${analysis.stop}${analysis.maxStep ? ` 0 ${analysis.maxStep}` : ''}${hasTimer ? ' uic' : ''}`;
   if (needsLatchModel) lines.push(LATCH_SWITCH_MODEL, LATCH_FORCE_MODEL);
-  lines.push(...relayModels.values());
-  const text = [circuit.title, ...lines, ...modelCards.map((m) => m.card), command, '.end', ''].join('\n');
+  lines.push(...relayModels.values(), ...[...timerModels.values()].flat());
+  // The memory of a 555 is much faster than the step: the trapezoidal rule rings on it, Gear damps it
+  const options = hasTimer && analysis.type === 'tran' ? ['.options method=gear'] : [];
+  const text = [circuit.title, ...lines, ...modelCards.map((m) => m.card), ...options, command, '.end', ''].join('\n');
   return { text, errors, nodeOf };
 }
 
@@ -617,6 +660,8 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
 const LATCH_SWITCH_MODEL = '.model LOGIC_SW SW(VT=0 VH=0.1 RON=100 ROFF=1e12)';
 const LATCH_FORCE_MODEL = '.model LOGIC_FORCE SW(VT=0 VH=0.1 RON=1 ROFF=1e12)';
 const LATCH_CAPACITANCE = '1n';
+/** How sharp the comparators of a 555 are for ngspice, in volts: a step, but smooth for Newton. */
+const TIMER_EDGE_WIDTH = 0.005;
 const LATCH_LEAK = 1e12;
 
 /**
