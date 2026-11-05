@@ -7,7 +7,7 @@ const ALL = 'Tutti';
 const SECTION_KEY = 'ee-sim-nextgen/library-section';
 const PARTS = DEVICES.filter((def) => !def.isHidden);
 /** Sources first: every circuit starts from them, and from ground. */
-const SECTIONS = ['Sorgenti', 'Passivi', 'Semiconduttori', 'Operazionali', 'Regolatori', 'Sensori', 'Motori', 'Logica', 'Strumenti', 'Altri'];
+const SECTIONS = ['Sorgenti', 'Passivi', 'Semiconduttori', 'Operazionali', 'Regolatori', 'Sensori', 'Motori', 'Logica', 'Arduino', 'Strumenti', 'Altri'];
 
 const loadSection = () => {
   try {

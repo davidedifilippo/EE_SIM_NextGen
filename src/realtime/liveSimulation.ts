@@ -52,6 +52,10 @@ export interface LiveFrame {
   regulators: (RegulatorDisplay | null)[];
   /** Each motor: its speed at the output shaft and what it is doing. */
   motors: ({ rpm: number; state: MotorState } | null)[];
+  /** Each Arduino: the LED L, what draws beyond its maximum current, and what it wrote on the serial port since the last frame. */
+  mcus: ({ id: string; led: boolean; warnings: string[]; serial: string } | null)[];
+  /** The mean current of each LED since the last frame, as the eye sees it under a PWM; NaN for the other parts. */
+  ledMean: Float64Array;
   /** Each relay: whether its contact is closed. */
   relays: (boolean | null)[];
   /** For each logic part: the level of each output, then of each input. */
@@ -106,6 +110,8 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
       return [s.a, s.b, s.wiper];
     case 'relay':
       return [s.coil1, s.coil2, s.c1, s.c2];
+    case 'mcu':
+      return [...s.pins, s.vcc, s.gnd];
     case 'diode':
       return [s.anode, s.cathode];
     case 'bjt':
@@ -151,7 +157,7 @@ export function buildLiveLayout(circuit: Circuit, compiled: CompiledCircuit): Li
     const firstDot = dots.length;
     // Through a two-terminal device in one run; a transformer has one per winding; in a transistor or a
     // gate, each lead meets at the center, where a gate takes its supply
-    const isPerLead = def.spice.kind === 'logic' || def.spice.kind === 'display7' || def.spice.kind === 'bridge';
+    const isPerLead = def.spice.kind === 'logic' || def.spice.kind === 'display7' || def.spice.kind === 'bridge' || def.spice.kind === 'mcu';
     if (isPerLead) points.forEach((p) => dots.push({ a: p, b: { x: el.x, y: el.y } }));
     // One run per winding: the primary, and each half of the secondary to the centre tap
     else if (def.spice.kind === 'ctransformer') dots.push({ a: points[0], b: points[1] }, { a: points[2], b: points[3] }, { a: points[3], b: points[4] });
@@ -200,6 +206,10 @@ export class LiveSimulation {
   private lastCircuit: Circuit | null = null;
   private meters = new Map<string, { index: number; mode: unknown; window: MeterWindow; read: () => number }>();
   private period: number | null = null;
+  /** The LEDs, by device, with the sum of their currents over the steps since the last frame. */
+  private leds: number[] = [];
+  private ledSum = new Float64Array(0);
+  private ledSteps = 0;
 
   /** Probes are sampled at every solver step: at frame rate, fast signals would show up as corners. */
   setProbes(probes: ScopeProbe[], revision: number) {
@@ -304,9 +314,11 @@ export class LiveSimulation {
       if (previous && previous.compiled.signature === compiled.signature) {
         next.adoptState(previous);
       } else {
-        // New topology: a new operating point, but the sources carry on from the same time
+        // New topology: a new operating point, but the sources carry on from the same time, and a
+        // board with the same program goes on running it
         next.time = previous?.time ?? 0;
         next.initialize();
+        if (previous) next.adoptMcus(previous);
       }
     } catch (err) {
       this.engine = null;
@@ -316,6 +328,9 @@ export class LiveSimulation {
       throw err;
     }
     this.engine = next;
+    this.leds = compiled.elementIds.flatMap((id, i) => (circuit.elements.find((el) => el.id === id)?.def === 'led' ? [i] : []));
+    this.ledSum = new Float64Array(compiled.devices.length);
+    this.ledSteps = 0;
     this.resolveProbes();
     this.resolveMeters();
     return { ok: true };
@@ -330,6 +345,8 @@ export class LiveSimulation {
     while (done < steps) {
       this.engine.step(h);
       done++;
+      for (const i of this.leds) this.ledSum[i] += this.engine.deviceCurrent(i);
+      if (this.leds.length > 0) this.ledSteps++;
       this.meters.forEach((meter) => meter.window.add(meter.read(), h, window));
       if (this.readers.length > 0) {
         this.sampleTimes.push(this.engine.time);
@@ -369,7 +386,7 @@ export class LiveSimulation {
       if (d.kind === 'pot') deviceVbe[i] = engine.nodeVoltage(d.w);
       if (d.kind === 'relay') deviceVbe[i] = engine.nodeVoltage(d.c) - engine.nodeVoltage(d.d);
       const { firstDot } = layout.devices[i];
-      if (d.kind === 'logic' || d.kind === 'display7' || d.kind === 'bridge') currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
+      if (d.kind === 'logic' || d.kind === 'display7' || d.kind === 'bridge' || d.kind === 'mcu') currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
       else if (d.kind === 'ctransformer') [dotCurrent[firstDot], dotCurrent[firstDot + 1], dotCurrent[firstDot + 2]] = [currents[0], currents[2], -currents[4]];
       else if (currents.length === 2) dotCurrent[firstDot] = currents[0];
       else if (currents.length === 4) [dotCurrent[firstDot], dotCurrent[firstDot + 1]] = [currents[0], currents[2]];
@@ -395,6 +412,11 @@ export class LiveSimulation {
     const motors = devices.map((_, i) => engine.motorStatus(i));
     const logic = devices.map((d, i) => (d.kind === 'logic' ? engine.logicLevels(i) : null));
     const relays = devices.map((_, i) => engine.relayIsClosed(i));
-    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, relays, logic, scope: this.takeSamples() };
+    const mcus = devices.map((_, i) => engine.mcuStatus(i));
+    const ledMean = new Float64Array(devices.length).fill(NaN);
+    for (const i of this.leds) ledMean[i] = this.ledSteps > 0 ? this.ledSum[i] / this.ledSteps : engine.deviceCurrent(i);
+    this.ledSum.fill(0);
+    this.ledSteps = 0;
+    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, relays, mcus, ledMean, logic, scope: this.takeSamples() };
   }
 }

@@ -355,6 +355,62 @@ const relayMotor = (): Circuit => ({
   models: [],
 });
 
+/** The ground of the board, below its GND pin: every Arduino example needs it. */
+const boardGround = (): [Element, Wire] => [ground(-80, 70, 'gnd'), wire('wg', [-50, 70], [-80, 70])];
+
+/** An LED behind 220 ohms from a pin on the right of the board, at height y, to its own ground. */
+const pinLed = (y: number, color: string): { elements: Element[]; wires: Wire[] } => ({
+  elements: [part('r1', 'resistor', 140, y, 0, 'R1', { value: '220' }), part('d1', 'led', 220, y + 40, 90, 'D1', { model: color }), ground(220, y + 100, 'gnd3')],
+  wires: [wire('wl1', [50, y], [100, y]), wire('wl2', [180, y], [220, y]), wire('wl3', [220, y + 80], [220, y + 100])],
+});
+
+/** Blink: the LED L on the board and a red LED on D12 blink together, once a second. */
+const arduinoBlink = (): Circuit => {
+  const [gnd, wg] = boardGround();
+  const led = pinLed(-110, 'LED_ROSSO');
+  return {
+    title: 'Arduino: Blink',
+    elements: [part('a1', 'arduino_uno', 0, 0, 0, 'A1', { sketch: 'blink' }), gnd, ...led.elements],
+    wires: [wg, ...led.wires],
+    models: [],
+  };
+};
+
+/** A potentiometer across 5V and GND, its wiper on A0; the sketch sets the brightness of the LED on D9 from it. */
+const arduinoPot = (): Circuit => {
+  const [gnd, wg] = boardGround();
+  const led = pinLed(-50, 'LED_VERDE');
+  return {
+    title: 'Arduino: potenziometro e LED',
+    // Turned so that b is on the 5V above and a on ground below: the wiper share is the share of 5 V
+    elements: [part('a1', 'arduino_uno', 0, 0, 0, 'A1', { sketch: 'potenziometro' }), part('p1', 'potentiometer', -160, -40, 270, 'P1', { value: '10k', position: '50' }), ground(-160, 20, 'gnd2'), gnd, ...led.elements],
+    wires: [
+      wire('w5v', [-50, -70], [-90, -70], [-90, -100], [-160, -100], [-160, -80]),
+      wire('wa0', [-200, -40], [-220, -40], [-220, 40], [-110, 40], [-110, -50], [-50, -50]),
+      wire('wp', [-160, 0], [-160, 20]),
+      wg,
+      ...led.wires,
+    ],
+    models: [],
+  };
+};
+
+/** An LM35 fed by the 5V of the board, its output on A0: the sketch writes the temperature on the serial monitor. */
+const arduinoThermometer = (): Circuit => {
+  const [gnd, wg] = boardGround();
+  return {
+    title: 'Arduino: termometro LM35',
+    elements: [part('a1', 'arduino_uno', 0, 0, 0, 'A1', { sketch: 'termometro' }), part('u1', 'lm35', -220, -70, 0, 'U1', { temp: '25' }), ground(-220, -10, 'gnd2'), gnd],
+    wires: [
+      wire('w5v', [-50, -70], [-80, -70], [-80, -120], [-260, -120], [-260, -70]),
+      wire('wa0', [-180, -70], [-120, -70], [-120, -50], [-50, -50]),
+      wire('wu', [-220, -30], [-220, -10]),
+      wg,
+    ],
+    models: [],
+  };
+};
+
 /** What Nuovo opens: an empty sheet, but with the ground that every circuit needs. */
 export const emptyCircuit = (): Circuit => ({ title: 'Circuito', elements: [ground(0, 0)], wires: [], models: [] });
 
@@ -372,6 +428,9 @@ export const EXAMPLES: Example[] = [
   { id: 'dual', title: 'Alimentatore duale con presa centrale', hint: 'Trasformatore 230 V → 12+12 V, ponte di Graetz e due condensatori: circa +17 V e −17 V rispetto alla presa centrale', build: dualSupply },
   { id: 'motor', title: 'Motoriduttore IG22', hint: 'Chiudi S1: all’avvio la corrente fa uno spunto, poi scende a circa 0,2 A e il motore gira a 789 giri/min. Alza il carico di M1: la velocità scende e la corrente sale', build: gearMotor },
   { id: 'relay', title: 'Relè che comanda un motore', hint: 'Chiudi S1: la bobina di K1 si eccita, il contatto 13–14 si chiude e il motore da 12 V parte. Riapri S1: D1 porta la corrente della bobina e il contatto si riapre', build: relayMotor },
+  { id: 'arduino_blink', title: 'Arduino: Blink', hint: 'Il programma Blink accende e spegne il LED L della scheda e il LED su D12 ogni secondo, in tempo reale. Nelle proprietà di A1 si cambia programma o se ne carica uno .hex', build: arduinoBlink },
+  { id: 'arduino_pot', title: 'Arduino: potenziometro e LED', hint: 'Sposta il cursore di P1: Arduino legge A0 e regola con il PWM la luminosità del LED su D9. I valori compaiono nel Monitor seriale', build: arduinoPot },
+  { id: 'arduino_lm35', title: 'Arduino: termometro LM35', hint: 'Cambia la temperatura di U1: Arduino legge A0 e scrive i gradi nel Monitor seriale ogni mezzo secondo', build: arduinoThermometer },
   { id: 'sensors', title: 'Sensori di temperatura LM35 e TMP36', hint: 'Sposta la temperatura nelle proprietà di U1 e U2: 10 mV per grado. LM35: 0 V a 0 °C; TMP36: 0,5 V a 0 °C', build: sensors },
   { id: 'regulator', title: 'Regolatore 7805', hint: '5 V sul carico da 100 Ω: guarda la potenza e la temperatura del regolatore', build: regulator },
 ];

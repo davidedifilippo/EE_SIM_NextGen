@@ -84,7 +84,11 @@ export const LedGlow: React.FC<Props> = ({ circuit, layout, frameRef }) => {
     const refresh = () => {
       const frame = frameRef.current;
       if (!frame) return;
-      leds.forEach(({ index }, i) => glows[i]?.setAttribute('opacity', String(0.75 * ledBrightness(frame.deviceCurrent[index]))));
+      // The mean since the last frame: a PWM faster than the frames shows as a dimmer light, not a flicker
+      leds.forEach(({ index }, i) => {
+        const mean = frame.ledMean[index];
+        glows[i]?.setAttribute('opacity', String(0.75 * ledBrightness(Number.isNaN(mean) ? frame.deviceCurrent[index] : mean)));
+      });
     };
     refresh();
     const timer = setInterval(refresh, REFRESH_MS);

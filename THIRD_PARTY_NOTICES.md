@@ -54,3 +54,35 @@ Usato dal service worker che rende l'app disponibile offline (`sw.js`, `workbox-
 ## vite-plugin-pwa
 
 Usato solo per costruire il service worker e il manifest. Licenza MIT. Fonte: https://github.com/vite-pwa/vite-plugin-pwa
+
+## avr8js
+
+Emulatore del microcontrollore ATmega328P dell'Arduino Uno (https://github.com/wokwi/avr8js), usato come dipendenza npm.
+
+```
+The MIT License (MIT)
+
+Copyright (c) 2019-2025 Uri Shaked
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+## Core Arduino AVR
+
+Gli sketch d'esempio in `src/samples/arduino/` sono compilati con il core Arduino AVR 1.8.8 (https://github.com/arduino/ArduinoCore-avr), distribuito con licenza GNU LGPL 2.1: i file `.hex` contengono il codice del core collegato a quello degli sketch. Il sorgente degli sketch è accanto a ogni `.hex`, e `scripts/build-sketches.sh` li ricompila con `arduino-cli`; il sorgente del core è disponibile all'indirizzo indicato.

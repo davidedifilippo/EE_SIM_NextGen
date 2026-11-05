@@ -5,6 +5,7 @@ import { REGULATOR_GAIN, REGULATOR_LEAK, RegulatorRegion, regulatorPoint, regula
 import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams, MosParams } from './compile';
 import { luFactor, luSolve } from './linear';
 import { nextRelayState } from './relay';
+import { ArduinoUno, LED_PIN, PIN_MAX_CURRENT, PinMode, SUPPLY_MAX_CURRENT, UNO_PINS, UNO_SUPPLY_RESISTANCE, UNO_VCC } from './arduino';
 import { CONTACT_CLOSED, CONTACT_OPEN } from './switches';
 import { CURRENT_SOURCE_LEAK, OPAMP_GAIN, TRANSFORMER_WINDING_RESISTANCE } from '../netlist/generate';
 
@@ -223,6 +224,8 @@ export class RealtimeEngine {
   private readonly logicState: Int32Array;
   /** 1 for a relay whose contact is closed: it moves only between steps, so each step stays linear. */
   private readonly relayClosed: Uint8Array;
+  /** The microcontroller of each Arduino, which runs between the steps; it passes to the next engine with the same program. */
+  private readonly mcus: (ArduinoUno | null)[];
   /** Per centre-tapped transformer: voltage and current of each of its three windings at the last accepted point. */
   private readonly vPrevW: Float64Array;
   private readonly iPrevW: Float64Array;
@@ -266,6 +269,7 @@ export class RealtimeEngine {
     this.logicIn = new Int32Array(devices.length);
     this.logicState = new Int32Array(devices.length);
     this.relayClosed = new Uint8Array(devices.length);
+    this.mcus = devices.map((d) => (d.kind === 'mcu' ? new ArduinoUno(d.program) : null));
     this.vIterBridge = new Float64Array(devices.length * 4);
     this.vPrevW = new Float64Array(devices.length * 3);
     this.iPrevW = new Float64Array(devices.length * 3);
@@ -370,6 +374,14 @@ export class RealtimeEngine {
         case 'switch':
           d.ways.forEach((way, k) => this.addG(d.a, way, d.g[k]));
           break;
+        case 'mcu': {
+          // The 5V of the board, then each pin behind the resistance of its mode
+          this.addBranchColumns(d.a, d.b, d.branch);
+          base[d.branch * n + d.branch] = -UNO_SUPPLY_RESISTANCE;
+          const uno = this.mcus[i]!;
+          d.pins.forEach((pin, k) => this.addG(pin, d.b, 1 / uno.pinResistance(k)));
+          break;
+        }
         case 'pot':
           this.addG(d.a, d.w, d.g1);
           this.addG(d.w, d.b, d.g2);
@@ -423,7 +435,7 @@ export class RealtimeEngine {
   private branchStart(): number {
     let first = this.n;
     for (const d of this.compiled.devices) {
-      if ((d.kind === 'inductor' || d.kind === 'vsource' || d.kind === 'opamp' || d.kind === 'transformer' || d.kind === 'motor' || d.kind === 'relay') && d.branch < first) first = d.branch;
+      if ((d.kind === 'inductor' || d.kind === 'vsource' || d.kind === 'opamp' || d.kind === 'transformer' || d.kind === 'motor' || d.kind === 'relay' || d.kind === 'mcu') && d.branch < first) first = d.branch;
       if (d.kind === 'ctransformer' && d.branches[0] < first) first = d.branches[0];
     }
     return first;
@@ -444,6 +456,17 @@ export class RealtimeEngine {
         case 'inductor':
           rhs[d.branch] = h > 0 ? ((-2 * d.l) / h) * this.iPrev[i] - this.vPrev[i] : 0;
           break;
+        case 'mcu': {
+          rhs[d.branch] = UNO_VCC * sourceScale;
+          // Each pin as the current source of its Norton equivalent, at its level for the step
+          const uno = this.mcus[i]!;
+          d.pins.forEach((pin, k) => {
+            const current = (uno.pinSource(k) / uno.pinResistance(k)) * sourceScale;
+            if (pin >= 0) rhs[pin] += current;
+            if (d.b >= 0) rhs[d.b] -= current;
+          });
+          break;
+        }
         case 'relay':
           rhs[d.branch] = h > 0 ? ((-2 * d.spec.coilInductance) / h) * this.iPrev[i] - this.vPrev[i] : 0;
           break;
@@ -957,6 +980,55 @@ export class RealtimeEngine {
     return hasChanged;
   }
 
+  /** Runs each microcontroller over the step to come, with the inputs of the last accepted point. */
+  private runMcus(h: number) {
+    for (const uno of this.mcus) {
+      if (uno?.run(h)) this.stampedStep = null;
+    }
+  }
+
+  /** Gives each microcontroller the voltages of its pins at the accepted point. */
+  private updateMcuInputs() {
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind !== 'mcu') return;
+      const ground = this.voltage(d.b);
+      this.mcus[i]!.setInputs(d.pins.map((pin) => this.voltage(pin) - ground));
+    });
+  }
+
+  /**
+   * Takes over the running microcontrollers of an engine with another topology, by element and program:
+   * rewiring the circuit does not reset the board, a new program does.
+   */
+  adoptMcus(previous: RealtimeEngine) {
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind !== 'mcu') return;
+      const id = this.compiled.elementIds[d.element];
+      previous.compiled.devices.forEach((before, j) => {
+        if (before.kind === 'mcu' && previous.compiled.elementIds[before.element] === id && before.programKey === d.programKey) this.mcus[i] = previous.mcus[j];
+      });
+    });
+    this.stampedStep = null;
+    this.updateMcuInputs();
+  }
+
+  /** What an Arduino shows: the LED L, the pins and the 5V beyond their maximum current, and what it wrote on the serial port since the last call. */
+  mcuStatus(index: number): { id: string; led: boolean; warnings: string[]; serial: string } | null {
+    const d = this.compiled.devices[index];
+    const uno = this.mcus[index];
+    if (d?.kind !== 'mcu' || !uno) return null;
+    const currents = this.terminalCurrents(index);
+    return {
+      id: this.compiled.elementIds[d.element],
+      led: uno.modes[LED_PIN] === PinMode.Output && uno.highShare[LED_PIN] > 0.5,
+      warnings: [
+        ...UNO_PINS.filter((_, k) => Math.abs(currents[k]) > PIN_MAX_CURRENT).map((pin) => `${pin} oltre 40 mA`),
+        ...(Math.abs(currents[UNO_PINS.length]) > SUPPLY_MAX_CURRENT ? ['5V oltre 500 mA'] : []),
+      ],
+      serial: uno.takeSerial(),
+    };
+  }
+
   /** Whether the contact of a relay is closed, for the display. */
   relayIsClosed(index: number): boolean | null {
     return this.compiled.devices[index]?.kind === 'relay' ? this.relayClosed[index] === 1 : null;
@@ -1000,6 +1072,7 @@ export class RealtimeEngine {
     for (let round = 0; round < LOGIC_SETTLE_ROUNDS && this.updateLogic(this.time); round++) {
       if (!this.solve(this.time, 0, 1)) throw new SolverError('Punto di lavoro non trovato');
     }
+    this.updateMcuInputs();
     // A relay with its coil already fed starts pulled in; what its contact feeds may move another
     for (let round = 0; round < LOGIC_SETTLE_ROUNDS && this.updateRelays(); round++) {
       if (!this.solve(this.time, 0, 1)) throw new SolverError('Punto di lavoro non trovato');
@@ -1042,6 +1115,9 @@ export class RealtimeEngine {
     this.logicIn.set(previous.logicIn);
     this.logicState.set(previous.logicState);
     this.relayClosed.set(previous.relayClosed);
+    previous.mcus.forEach((uno, i) => {
+      if (uno) this.mcus[i] = uno;
+    });
     // An input switched by hand gives its new level at once
     this.compiled.devices.forEach((d, i) => {
       if (d.kind === 'logic' && d.gate === 'input') this.logicOut[i] = d.state ? 1 : 0;
@@ -1061,6 +1137,8 @@ export class RealtimeEngine {
 
   /** Advances by h, splitting the step if Newton does not converge. */
   step(h: number, depth = 0) {
+    // The program runs once over the whole step: the halves of a refused step keep its outputs
+    if (depth === 0) this.runMcus(h);
     this.start.set(this.x);
     const startIter = this.vIter.slice();
     const startIterBc = this.vIterBc.slice();
@@ -1071,6 +1149,7 @@ export class RealtimeEngine {
     if (this.solve(this.time + h, h, 1)) {
       this.commit(h);
       this.updateRelays();
+      this.updateMcuInputs();
       this.updateLogic(this.time + h);
       this.updateSensors();
       this.time += h;
@@ -1119,6 +1198,7 @@ export class RealtimeEngine {
       case 'logic':
       case 'switch':
       case 'pot':
+      case 'mcu':
       case 'display7':
       case 'bridge':
         return this.terminalCurrents(index)[0];
@@ -1200,6 +1280,14 @@ export class RealtimeEngine {
       // Into the common, out of each way
       const toWays = d.ways.map((way, k) => d.g[k] * (this.voltage(d.a) - this.voltage(way)));
       return [toWays.reduce((sum, i) => sum + i, 0), ...toWays.map((i) => -i)];
+    }
+    if (d.kind === 'mcu') {
+      // Into each pin, into the 5V, and back out of the ground
+      const uno = this.mcus[index]!;
+      const ground = this.voltage(d.b);
+      const pins = d.pins.map((pin, k) => (this.voltage(pin) - ground - uno.pinSource(k)) / uno.pinResistance(k));
+      const supply = this.x[d.branch];
+      return [...pins, supply, -(supply + pins.reduce((sum, i) => sum + i, 0))];
     }
     if (d.kind === 'pot') {
       // Into a, into b, and into the wiper what the two halves give it

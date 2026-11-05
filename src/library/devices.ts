@@ -5,6 +5,8 @@ import { emptyTable, GateKind, MAX_TABLE_INPUTS, MAX_TABLE_OUTPUTS } from '../re
 import { closedWay, SwitchKind } from '../realtime/switches';
 import { SEGMENT_COLORS, SEGMENT_LINES } from '../realtime/display7';
 import { SourceShape, sourceShape } from '../netlist/source';
+import { CUSTOM_SKETCH, SKETCHES } from '../samples/arduino/sketches';
+import { UNO_PINS } from '../realtime/unoPins';
 
 
 /** One part for each number of pins, as terminals belong to the kind of part: half on the left, the rest on the right. */
@@ -869,6 +871,36 @@ const RELAYS = [
   relayDevice('relay12', { coilVolts: 12, coilResistance: 400, coilInductance: 1.2, pickup: 9, dropout: 1.2 }, '12v srd-12vdc'),
 ];
 
+/**
+ * An Arduino Uno as a box with its pins: 5V, the analog inputs and GND on the left, the digital pins
+ * on the right, D13 at the top as on the board. The program is an example or a .hex file loaded in it.
+ */
+const ARDUINO_LEFT = ['5V', 'A0', 'A1', 'A2', 'A3', 'A4', 'A5', 'GND'];
+const ARDUINO_RIGHT = UNO_PINS.slice(0, 14).reverse();
+export const ARDUINO_HALF = (ARDUINO_RIGHT.length * 20) / 2 + 4;
+const ARDUINO_TERMINALS = [...column(ARDUINO_LEFT, -50), ...column(ARDUINO_RIGHT, 50)];
+
+const ARDUINO_UNO: ComponentDef = {
+  id: 'arduino_uno',
+  category: 'Arduino',
+  name: 'Arduino Uno',
+  tagPrefix: 'A',
+  searchTerms: 'arduino uno microcontrollore atmega328p sketch',
+  terminals: ARDUINO_TERMINALS,
+  symbol: [
+    ...ARDUINO_TERMINALS.map((t): Prim => ({ t: 'line', x1: t.x, y1: t.y, x2: Math.sign(t.x) * 34, y2: t.y })),
+    { t: 'rect', x: -34, y: -ARDUINO_HALF, w: 68, h: 2 * ARDUINO_HALF, fill: 'var(--sch-part-soft)' },
+  ],
+  props: [
+    { key: 'sketch', label: 'Programma', type: 'choice', default: 'blink', options: [...SKETCHES.map(({ value, label }) => ({ value, label })), { value: CUSTOM_SKETCH, label: 'File .hex caricato' }] },
+    { key: 'hex', label: 'File .hex', type: 'text', default: '', isHidden: true },
+    { key: 'hexName', label: 'Nome del file', type: 'text', default: '', isHidden: true },
+    // Counts the presses of Reset: each one is a new start of the program
+    { key: 'resets', label: 'Reset', type: 'text', default: '0', isHidden: true },
+  ],
+  spice: { kind: 'mcu', pins: UNO_PINS, vcc: '5V', gnd: 'GND', sketchProp: 'sketch', hexProp: 'hex' },
+};
+
 const REGULATORS = [
   ...[5, 6, 8, 9, 12, 15, 24].map((v) => regulatorDevice(`78${String(v).padStart(2, '0')}`, v, 1)),
   ...[5, 12, 15].map((v) => regulatorDevice(`79${String(v).padStart(2, '0')}`, v, -1)),
@@ -958,7 +990,7 @@ const SENSORS = [
   sensorDevice('TMP36', { offset: 0.5, slope: 0.01, tempProp: 'temp', iMax: 10e-3, dropout: 1, vMin: 2.7, vMax: 5.5, vAbsMax: 7 }, 50e-6, [-40, 125]),
 ];
 
-DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, ...RELAYS);
+DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, ...RELAYS, ARDUINO_UNO);
 for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));

@@ -1,5 +1,6 @@
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import { Circuit } from '../model/types';
+import { UNO_PINS } from '../realtime/unoPins';
 import { sourceSpec } from '../netlist/source';
 import { LiveFrame } from '../realtime/liveSimulation';
 import { waveformStats } from '../realtime/waveform';
@@ -86,12 +87,14 @@ export const LiveReadout: React.FC<{
   windingsFirstDot: number | null;
   /** A potentiometer: the voltage of its wiper too. */
   isPot?: boolean;
+  /** Set for an Arduino: where the dots of its pins start, the 5V after the twenty of the program. */
+  boardFirstDot?: number | null;
   /** Set for a regulator: where the dots of its pins start. */
   regulatorFirstDot: number | null;
   /** A temperature sensor: no heat to show. */
   isSensor?: boolean;
   frameRef: React.MutableRefObject<LiveFrame | null>;
-}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor = false, isPot = false, frameRef }) => {
+}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor = false, isPot = false, boardFirstDot = null, frameRef }) => {
   const [rows, setRows] = React.useState<[string, string][] | null>(null);
 
   React.useEffect(() => {
@@ -103,7 +106,13 @@ export const LiveReadout: React.FC<{
       const regulator = frame.regulators[deviceIndex];
       const relay = frame.relays[deviceIndex];
       setRows(
-        relay !== null && relay !== undefined && windingsFirstDot !== null
+        boardFirstDot !== null
+          ? [
+              ['5V', volts(frame.deviceVoltage[deviceIndex])],
+              // Into the 5V pin is what the board takes: out of it, what it gives the circuit
+              ['Erogati', amps(-frame.dotCurrent[boardFirstDot + UNO_PINS.length])],
+            ]
+          : relay !== null && relay !== undefined && windingsFirstDot !== null
           ? [
               ['Bobina', volts(frame.deviceVoltage[deviceIndex])],
               ['I bobina', amps(frame.deviceCurrent[deviceIndex])],
@@ -164,7 +173,7 @@ export const LiveReadout: React.FC<{
     refresh();
     const timer = setInterval(refresh, 200);
     return () => clearInterval(timer);
-  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor, isPot, frameRef]);
+  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor, isPot, boardFirstDot, frameRef]);
 
   if (!rows) return null;
   return (

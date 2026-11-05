@@ -214,14 +214,14 @@ const ElementItem: React.FC<{
   const isBesideLabel = elem.rot === 90 || elem.rot === 270 || isTransistor;
   const isBlock = def.spice.kind === 'block';
   // A box with named pins: a subcircuit, a truth table, a decoder, a display
-  const isNamedBox = isBlock || def.spice.kind === 'display7' || (def.spice.kind === 'logic' && (def.spice.gate === 'table' || def.spice.gate === 'dff' || def.spice.gate === 'counter'));
+  const isNamedBox = isBlock || def.spice.kind === 'display7' || def.spice.kind === 'mcu' || (def.spice.kind === 'logic' && (def.spice.gate === 'table' || def.spice.gate === 'dff' || def.spice.gate === 'counter'));
   const isRegulator = def.spice.kind === 'regulator';
   const isSensor = def.spice.kind === 'regulator' && !!def.spice.sensor;
   // The box is as tall as its pins: its labels go beyond it
   const blockReach = Math.max(...def.terminals.map((t) => Math.abs(t.y))) + 16;
   const blockPinNames = isBlock ? String(elem.props.pinNames ?? '').split(' ') : isNamedBox ? def.terminals.map((t) => t.id) : [];
   // The pin names sit inside the box, next to the edge: the parts drawn here have it at 24 from the center, a subcircuit at 34
-  const pinNameX = isBlock ? 31 : 21;
+  const pinNameX = isBlock || def.spice.kind === 'mcu' ? 31 : 21;
   const firstProp = def.props[0];
   // A choice shows its name, as the LED its colour; a logic part shows its level on itself already
   const firstValue = !firstProp ? '' : firstProp.type === 'choice' ? (firstProp.options?.find((o) => o.value === String(elem.props[firstProp.key]))?.label ?? '') : String(elem.props[firstProp.key] ?? '');

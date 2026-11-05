@@ -3,6 +3,8 @@ import { AnalysisControls } from '../ui/AnalysisControls';
 import { Logo } from '../ui/Logo';
 import { ResultsView } from '../ui/ResultsView';
 import { ScopePanel } from '../ui/ScopePanel';
+import { SerialMonitor } from '../ui/SerialMonitor';
+import { getDevice } from '../library/devices';
 import { SharePanel } from '../ui/SharePanel';
 import { SavePanel } from '../ui/SavePanel';
 import { CanvasArea, CircuitFileInput, EditButtons, Library, Properties } from '../workbench/parts';
@@ -76,7 +78,8 @@ export const MobileApp: React.FC<{ wb: Workbench; onFullLayout: () => void }> = 
     }, 0);
   };
 
-  const hasResults = wb.run !== null || wb.errors.length > 0 || wb.traces.length > 0;
+  const hasArduino = wb.circuit.elements.some((el) => getDevice(el.def)?.spice.kind === 'mcu');
+  const hasResults = wb.run !== null || wb.errors.length > 0 || wb.traces.length > 0 || hasArduino;
 
   return (
     <div className="mobile-app">
@@ -125,6 +128,7 @@ export const MobileApp: React.FC<{ wb: Workbench; onFullLayout: () => void }> = 
                 onRemove={(id) => wb.setTraces(wb.traces.filter((t) => t.id !== id))}
               />
             )}
+            <SerialMonitor circuit={wb.circuit} serialRef={wb.live.serialRef} />
             {(wb.run || wb.errors.length > 0) && (
               <div className="results mobile-results">
                 {/* Closes only the analysis: the oscilloscope above has its own */}

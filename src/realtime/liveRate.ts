@@ -18,6 +18,9 @@ export const SPEEDS: { label: string; simSecondsPerSecond: number }[] = [
   { label: '1 s/s', simSecondsPerSecond: 1 },
 ];
 
+/** One simulated second each second: the speed of a circuit with an Arduino. */
+export const REAL_TIME = 1;
+
 /** The speed for slow circuits, and the fastest the automatic choice takes: one period of 50 Hz in a second, easy to follow by eye. */
 export const DEFAULT_SPEED = 20e-3;
 
@@ -57,7 +60,9 @@ export const samplesPerPeriod = (period: number, speed: number) => (period * LIV
  * of its periods a second. Never slower than the default, which is one period of 50 Hz a second: a slow
  * clock of 1 Hz runs in real time, a circuit without generators keeps the speed it has always had.
  */
-export function automaticSpeed(period: number | null): number {
+export function automaticSpeed(period: number | null, hasProgram = false): number {
+  // A sketch counts real seconds, with millis and delay: it runs as on the bench
+  if (hasProgram) return REAL_TIME;
   if (period === null) return DEFAULT_SPEED;
   const wanted = Math.min(Math.max(DEFAULT_SPEED, period), (period * LIVE_STEPS_PER_SECOND) / GOOD_SAMPLES_PER_PERIOD);
   const fitting = SPEEDS.filter((s) => s.simSecondsPerSecond <= wanted * (1 + 1e-9));

@@ -9,6 +9,8 @@ import { RegulatorParams, regulatorParams } from './regulator';
 import { MotorParams, motorParamsOf } from './motor';
 import { contactResistances } from './switches';
 import { potResistances } from './pot';
+import { parseIntelHex, programKey } from './intelHex';
+import { sketchHex } from '../samples/arduino/sketches';
 import { RelaySpec } from './relay';
 import { segmentColor } from './display7';
 import { ctTransformerParams } from './ctTransformer';
@@ -111,6 +113,8 @@ export type CompiledDevice =
   | { kind: 'pot'; element: number; a: NodeIndex; b: NodeIndex; w: NodeIndex; g1: number; g2: number }
   /** A relay: the coil from a to b as R and L in one branch; the contact from c to d, closed or open with the coil current. */
   | { kind: 'relay'; element: number; a: NodeIndex; b: NodeIndex; c: NodeIndex; d: NodeIndex; branch: number; spec: RelaySpec }
+  /** An Arduino Uno: a is its 5V, a source behind a small resistance in its branch, b its ground; pins in the order of the program. */
+  | { kind: 'mcu'; element: number; a: NodeIndex; b: NodeIndex; pins: NodeIndex[]; branch: number; program: Uint16Array; programKey: string }
   /** a is the common, b the first way; g holds the conductance to each way, set by the state of the contact. */
   | { kind: 'switch'; element: number; a: NodeIndex; b: NodeIndex; ways: NodeIndex[]; g: number[] }
   /** a is the output, b is ground; the output is held for a whole step, so the matrix never changes with it. */
@@ -372,6 +376,18 @@ export function compileCircuit(circuit: Circuit): CompileResult {
         pending.push({ element, needsBranch: false, build: () => ({ kind: 'pot', element, a, b, w, g1: 1 / halves[0], g2: 1 / halves[1] }) });
         break;
       }
+      case 'mcu': {
+        const text = sketchHex(el.props[s.sketchProp], el.props[s.hexProp]);
+        const program = text ? parseIntelHex(text) : null;
+        if (!text || !program) {
+          errors.push(text ? `${el.tag}: il file .hex non è valido` : `${el.tag}: carica un file .hex nelle proprietà`);
+          break;
+        }
+        const [pins, a, b] = [s.pins.map(node), node(s.vcc), node(s.gnd)];
+        const key = `${programKey(text)}:${el.props.resets ?? 0}`;
+        pending.push({ element, needsBranch: true, build: (branch) => ({ kind: 'mcu', element, a, b, pins, branch, program, programKey: key }) });
+        break;
+      }
       case 'relay': {
         const [a, b, c, d] = [node(s.coil1), node(s.coil2), node(s.c1), node(s.c2)];
         pending.push({ element, needsBranch: true, build: (branch) => ({ kind: 'relay', element, a, b, c, d, branch, spec: s.spec }) });
@@ -526,7 +542,7 @@ export function compileCircuit(circuit: Circuit): CompileResult {
 
   const signature = JSON.stringify([
     branch,
-    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'motor' ? d.e : d.kind === 'pot' ? d.w : d.kind === 'relay' ? [d.c, d.d] : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.outputs, ...d.inputs] : d.kind === 'switch' ? d.ways : d.kind === 'display7' ? d.segments : d.kind === 'bridge' ? [d.ac1, d.ac2, ...d.junctions] : d.kind === 'ctransformer' ? [...d.starts, ...d.ends, ...d.inner] : 0]),
+    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'motor' ? d.e : d.kind === 'pot' ? d.w : d.kind === 'relay' ? [d.c, d.d] : d.kind === 'mcu' ? [...d.pins, d.programKey] : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.outputs, ...d.inputs] : d.kind === 'switch' ? d.ways : d.kind === 'display7' ? d.segments : d.kind === 'bridge' ? [d.ac1, d.ac2, ...d.junctions] : d.kind === 'ctransformer' ? [...d.starts, ...d.ends, ...d.inner] : 0]),
   ]);
   return { ok: true, compiled: { size: branch, devices, netIndex, elementIds, signature } };
 }

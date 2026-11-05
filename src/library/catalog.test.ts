@@ -47,7 +47,7 @@ describe('the sections of the library', () => {
 
   it('put ground among the sources, and leave no part out of the list', () => {
     expect(parts.filter((def) => def.category === 'Sorgenti').map((def) => def.name)).toEqual(['Alimentazione continua', 'Batteria', 'Generatore', 'Generatore di corrente', 'Massa']);
-    const sections = ['Sorgenti', 'Passivi', 'Semiconduttori', 'Operazionali', 'Regolatori', 'Sensori', 'Motori', 'Logica', 'Strumenti', 'Altri'];
+    const sections = ['Sorgenti', 'Passivi', 'Semiconduttori', 'Operazionali', 'Regolatori', 'Sensori', 'Motori', 'Logica', 'Arduino', 'Strumenti', 'Altri'];
     expect(parts.filter((def) => !sections.includes(def.category))).toEqual([]);
   });
 

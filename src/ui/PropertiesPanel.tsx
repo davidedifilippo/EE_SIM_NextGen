@@ -7,6 +7,8 @@ import { fitsModelType, modelsOfType } from '../library/models';
 import { OPAMP_ROLES, OpAmpRole, readOpAmpRoles, readRegulatorRoles, REGULATOR_ROLES, RegulatorRole, subcircuitPins } from '../library/subcircuit';
 import { drawingSign, LiveFrame, LiveLayout, ScopeProbe } from '../realtime/liveSimulation';
 import { LiveReadout } from './LiveControls';
+import { ArduinoProgram } from './ArduinoProgram';
+import { CUSTOM_SKETCH } from '../samples/arduino/sketches';
 import { ModelImporter } from './ModelImporter';
 import { elementProbes, nodeWire, wireProbe } from './scopeTraces';
 import { SourceInspector } from './SourceInspector';
@@ -86,7 +88,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
     <div className="properties">
       <strong>{def ? def.name : singleWire ? 'Filo' : `${selectedIds.size} oggetti selezionati`}</strong>
       {deviceIndex >= 0 && (
-        <LiveReadout deviceIndex={deviceIndex} sign={single ? drawingSign(single) : 1} transistorFirstDot={def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' ? layout!.devices[deviceIndex].firstDot : null} isMos={def?.spice.kind === 'mos'} windingsFirstDot={def?.spice.kind === 'transformer' || def?.spice.kind === 'relay' ? layout!.devices[deviceIndex].firstDot : null} isPot={def?.spice.kind === 'pot'} regulatorFirstDot={def?.spice.kind === 'regulator' ? layout!.devices[deviceIndex].firstDot : null} isSensor={def?.spice.kind === 'regulator' && !!def.spice.sensor} frameRef={frameRef} />
+        <LiveReadout deviceIndex={deviceIndex} sign={single ? drawingSign(single) : 1} transistorFirstDot={def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' ? layout!.devices[deviceIndex].firstDot : null} isMos={def?.spice.kind === 'mos'} windingsFirstDot={def?.spice.kind === 'transformer' || def?.spice.kind === 'relay' ? layout!.devices[deviceIndex].firstDot : null} isPot={def?.spice.kind === 'pot'} boardFirstDot={def?.spice.kind === 'mcu' ? layout!.devices[deviceIndex].firstDot : null} regulatorFirstDot={def?.spice.kind === 'regulator' ? layout!.devices[deviceIndex].firstDot : null} isSensor={def?.spice.kind === 'regulator' && !!def.spice.sensor} frameRef={frameRef} />
       )}
       {single && def?.spice.kind === 'logic' && def.spice.gate === 'table' && def.spice.tableProp && (
         <TruthTableEditor element={single} inputs={def.spice.inputs} outputs={def.spice.outputs} onChange={(patch) => update(patch)} />
@@ -97,6 +99,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
         def?.props.map((p) => {
           // With a manufacturer's model the bandwidth is in the model
           if (p.key === 'gbw' && single.props.model) return null;
+          if (p.isHidden) return null;
           // A truth table has its own grid above
           if (def.spice.kind === 'logic' && p.key === def.spice.tableProp) return null;
           const value = String(single.props[p.key] ?? '');
@@ -179,6 +182,13 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
         <p className="hint">
           {def.spice.plate.volts} V nominali: a vuoto {def.spice.plate.noLoadRpm} giri/min e {String(def.spice.plate.noLoadCurrent).replace('.', ',')} A, in stallo {String(def.spice.plate.stallCurrent).replace('.', ',')} A e {String(def.spice.plate.stallTorque).replace('.', ',')} kgf·cm. Il carico frena l'albero d'uscita; oltre la coppia di stallo il motore si blocca. Induttanza e inerzia sono stimate.
         </p>
+      )}
+      {single && def?.spice.kind === 'mcu' && (
+        <ArduinoProgram
+          element={single}
+          onLoad={(name, hex) => update({ props: { ...single.props, sketch: CUSTOM_SKETCH, hex, hexName: name } })}
+          onReset={() => update({ props: { ...single.props, resets: String(Number(single.props.resets ?? 0) + 1) } })}
+        />
       )}
       {single && def?.spice.kind === 'pot' && (
         <p className="hint">Il cursore va da 0 % sull'estremo a, a sinistra nel simbolo non ruotato, a 100 % sull'estremo b. All'oscilloscopio, Cursore è la tensione del cursore verso massa.</p>

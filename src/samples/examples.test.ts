@@ -20,7 +20,11 @@ describe('the examples', () => {
   it.each(EXAMPLES.map((e) => e.id))('%s is complete for both engines', (id) => {
     const circuit = example(id);
     expect(compileCircuit(circuit)).toMatchObject({ ok: true });
-    expect(generateNetlist(circuit, { type: 'tran', step: '20u', stop: '10m', maxStep: '20u' }).errors).toEqual([]);
+    // A program runs only in the animation: the precise analysis says so
+    const isProgram = circuit.elements.some((el) => el.def === 'arduino_uno');
+    const { errors } = generateNetlist(circuit, { type: 'tran', step: '20u', stop: '10m', maxStep: '20u' });
+    if (isProgram) expect(errors).toEqual(["A1: un Arduino si simula solo nell'animazione: l'Analisi precisa non esegue il programma"]);
+    else expect(errors).toEqual([]);
     expect(new Set(circuit.elements.map((el) => el.id)).size).toBe(circuit.elements.length);
   });
 

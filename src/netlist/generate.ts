@@ -129,8 +129,10 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
   }
   if (groundNets.size === 0) errors.push('Il circuito non ha una massa');
 
+  // The free pins of a board do not matter: it cannot run here at all, and says so below
+  const boards = new Set(circuit.elements.filter((el) => getDevice(el.def)?.spice.kind === 'mcu').map((el) => el.id));
   for (const key of unconnected) {
-    if (groundTerminals.has(key)) continue;
+    if (groundTerminals.has(key) || boards.has(key.split(':')[0])) continue;
     const [elementId, terminal] = key.split(':');
     const tag = circuit.elements.find((el) => el.id === elementId)?.tag;
     errors.push(`Terminale non collegato: ${tag}.${terminal}`);
@@ -318,6 +320,9 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         s.ways.forEach((way, k) => lines.push(`${name}${s.ways.length > 1 ? `_${k + 1}` : ''} ${node(s.common)} ${node(way)} ${resistances[k]}`));
         break;
       }
+      case 'mcu':
+        errors.push(`${el.tag}: un Arduino si simula solo nell'animazione: l'Analisi precisa non esegue il programma`);
+        break;
       case 'pot': {
         const halves = potResistances(el, s.valueProp, s.positionProp);
         if (!halves) {

@@ -35,6 +35,8 @@ export interface PropDef {
   min?: number;
   max?: number;
   step?: number;
+  /** Kept with the part but edited elsewhere, as the program loaded in a board. */
+  isHidden?: boolean;
 }
 
 /** What the plate and the datasheet of a geared DC motor say, at the output shaft. */
@@ -102,6 +104,8 @@ export type SpiceDef =
   | { kind: 'motor'; plus: string; minus: string; plate: MotorPlate; loadProp: string }
   /** The resistance between the ends a and b, and the wiper on it at a position from 0 (at a) to 100 (at b). */
   | { kind: 'pot'; a: string; b: string; wiper: string; valueProp: string; positionProp: string }
+  /** An Arduino Uno: its pins in the order of the program, the 5V it gives, its ground; the program from an example or a loaded file. */
+  | { kind: 'mcu'; pins: string[]; vcc: string; gnd: string; sketchProp: string; hexProp: string }
   /** The coil between coil1 and coil2; a normally open contact between c1 and c2. */
   | { kind: 'relay'; coil1: string; coil2: string; c1: string; c2: string; spec: RelaySpec }
   | { kind: 'block'; pins: string[]; modelProp: string }

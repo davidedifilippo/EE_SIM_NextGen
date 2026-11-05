@@ -646,6 +646,39 @@ button.close-results {
   background: var(--accent-soft);
 }
 
+/* What the sketches of the Arduino write: a dark terminal, as in the IDE */
+.serial-monitor {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.serial-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.serial-header h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.serial-text {
+  height: 180px;
+  margin: 6px 0;
+  padding: 6px 8px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #d1fae5;
+  background: #0f172a;
+  border-radius: 6px;
+}
+
 .side-panel {
   width: 220px;
   padding: 12px;
