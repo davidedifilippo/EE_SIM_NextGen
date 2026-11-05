@@ -3,6 +3,7 @@ import { getDevice } from '../library/devices';
 import { Circuit } from '../model/types';
 import { LiveFrame, LiveLayout } from '../realtime/liveSimulation';
 import { SEGMENT_LINES, segmentColor } from '../realtime/display7';
+import { localToWorld } from '../utils/geometry';
 
 interface Props {
   circuit: Circuit;
@@ -33,7 +34,15 @@ export const LogicLevels: React.FC<Props> = ({ circuit, layout, frameRef }) => {
   const rootRef = useRef<SVGGElement>(null);
   const parts = useMemo(() => {
     const byId = new Map(circuit.elements.map((el) => [el.id, el]));
-    return layout.devices.flatMap((device, index) => (getDevice(byId.get(device.elementId)!.def)?.spice.kind === 'logic' ? [{ device, index }] : []));
+    return layout.devices.flatMap((device, index) => {
+      const el = byId.get(device.elementId)!;
+      const def = getDevice(el.def);
+      if (def?.spice.kind !== 'logic') return [];
+      // An SR says when both its inputs are high: below the box, clear of its name above
+      const isSR = def.spice.gate === 'srff' || def.spice.gate === 'srlatch';
+      const below = Math.max(...def.terminals.map((t) => Math.abs(t.y))) + 34;
+      return [{ device, index, warning: isSR ? localToWorld(el.x, el.y, { x: 0, y: below }, el.rot, el.flip) : null }];
+    });
   }, [circuit, layout]);
 
   useEffect(() => {
@@ -46,6 +55,9 @@ export const LogicLevels: React.FC<Props> = ({ circuit, layout, frameRef }) => {
       parts.forEach(({ index }, i) => {
         const levels = frame.logic[index];
         groups[i]?.querySelectorAll('circle').forEach((dot, k) => dot.setAttribute('class', levels?.[k] ? 'logic-high' : 'logic-low'));
+        // Q and its complement both at 0 happen only with S and R both at 1
+        const warning = groups[i]?.querySelector('text');
+        if (warning) warning.textContent = levels && !levels[0] && !levels[1] ? 'S = R = 1: combinazione vietata' : '';
       });
     };
     refresh();
@@ -55,11 +67,12 @@ export const LogicLevels: React.FC<Props> = ({ circuit, layout, frameRef }) => {
 
   return (
     <g ref={rootRef} pointerEvents="none" data-testid="logic-levels">
-      {parts.map(({ device }) => (
+      {parts.map(({ device, warning }) => (
         <g key={device.elementId} data-logic={device.elementId}>
           {device.terminals.map((p, k) => (
             <circle key={k} cx={p.x} cy={p.y} r={4.5} className="logic-low" />
           ))}
+          {warning && <text x={warning.x} y={warning.y} textAnchor="middle" fontSize={11} fontWeight={700} fill="var(--sch-alert)" style={{ paintOrder: 'stroke', stroke: 'var(--sch-halo)', strokeWidth: 3 }} />}
         </g>
       ))}
     </g>

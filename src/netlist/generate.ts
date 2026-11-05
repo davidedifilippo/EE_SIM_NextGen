@@ -1,12 +1,13 @@
 import { Circuit, ModelType, SpiceModel } from '../model/types';
 import { getDevice } from '../library/devices';
+import { logicNetwork } from '../library/composites';
 import { findModel, fitsModelType, isSubcircuitCard, isVdmos } from '../library/models';
 import { normalizeSubcircuitCard, OpAmpRole, readOpAmpRoles, readRegulatorRoles, RegulatorRole, subcircuitPins } from '../library/subcircuit';
 import { computeConnectivity, terminalKey } from './connectivity';
 import { internalResistance, sourceAcSpec, sourceDcSpec, sourceSpec } from './source';
 import { parseSpiceValue } from './values';
 import { METER_TEST_CURRENT, meterResistance } from '../realtime/meter';
-import { gateExpression, levelExpression, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicParams, nextStateTable, outputTable, sequentialSpec, tableExpression } from '../realtime/logic';
+import { LogicNetwork, gateExpression, levelExpression, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicParams, nextStateTable, outputTable, sequentialSpec, tableExpression } from '../realtime/logic';
 import { CONTACT_CLOSED, CONTACT_OPEN, contactResistances } from '../realtime/switches';
 import { potResistances } from '../realtime/pot';
 import { relayThresholds } from '../realtime/relay';
@@ -184,7 +185,7 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
 
   for (const el of circuit.elements) {
     const s = getDevice(el.def)?.spice;
-    if (!s || s.kind === 'ground') continue;
+    if (!s || s.kind === 'ground' || s.kind === 'port') continue;
     const node = (terminal: string) => nodeName(netOf.get(terminalKey(el.id, terminal))!);
 
     switch (s.kind) {
@@ -361,7 +362,16 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         // The same parts as in the real-time engine: inputs to ground, each output behind its resistance
         s.inputs.forEach((input, k) => lines.push(`RI${k}${name} ${node(input)} 0 ${LOGIC_INPUT_RESISTANCE}`));
         let levels = s.inputs.map((input) => levelExpression(`v(${node(input)})`, params.vdd));
-        if (params.table) {
+        let network: LogicNetwork | null = null;
+        if (s.gate === 'network') {
+          try {
+            network = logicNetwork(s.network ?? '');
+          } catch (err) {
+            errors.push(`${el.tag}: ${(err as Error).message}`);
+            break;
+          }
+        }
+        if (params.table || network) {
           // Each level once, as a node of its own: the rows of a table use them many times over
           levels = s.inputs.map((input, k) => {
             lines.push(`BV${k}${name} xv${k}${name} 0 V=${levelExpression(`v(${node(input)})`, params.vdd)}`);
@@ -381,10 +391,17 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
           lines.push(...latchLines(name, spec, levels, params.vdd));
           needsLatchModel = true;
         }
+        // A part made of parts: each inner gate on a node of its own, its level between 0 and 1
+        const netLevel = (net: number) => (network && net < network.inputs ? levels[net] : `v(xn${net}${name})`);
+        network?.gates.forEach((gate) => lines.push(`BN${gate.output}${name} xn${gate.output}${name} 0 V=${gateExpression(gate.kind, gate.inputs.map(netLevel))}`));
         s.outputs.forEach((output, j) => {
+          // Both inputs of a forbidden pair high send the outputs to 0, as in the real-time engine
+          const forbidden = spec?.forbidden ? `(1-${levels[spec.forbidden[0]]}*${levels[spec.forbidden[1]]})*` : '';
           const expression = spec
-            ? tableExpression(outputTable(spec), j, latchLevels(name, spec))
-            : params.table
+            ? `${forbidden}${tableExpression(outputTable(spec), j, latchLevels(name, spec))}`
+            : network
+              ? netLevel(network.outputs[j])
+              : params.table
               ? tableExpression(params.table, j, levels)
               : gateExpression(s.gate, levels, params.state);
           lines.push(`BL${j}${name} xl${j}${name} 0 V=${params.vdd}*${expression}`);
@@ -602,6 +619,23 @@ const LATCH_FORCE_MODEL = '.model LOGIC_FORCE SW(VT=0 VH=0.1 RON=1 ROFF=1e12)';
 const LATCH_CAPACITANCE = '1n';
 const LATCH_LEAK = 1e12;
 
+/**
+ * A latch with no clock, as the SR: one capacitor per state bit, which the switch joins to the next
+ * state whenever that differs from holding, that is with exactly one of S and R high.
+ */
+function levelLatchLines(name: string, spec: NonNullable<ReturnType<typeof sequentialSpec>>, levels: string[], vdd: number): string[] {
+  const [s, r] = spec.data.map((k) => levels[k]);
+  const [gate, d, q] = [`xc${name}`, `xd0${name}`, `xs0${name}`];
+  return [
+    `BC${name} ${gate} 0 V=(${s}+${r}-2*${s}*${r})-0.5`,
+    `BD0${name} ${d} 0 V=${vdd}*${s}`,
+    `SM0${name} ${d} ${q} ${gate} 0 LOGIC_SW`,
+    `CS0${name} ${q} 0 ${LATCH_CAPACITANCE}`,
+    `RS0${name} ${q} 0 ${LATCH_LEAK}`,
+    `BQ0${name} xq0${name} 0 V=${levelExpression(`v(${q})`, vdd)}`,
+  ];
+}
+
 /** The level of each state bit for ngspice, most significant first: the voltage held by its slave. */
 const latchLevels = (name: string, spec: { stateBits: number }) =>
   Array.from({ length: spec.stateBits }, (_, k) => `v(xq${spec.stateBits - 1 - k}${name})`);
@@ -613,6 +647,7 @@ const latchLevels = (name: string, spec: { stateBits: number }) =>
  * capacitors at once, reset first.
  */
 function latchLines(name: string, spec: NonNullable<ReturnType<typeof sequentialSpec>>, levels: string[], vdd: number): string[] {
+  if (spec.clock === null) return levelLatchLines(name, spec, levels, vdd);
   const lines: string[] = [];
   const n = spec.stateBits;
   const clock = `xc${name}`;

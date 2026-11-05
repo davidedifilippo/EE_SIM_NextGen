@@ -411,6 +411,59 @@ const arduinoThermometer = (): Circuit => {
   };
 };
 
+/** Three logic inputs into a full adder: a red LED on the sum, a green one on the carry. */
+const fullAdderExample = (): Circuit => ({
+  title: 'Full adder',
+  elements: [
+    part('in1', 'logicinput', -100, -60, 0, 'A', { state: '1' }),
+    part('in2', 'logicinput', -100, 0, 0, 'B', { state: '0' }),
+    part('in3', 'logicinput', -100, 60, 0, 'Cin', { state: '1' }),
+    part('u1', 'fulladder', 60, 0, 0, 'U1'),
+    part('r1', 'resistor', 180, -10, 0, 'R1', { value: '220' }),
+    part('d1', 'led', 320, 30, 90, 'D1', { model: 'LED_ROSSO' }),
+    part('r2', 'resistor', 180, 100, 0, 'R2', { value: '220' }),
+    part('d2', 'led', 260, 140, 90, 'D2', { model: 'LED_VERDE' }),
+    ground(320, 90),
+    ground(260, 200, 'gnd2'),
+  ],
+  wires: [
+    wire('w1', [-60, -60], [0, -60], [0, -20], [20, -20]),
+    wire('w2', [-60, 0], [20, 0]),
+    wire('w3', [-60, 60], [0, 60], [0, 20], [20, 20]),
+    wire('w4', [100, -10], [140, -10]),
+    wire('w5', [220, -10], [320, -10]),
+    wire('w6', [320, 70], [320, 90]),
+    wire('w7', [100, 10], [120, 10], [120, 100], [140, 100]),
+    wire('w8', [220, 100], [260, 100]),
+    wire('w9', [260, 180], [260, 200]),
+  ],
+  models: [],
+});
+
+/** Four data inputs and two selection inputs into a MUX 4:1, an LED on its output. */
+const muxExample = (): Circuit => {
+  const names = ['D0', 'D1', 'D2', 'D3', 'S1', 'S0'];
+  const states = ['1', '0', '1', '0', '0', '0'];
+  const stagger = [-10, -20, -30, -30, -20, -10];
+  return {
+    title: 'Multiplexer 4:1',
+    elements: [
+      ...names.map((name, k) => part(`in${k}`, 'logicinput', -100, -100 + 40 * k, 0, name, { state: states[k] })),
+      part('u1', 'mux4', 60, 0, 0, 'U1'),
+      part('r1', 'resistor', 180, 0, 0, 'R1', { value: '220' }),
+      part('d1', 'led', 260, 40, 90, 'D1', { model: 'LED_ROSSO' }),
+      ground(260, 100),
+    ],
+    wires: [
+      ...names.map((_, k) => wire(`w${k}`, [-60, -100 + 40 * k], [stagger[k], -100 + 40 * k], [stagger[k], -50 + 20 * k], [20, -50 + 20 * k])),
+      wire('wy', [100, 0], [140, 0]),
+      wire('wr', [220, 0], [260, 0]),
+      wire('wg', [260, 80], [260, 100]),
+    ],
+    models: [],
+  };
+};
+
 /** What Nuovo opens: an empty sheet, but with the ground that every circuit needs. */
 export const emptyCircuit = (): Circuit => ({ title: 'Circuito', elements: [ground(0, 0)], wires: [], models: [] });
 
@@ -425,6 +478,8 @@ export const EXAMPLES: Example[] = [
   { id: 'switches', title: 'Pulsante, interruttore e porta logica', hint: 'Chiudi l’interruttore e tieni premuto il pulsante: il LED si accende solo con entrambi', build: switches },
   { id: 'sevenseg', title: 'Driver BCD e display a 7 segmenti', hint: 'Tocca gli ingressi D C B A: il display mostra la cifra del numero binario, da 0 a 9', build: sevenSegment },
   { id: 'counter', title: 'Contatore decimale e display', hint: 'Un clock da 1 Hz fa avanzare il contatore: il display conta da 0 a 9 e ricomincia. Tocca IN1 per portare RST a 1 e azzerarlo', build: counterDisplay },
+  { id: 'fulladder', title: 'Full adder', hint: 'Tocca A, B e Cin: il LED rosso è la somma S, il verde il riporto Cout. Nelle proprietà di U1, Mostra l’interno apre i due half adder e l’OR di cui è fatto', build: fullAdderExample },
+  { id: 'mux', title: 'Multiplexer 4:1', hint: 'S1 e S0 scelgono quale ingresso tra D0 e D3 arriva al LED: tocca i dati e la selezione. Mostra l’interno, nelle proprietà di U1, apre i tre MUX 2:1 di cui è fatto', build: muxExample },
   { id: 'dual', title: 'Alimentatore duale con presa centrale', hint: 'Trasformatore 230 V → 12+12 V, ponte di Graetz e due condensatori: circa +17 V e −17 V rispetto alla presa centrale', build: dualSupply },
   { id: 'motor', title: 'Motoriduttore IG22', hint: 'Chiudi S1: all’avvio la corrente fa uno spunto, poi scende a circa 0,2 A e il motore gira a 789 giri/min. Alza il carico di M1: la velocità scende e la corrente sale', build: gearMotor },
   { id: 'relay', title: 'Relè che comanda un motore', hint: 'Chiudi S1: la bobina di K1 si eccita, il contatto 13–14 si chiude e il motore da 12 V parte. Riapri S1: D1 porta la corrente della bobina e il contatto si riapre', build: relayMotor },

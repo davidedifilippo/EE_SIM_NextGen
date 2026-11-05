@@ -722,6 +722,46 @@ const LOGIC: ComponentDef[] = [
     spice: { kind: 'logic', gate: 'dff', inputs: ['D', 'CLK', 'S', 'R'], outputs: ['Q', 'nQ'], vddProp: 'vdd' },
   },
   {
+    id: 'tff',
+    category: 'Logica',
+    name: 'Flip-flop T',
+    tagPrefix: 'FF',
+    searchTerms: 'flip flop t toggle divisore per due bistabile',
+    ...tableBox(['T', 'CLK', 'S', 'R'], ['Q', 'nQ']),
+    props: [SUPPLY_PROP],
+    spice: { kind: 'logic', gate: 'tff', inputs: ['T', 'CLK', 'S', 'R'], outputs: ['Q', 'nQ'], vddProp: 'vdd' },
+  },
+  {
+    id: 'jkff',
+    category: 'Logica',
+    name: 'Flip-flop JK',
+    tagPrefix: 'FF',
+    searchTerms: 'flip flop jk bistabile 74 4027',
+    ...tableBox(['J', 'CLK', 'K', 'S', 'R'], ['Q', 'nQ']),
+    props: [SUPPLY_PROP],
+    spice: { kind: 'logic', gate: 'jkff', inputs: ['J', 'CLK', 'K', 'S', 'R'], outputs: ['Q', 'nQ'], vddProp: 'vdd' },
+  },
+  {
+    id: 'srff',
+    category: 'Logica',
+    name: 'Flip-flop SR',
+    tagPrefix: 'FF',
+    searchTerms: 'flip flop sr bistabile clock',
+    ...tableBox(['S', 'CLK', 'R'], ['Q', 'nQ']),
+    props: [SUPPLY_PROP],
+    spice: { kind: 'logic', gate: 'srff', inputs: ['S', 'CLK', 'R'], outputs: ['Q', 'nQ'], vddProp: 'vdd' },
+  },
+  {
+    id: 'srlatch',
+    category: 'Logica',
+    name: 'Latch SR',
+    tagPrefix: 'FF',
+    searchTerms: 'latch sr bistabile nor memoria asincrono',
+    ...tableBox(['S', 'R'], ['Q', 'nQ']),
+    props: [SUPPLY_PROP],
+    spice: { kind: 'logic', gate: 'srlatch', inputs: ['S', 'R'], outputs: ['Q', 'nQ'], vddProp: 'vdd' },
+  },
+  {
     id: 'counter4',
     category: 'Logica',
     name: 'Contatore',
@@ -901,6 +941,54 @@ const ARDUINO_UNO: ComponentDef = {
   spice: { kind: 'mcu', pins: UNO_PINS, vcc: '5V', gnd: 'GND', sketchProp: 'sketch', hexProp: 'hex' },
 };
 
+/**
+ * The pins of the inner schematic of a part made of parts: a flag whose name is the pin, the input
+ * pointing in to the right, the output pointing out to the right. Not in the library.
+ */
+const PORTS: ComponentDef[] = (['in', 'out'] as const).map((direction) => ({
+  id: `port_${direction}`,
+  category: 'Logica',
+  name: direction === 'in' ? 'Ingresso del componente' : 'Uscita del componente',
+  terminals: [{ id: 'p', x: 0, y: 0 }],
+  symbol: [
+    direction === 'in'
+      ? { t: 'path', d: 'M -34 -8 H -14 L -6 0 L -14 8 H -34 Z', fill: 'var(--sch-part-soft)' }
+      : { t: 'path', d: 'M 6 -8 H 26 L 34 0 L 26 8 H 6 Z', fill: 'var(--sch-part-soft)' },
+    direction === 'in' ? { t: 'line', x1: -6, y1: 0, x2: 0, y2: 0 } : { t: 'line', x1: 0, y1: 0, x2: 6, y2: 0 },
+  ],
+  props: [],
+  spice: { kind: 'port', direction },
+  isHidden: true,
+}));
+
+/** A part made of parts: a box with its pins outside, and its inner schematic in library/composites. */
+function compositeDevice(id: string, name: string, inputs: string[], outputs: string[], searchTerms: string): ComponentDef {
+  return {
+    id,
+    category: 'Logica',
+    name,
+    tagPrefix: 'U',
+    searchTerms: `componente composto ${searchTerms}`,
+    ...tableBox(inputs, outputs),
+    props: [SUPPLY_PROP],
+    spice: { kind: 'logic', gate: 'network', inputs, outputs, vddProp: 'vdd', network: id },
+  };
+}
+
+const range = (prefix: string, count: number) => Array.from({ length: count }, (_, k) => `${prefix}${k}`);
+
+/** The parts made of parts, with the pins their inner schematics name. */
+export const COMPOSITES: ComponentDef[] = [
+  compositeDevice('halfadder', 'Half adder', ['A', 'B'], ['S', 'C'], 'half adder addizione riporto bit'),
+  compositeDevice('fulladder', 'Full adder', ['A', 'B', 'Cin'], ['S', 'Cout'], 'full adder addizione riporto carry bit'),
+  compositeDevice('mux2', 'MUX 2:1', ['D0', 'D1', 'S'], ['Y'], 'multiplexer mux selettore'),
+  compositeDevice('mux4', 'MUX 4:1', [...range('D', 4), 'S1', 'S0'], ['Y'], 'multiplexer mux selettore'),
+  compositeDevice('mux8', 'MUX 8:1', [...range('D', 8), 'S2', 'S1', 'S0'], ['Y'], 'multiplexer mux selettore'),
+  compositeDevice('demux2', 'DEMUX 1:2', ['D', 'S'], range('Y', 2), 'demultiplexer demux distributore 2 uscite'),
+  compositeDevice('demux4', 'DEMUX 1:4', ['D', 'S1', 'S0'], range('Y', 4), 'demultiplexer demux distributore 4 uscite decoder'),
+  compositeDevice('demux8', 'DEMUX 1:8', ['D', 'S2', 'S1', 'S0'], range('Y', 8), 'demultiplexer demux distributore 8 uscite decoder'),
+];
+
 const REGULATORS = [
   ...[5, 6, 8, 9, 12, 15, 24].map((v) => regulatorDevice(`78${String(v).padStart(2, '0')}`, v, 1)),
   ...[5, 12, 15].map((v) => regulatorDevice(`79${String(v).padStart(2, '0')}`, v, -1)),
@@ -990,7 +1078,7 @@ const SENSORS = [
   sensorDevice('TMP36', { offset: 0.5, slope: 0.01, tempProp: 'temp', iMax: 10e-3, dropout: 1, vMin: 2.7, vMax: 5.5, vAbsMax: 7 }, 50e-6, [-40, 125]),
 ];
 
-DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, ...RELAYS, ARDUINO_UNO);
+DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, ...RELAYS, ARDUINO_UNO, ...PORTS, ...COMPOSITES);
 for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));

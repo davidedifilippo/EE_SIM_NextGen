@@ -79,6 +79,29 @@ describe('the examples', () => {
     expect(led('1', '1')).toBeGreaterThan(5e-3);
   });
 
+  it('full adder: 1 + 0 + 1 gives sum 0 and carry 1', () => {
+    const { engine, current } = start('fulladder');
+    engine.step(1e-6);
+    expect(Math.abs(current('d1'))).toBeLessThan(1e-6);
+    expect(current('d2')).toBeGreaterThan(5e-3);
+  });
+
+  it('multiplexer: S1 S0 choose which input reaches the LED', () => {
+    const led = (s0: string) => {
+      const circuit = example('mux');
+      circuit.elements = circuit.elements.map((el) => (el.tag === 'S0' ? { ...el, props: { ...el.props, state: s0 } } : el));
+      const compiled = compileCircuit(circuit);
+      if (!compiled.ok) throw new Error(compiled.errors.join());
+      const engine = new RealtimeEngine(compiled.compiled);
+      engine.initialize();
+      engine.step(1e-6);
+      return engine.deviceCurrent(compiled.compiled.elementIds.indexOf('d1'));
+    };
+    // D0 is 1, D1 is 0
+    expect(led('0')).toBeGreaterThan(5e-3);
+    expect(Math.abs(led('1'))).toBeLessThan(1e-6);
+  });
+
   it('seven segments: 0101 lights the segments of a 5', () => {
     const circuit = example('sevenseg');
     const compiled = compileCircuit(circuit);

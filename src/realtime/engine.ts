@@ -921,7 +921,7 @@ export class RealtimeEngine {
       this.logicIn[i] = 0;
       this.logicState[i] = 0;
       const spec = sequentialSpec(d.gate, d.modulus);
-      this.logicOut[i] = spec ? spec.outputs(0) : d.gate === 'clock' ? (clockLevel(this.time, d.frequency) ? 1 : 0) : logicOutputs(d.gate, d.inputs.map(() => false), d.state, d.table);
+      this.logicOut[i] = spec ? spec.outputs(0) : d.gate === 'clock' ? (clockLevel(this.time, d.frequency) ? 1 : 0) : logicOutputs(d.gate, d.inputs.map(() => false), d.state, d.table, d.network);
     });
   }
 
@@ -945,15 +945,16 @@ export class RealtimeEngine {
       const spec = sequentialSpec(d.gate, d.modulus);
       if (spec) {
         // Set and reset act at once; otherwise the state moves only on a rising edge of the clock
-        const isRising = levels[spec.clock] && !((previous >> spec.clock) & 1);
+        // A latch follows its inputs at every step; a flip-flop only at a rising edge of its clock
+        const isRising = spec.clock === null || (levels[spec.clock] && !((previous >> spec.clock) & 1));
         if (spec.reset !== null && levels[spec.reset]) this.logicState[i] = 0;
         else if (spec.set !== null && levels[spec.set]) this.logicState[i] = (1 << spec.stateBits) - 1;
         else if (isRising) this.logicState[i] = spec.next(this.logicState[i], spec.data.map((k) => levels[k]));
-        out = spec.outputs(this.logicState[i]);
+        out = spec.forbidden && levels[spec.forbidden[0]] && levels[spec.forbidden[1]] ? 0 : spec.outputs(this.logicState[i]);
       } else if (d.gate === 'clock') {
         out = clockLevel(time, d.frequency) ? 1 : 0;
       } else {
-        out = logicOutputs(d.gate, levels, d.state, d.table);
+        out = logicOutputs(d.gate, levels, d.state, d.table, d.network);
       }
       if (out !== this.logicOut[i]) {
         this.logicOut[i] = out;

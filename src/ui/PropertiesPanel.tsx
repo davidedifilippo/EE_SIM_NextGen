@@ -8,6 +8,8 @@ import { OPAMP_ROLES, OpAmpRole, readOpAmpRoles, readRegulatorRoles, REGULATOR_R
 import { drawingSign, LiveFrame, LiveLayout, ScopeProbe } from '../realtime/liveSimulation';
 import { LiveReadout } from './LiveControls';
 import { ArduinoProgram } from './ArduinoProgram';
+import { InsideView } from './InsideView';
+import { compositeParts } from '../library/composites';
 import { CUSTOM_SKETCH } from '../samples/arduino/sketches';
 import { ModelImporter } from './ModelImporter';
 import { elementProbes, nodeWire, wireProbe } from './scopeTraces';
@@ -59,7 +61,21 @@ function ModelPins<Role extends string>({ pins, roles, allRoles, labels, onChang
   );
 }
 
+/** How each part with a memory behaves, as the datasheets give it. */
+const SEQUENTIAL_NOTES: Partial<Record<string, string>> = {
+  dff: 'Sul fronte di salita di CLK, Q prende il valore di D. S e R agiscono subito, senza clock; con entrambi prevale R.',
+  tff: 'Sul fronte di salita di CLK: con T = 1 Q si inverte, con T = 0 resta com\'è. S e R agiscono subito; con entrambi prevale R.',
+  jkff: 'Sul fronte di salita di CLK: J K = 0 0 tiene, 0 1 azzera, 1 0 porta a 1, 1 1 inverte. S e R agiscono subito; con entrambi prevale R.',
+  srff: 'Sul fronte di salita di CLK: S porta Q a 1, R lo porta a 0, con S = R = 0 tiene. S = R = 1 sul fronte è vietato: Q e Q̄ vanno entrambe a 0 fino al prossimo fronte valido.',
+  srlatch: 'Senza clock: S = 1 porta Q a 1, R = 1 lo porta a 0, con entrambi a 0 tiene. Con S = R = 1, vietato, Q e Q̄ vanno a 0; tornando a 0 0 resta quello che ha lasciato l\'ultimo ingresso tolto.',
+};
+
 export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onMirrorSelected, onSelectAll, onDeleteSelected, onPaste, layout, frameRef, library, onImportModels, onRemoveModel, scopeIds, isScopeFull, onToggleProbe }) => {
+  const [insideOf, setInsideOf] = React.useState<Element | null>(null);
+  // Choosing another part, or none, closes it for good: selecting the same part again does not reopen it
+  React.useEffect(() => {
+    if (insideOf && !(selectedIds.size === 1 && selectedIds.has(insideOf.id))) setInsideOf(null);
+  }, [selectedIds, insideOf]);
   if (selectedIds.size === 0) {
     return (
       <div className="properties">
@@ -190,6 +206,17 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
           onReset={() => update({ props: { ...single.props, resets: String(Number(single.props.resets ?? 0) + 1) } })}
         />
       )}
+      {single && def?.spice.kind === 'logic' && def.spice.gate === 'network' && (
+        <>
+          <p className="hint">
+            Fatto di: {compositeParts(def.id).map((el) => `${getDevice(el.def)?.name} ${el.tag}`).join(', ')}. Nei due motori si comporta come un'unica parte logica, senza ritardi all'interno.
+          </p>
+          <button onClick={() => setInsideOf(single)}>Mostra l'interno</button>
+        </>
+      )}
+      {single && def?.spice.kind === 'logic' && SEQUENTIAL_NOTES[def.spice.gate] && <p className="hint">{SEQUENTIAL_NOTES[def.spice.gate]}</p>}
+      {/* Only for the part still selected: another selection, or none, closes it */}
+      {insideOf && insideOf.id === single?.id && <InsideView key={insideOf.id} id={insideOf.def} tag={insideOf.tag} onClose={() => setInsideOf(null)} />}
       {single && def?.spice.kind === 'pot' && (
         <p className="hint">Il cursore va da 0 % sull'estremo a, a sinistra nel simbolo non ruotato, a 100 % sull'estremo b. All'oscilloscopio, Cursore è la tensione del cursore verso massa.</p>
       )}

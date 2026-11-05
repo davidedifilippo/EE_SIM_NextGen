@@ -2,7 +2,26 @@ import { Element, SpiceDef } from '../model/types';
 import { parseSpiceValue } from '../netlist/values';
 
 /** What a logic part computes. An input has no inputs of its own: it gives the level it is set to. */
-export type GateKind = 'and' | 'or' | 'nand' | 'nor' | 'xor' | 'not' | 'input' | 'table' | 'clock' | 'dff' | 'counter';
+export type GateKind = 'and' | 'or' | 'nand' | 'nor' | 'xor' | 'not' | 'input' | 'table' | 'clock' | 'dff' | 'counter' | 'tff' | 'jkff' | 'srff' | 'srlatch' | 'network';
+
+/**
+ * A part made of parts, flattened to its elementary gates in an order where each comes after those
+ * that feed it. Nets 0 to inputs - 1 are its inputs; outputs names the net of each output.
+ */
+export interface LogicNetwork {
+  inputs: number;
+  gates: { kind: GateKind; inputs: number[]; output: number }[];
+  outputs: number[];
+  netCount: number;
+}
+
+/** The outputs of a network, one bit per output, its gates computed one after the other with no delay between them. */
+export function evaluateNetwork(network: LogicNetwork, inputs: boolean[]): number {
+  const nets: boolean[] = new Array(network.netCount).fill(false);
+  inputs.forEach((level, k) => (nets[k] = level));
+  for (const gate of network.gates) nets[gate.output] = gateOutput(gate.kind, gate.inputs.map((net) => nets[net]));
+  return network.outputs.reduce((bits, net, j) => (nets[net] ? bits | (1 << j) : bits), 0);
+}
 
 /** Behind each output, as the push-pull stage of a CMOS gate: enough to light a LED through its resistor. */
 export const LOGIC_OUTPUT_RESISTANCE = 100;
@@ -78,17 +97,49 @@ export const clockLevel = (time: number, frequency: number) => (time * frequency
 export interface SequentialSpec {
   stateBits: number;
   data: number[];
-  clock: number;
+  /** Null for a latch, which follows its inputs at any time instead of at an edge. */
+  clock: number | null;
   set: number | null;
   reset: number | null;
   next: (state: number, data: boolean[]) => number;
   outputs: (state: number) => number;
+  /** Two inputs that, both high, send every output to 0: S and R of a latch. */
+  forbidden?: [number, number];
 }
+
+/** Q and its complement for a state of one bit. */
+const complementary = (q: number) => (q ? 1 : 2);
 
 export function sequentialSpec(kind: GateKind, modulus: number): SequentialSpec | null {
   if (kind === 'dff') {
     // D, clock, set, reset; Q and its complement
-    return { stateBits: 1, data: [0], clock: 1, set: 2, reset: 3, next: (_, [d]) => (d ? 1 : 0), outputs: (q) => (q ? 1 : 2) };
+    return { stateBits: 1, data: [0], clock: 1, set: 2, reset: 3, next: (_, [d]) => (d ? 1 : 0), outputs: complementary };
+  }
+  if (kind === 'tff') {
+    // T, clock, set, reset: with T at 1 each edge turns Q over
+    return { stateBits: 1, data: [0], clock: 1, set: 2, reset: 3, next: (q, [t]) => (t ? q ^ 1 : q), outputs: complementary };
+  }
+  if (kind === 'jkff') {
+    // J, clock, K, set, reset: 0 0 holds, 0 1 resets, 1 0 sets, 1 1 turns over
+    return { stateBits: 1, data: [0, 2], clock: 1, set: 3, reset: 4, next: (q, [j, k]) => (j && k ? q ^ 1 : j ? 1 : k ? 0 : q), outputs: complementary };
+  }
+  if (kind === 'srff') {
+    // S, clock, R: S and R both at 1 on an edge is forbidden, a third state with both outputs at 0
+    // until an edge with a valid pair
+    return {
+      stateBits: 2,
+      data: [0, 2],
+      clock: 1,
+      set: null,
+      reset: null,
+      next: (q, [s, r]) => (s && r ? 2 : s ? 1 : r ? 0 : q),
+      outputs: (q) => (q === 1 ? 1 : q === 0 ? 2 : 0),
+    };
+  }
+  if (kind === 'srlatch') {
+    // S and R with no clock, as two crossed NOR: both high send both outputs to 0, and the state is
+    // then what the last one to fall leaves
+    return { stateBits: 1, data: [0, 1], clock: null, set: null, reset: null, next: (q, [s, r]) => (s && !r ? 1 : r && !s ? 0 : q), outputs: complementary, forbidden: [0, 1] };
   }
   if (kind === 'counter') {
     // Clock and reset; outputs from the most significant bit down, as D C B A at the input of a decoder
@@ -122,8 +173,9 @@ export function nextStateTable(spec: SequentialSpec): number[] {
 export const outputTable = (spec: SequentialSpec) => Array.from({ length: 1 << spec.stateBits }, (_, state) => spec.outputs(state));
 
 /** All the outputs of a logic part at once, one bit per output. */
-export function logicOutputs(kind: GateKind, inputs: boolean[], state: boolean, table: number[] | null): number {
+export function logicOutputs(kind: GateKind, inputs: boolean[], state: boolean, table: number[] | null, network: LogicNetwork | null = null): number {
   if (kind === 'table') return table ? table[tableRow(inputs)] : 0;
+  if (kind === 'network') return network ? evaluateNetwork(network, inputs) : 0;
   return gateOutput(kind, inputs, state) ? 1 : 0;
 }
 
@@ -155,6 +207,11 @@ export function gateOutput(kind: GateKind, inputs: boolean[], state = false): bo
     case 'clock':
     case 'dff':
     case 'counter':
+    case 'tff':
+    case 'jkff':
+    case 'srff':
+    case 'srlatch':
+    case 'network':
       return false;
   }
 }
@@ -184,6 +241,11 @@ export function gateExpression(kind: GateKind, levels: string[], state = false):
     case 'clock':
     case 'dff':
     case 'counter':
+    case 'tff':
+    case 'jkff':
+    case 'srff':
+    case 'srlatch':
+    case 'network':
       return '0';
   }
 }

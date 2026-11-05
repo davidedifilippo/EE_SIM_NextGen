@@ -112,6 +112,8 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
       return [s.coil1, s.coil2, s.c1, s.c2];
     case 'mcu':
       return [...s.pins, s.vcc, s.gnd];
+    case 'port':
+      return [];
     case 'diode':
       return [s.anode, s.cathode];
     case 'bjt':

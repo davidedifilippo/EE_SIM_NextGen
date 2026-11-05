@@ -119,7 +119,9 @@ export type SpiceDef =
   /** A contact worked by hand: the common, and one way or two. */
   | { kind: 'switch'; switchKind: SwitchKind; common: string; ways: string[] }
   /** A gate or a logic input: supply in a property, inputs read against half of it, one output behind a resistance to ground. */
-  | { kind: 'logic'; gate: GateKind; inputs: string[]; outputs: string[]; vddProp: string; stateProp?: string; /** For a truth table: where its rows are kept, or rows that never change. */ tableProp?: string; fixedTable?: string }
+  | { kind: 'logic'; gate: GateKind; inputs: string[]; outputs: string[]; vddProp: string; stateProp?: string; /** For a truth table: where its rows are kept, or rows that never change. */ tableProp?: string; fixedTable?: string; /** For a part made of parts: the id of its inner schematic. */ network?: string }
+  /** A pin of the inner schematic of a part made of parts: its tag is the name of the pin. */
+  | { kind: 'port'; direction: 'in' | 'out' }
   | { kind: 'transformer'; p1: string; p2: string; s1: string; s2: string; ratioProp: string; inductanceProp: string; couplingProp: string };
 
 export interface ComponentDef {
