@@ -4,7 +4,7 @@ import { Circuit, Element, SpiceModel, Wire } from '../model/types';
 import { D1N4148 } from '../samples/halfWaveRectifier';
 
 export interface Part {
-  def: 'multimetercompact' | 'isource' | 'dcsupply' | 'battery' | 'reg7805' | 'reg7905' | 'reglm317' | 'multimeter' | 'resistor' | 'capacitor' | 'inductor' | 'vsource' | 'diode' | 'zener' | 'npn' | 'pnp' | 'nmos' | 'pmos' | 'opamp' | 'transformer' | 'gate_and' | 'gate_or' | 'gate_nand' | 'gate_nor' | 'gate_xor' | 'gate_not' | 'logicinput' | 'led' | 'switch' | 'pushno' | 'pushnc' | 'spdt' | 'truthtable' | 'bcd7seg' | 'display7' | 'clock' | 'dff' | 'counter4' | 'lm35' | 'tmp36' | 'motor_ig22' | 'motor_tt' | 'potentiometer' | 'relay5' | 'relay12' | 'tff' | 'jkff' | 'srff' | 'srlatch' | 'halfadder' | 'fulladder' | 'mux2' | 'mux4' | 'mux8' | 'demux2' | 'demux4' | 'demux8';
+  def: 'multimetercompact' | 'isource' | 'dcsupply' | 'battery' | 'reg7805' | 'reg7905' | 'reglm317' | 'multimeter' | 'resistor' | 'capacitor' | 'inductor' | 'vsource' | 'diode' | 'zener' | 'npn' | 'pnp' | 'nmos' | 'pmos' | 'opamp' | 'transformer' | 'gate_and' | 'gate_or' | 'gate_nand' | 'gate_nor' | 'gate_xor' | 'gate_not' | 'logicinput' | 'led' | 'switch' | 'pushno' | 'pushnc' | 'spdt' | 'truthtable' | 'bcd7seg' | 'display7' | 'clock' | 'dff' | 'counter4' | 'lm35' | 'tmp36' | 'motor_ig22' | 'motor_tt' | 'potentiometer' | 'relay5' | 'relay12' | 'lamp' | 'tff' | 'jkff' | 'srff' | 'srlatch' | 'halfadder' | 'fulladder' | 'mux2' | 'mux4' | 'mux8' | 'demux2' | 'demux4' | 'demux8';
   tag: string;
   /** In the order of the terminals of the device. */
   nets: string[];

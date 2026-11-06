@@ -5,6 +5,7 @@ import { REGULATOR_GAIN, REGULATOR_LEAK, RegulatorRegion, regulatorPoint, regula
 import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams, MosParams } from './compile';
 import { luFactor, luSolve } from './linear';
 import { nextRelayState } from './relay';
+import { filamentRate, filamentResistance, LAMP_AMBIENT, steadyTemperature } from './lamp';
 import { nextTimerState, supplyResistance, TIMER_INPUT_RESISTANCE, TIMER_OFF_RESISTANCE, TIMER_RESET_PULLUP, timerSupply } from './timer555';
 import { ArduinoUno, LED_PIN, PIN_MAX_CURRENT, PinMode, SUPPLY_MAX_CURRENT, UNO_PINS, UNO_SUPPLY_RESISTANCE, UNO_VCC } from './arduino';
 import { CONTACT_CLOSED, CONTACT_OPEN } from './switches';
@@ -225,6 +226,9 @@ export class RealtimeEngine {
   private readonly logicState: Int32Array;
   /** 1 for a relay whose contact is closed: it moves only between steps, so each step stays linear. */
   private readonly relayClosed: Uint8Array;
+  /** For each lamp, the temperature of its filament as a share of the working one, and the resistance that follows from it. */
+  private readonly lampTemp: Float64Array;
+  private readonly lampR: Float64Array;
   /** 1 for a 555 whose output is high: as a relay, it moves only between steps. */
   private readonly timerHigh: Uint8Array;
   /** The microcontroller of each Arduino, which runs between the steps; it passes to the next engine with the same program. */
@@ -272,6 +276,8 @@ export class RealtimeEngine {
     this.logicIn = new Int32Array(devices.length);
     this.logicState = new Int32Array(devices.length);
     this.relayClosed = new Uint8Array(devices.length);
+    this.lampTemp = new Float64Array(devices.length).fill(LAMP_AMBIENT);
+    this.lampR = Float64Array.from(devices, (d) => (d.kind === 'lamp' ? filamentResistance(d.params, LAMP_AMBIENT) : 0));
     this.timerHigh = new Uint8Array(devices.length);
     this.mcus = devices.map((d) => (d.kind === 'mcu' ? new ArduinoUno(d.program) : null));
     this.vIterBridge = new Float64Array(devices.length * 4);
@@ -401,6 +407,9 @@ export class RealtimeEngine {
           this.addG(d.dis, d.b, 1 / (this.timerHigh[i] ? TIMER_OFF_RESISTANCE : spec.rDischarge));
           break;
         }
+        case 'lamp':
+          this.addG(d.a, d.b, 1 / this.lampR[i]);
+          break;
         case 'pot':
           this.addG(d.a, d.w, d.g1);
           this.addG(d.w, d.b, d.g2);
@@ -1008,6 +1017,40 @@ export class RealtimeEngine {
     return hasChanged;
   }
 
+  /**
+   * Heats or cools the filament of each lamp over a step, from the power it took at the accepted point
+   * and what it radiates. Its resistance moves with it; past a small change the matrix is stamped again.
+   */
+  private updateLamps(h: number) {
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind !== 'lamp') return;
+      const v = this.voltage(d.a) - this.voltage(d.b);
+      const power = (v * v) / this.lampR[i];
+      // In pieces short against the time the filament takes to cool, so that a long step stays stable
+      const pieces = Math.max(1, Math.ceil(h / (d.params.tau / 40)));
+      for (let k = 0; k < pieces; k++) this.lampTemp[i] = Math.max(LAMP_AMBIENT, this.lampTemp[i] + (h / pieces) * filamentRate(d.params, power, this.lampTemp[i]));
+      this.setLamp(i, filamentResistance(d.params, this.lampTemp[i]));
+    });
+  }
+
+  private setLamp(i: number, r: number) {
+    if (Math.abs(r - this.lampR[i]) <= 1e-4 * this.lampR[i]) return false;
+    this.lampR[i] = r;
+    this.stampedStep = null;
+    return true;
+  }
+
+  /** At the operating point each filament is at the temperature its voltage keeps, as any capacitor is charged. */
+  private settleLamps(): boolean {
+    let hasChanged = false;
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind !== 'lamp') return;
+      this.lampTemp[i] = steadyTemperature(d.params, this.voltage(d.a) - this.voltage(d.b));
+      if (this.setLamp(i, filamentResistance(d.params, this.lampTemp[i]))) hasChanged = true;
+    });
+    return hasChanged;
+  }
+
   /** Moves the flip-flop of each 555 with the voltages of the accepted point. True if one moved: the matrix changes. */
   private updateTimers(): boolean {
     let hasChanged = false;
@@ -1112,6 +1155,10 @@ export class RealtimeEngine {
     this.regulatorState.fill(REGULATOR_ACTIVE);
     this.relayClosed.fill(0);
     this.timerHigh.fill(0);
+    this.lampTemp.fill(LAMP_AMBIENT);
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind === 'lamp') this.lampR[i] = filamentResistance(d.params, LAMP_AMBIENT);
+    });
     this.stampedStep = null;
     this.resetLogic();
     if (!this.solve(this.time, 0, 1)) {
@@ -1136,6 +1183,10 @@ export class RealtimeEngine {
     // A relay with its coil already fed starts pulled in; what its contact feeds may move another.
     // A 555 starts as its pins say: with an empty capacitor on TRIG, high
     for (let round = 0; round < LOGIC_SETTLE_ROUNDS && (this.updateRelays() || this.updateTimers()); round++) {
+      if (!this.solve(this.time, 0, 1)) throw new SolverError('Punto di lavoro non trovato');
+    }
+    // Each lamp hot as its power keeps it, as ngspice finds it at its operating point
+    for (let round = 0; round < LOGIC_SETTLE_ROUNDS && this.settleLamps(); round++) {
       if (!this.solve(this.time, 0, 1)) throw new SolverError('Punto di lavoro non trovato');
     }
     // A sensor out of its supply range gives nothing from the start, as in the netlist
@@ -1177,6 +1228,8 @@ export class RealtimeEngine {
     this.logicState.set(previous.logicState);
     this.relayClosed.set(previous.relayClosed);
     this.timerHigh.set(previous.timerHigh);
+    this.lampTemp.set(previous.lampTemp);
+    this.lampR.set(previous.lampR);
     previous.mcus.forEach((uno, i) => {
       if (uno) this.mcus[i] = uno;
     });
@@ -1212,6 +1265,7 @@ export class RealtimeEngine {
       this.commit(h);
       this.updateRelays();
       this.updateTimers();
+      this.updateLamps(h);
       this.updateMcuInputs();
       this.updateLogic(this.time + h);
       this.updateSensors();
@@ -1240,6 +1294,8 @@ export class RealtimeEngine {
     switch (d.kind) {
       case 'resistor':
         return d.g * (this.voltage(d.a) - this.voltage(d.b));
+      case 'lamp':
+        return (this.voltage(d.a) - this.voltage(d.b)) / this.lampR[index];
       case 'capacitor':
         return this.iPrev[index];
       case 'isource':

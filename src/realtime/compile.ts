@@ -10,6 +10,7 @@ import { RegulatorParams, regulatorParams } from './regulator';
 import { MotorParams, motorParamsOf } from './motor';
 import { contactResistances } from './switches';
 import { potResistances } from './pot';
+import { LampParams, lampParams, lampRating } from './lamp';
 import { parseIntelHex, programKey } from './intelHex';
 import { sketchHex } from '../samples/arduino/sketches';
 import { RelaySpec } from './relay';
@@ -111,6 +112,8 @@ export type CompiledDevice =
   | { kind: 'bridge'; element: number; a: NodeIndex; b: NodeIndex; ac1: NodeIndex; ac2: NodeIndex; anodes: NodeIndex[]; cathodes: NodeIndex[]; junctions: NodeIndex[]; params: DiodeParams }
   /** a is the first segment, b the common cathode; forward is the voltage where the segments start to light. */
   | { kind: 'display7'; element: number; a: NodeIndex; b: NodeIndex; segments: NodeIndex[]; forward: number }
+  /** A lamp: its filament as a resistance, which the engine moves between steps with the heat it takes. */
+  | { kind: 'lamp'; element: number; a: NodeIndex; b: NodeIndex; params: LampParams }
   /** A potentiometer: g1 from the end a to the wiper w, g2 from the wiper to the end b. */
   | { kind: 'pot'; element: number; a: NodeIndex; b: NodeIndex; w: NodeIndex; g1: number; g2: number }
   /** A relay: the coil from a to b as R and L in one branch; the contact from c to d, closed or open with the coil current. */
@@ -396,6 +399,18 @@ export function compileCircuit(circuit: Circuit): CompileResult {
       case 'timer': {
         const [a, b, trig, reset, ctrl, thr, dis, vcc] = [s.out, s.gnd, s.trig, s.reset, s.ctrl, s.thr, s.dis, s.vcc].map(node);
         pending.push({ element, needsBranch: false, build: (_, nextNode) => ({ kind: 'timer', element, a, b, trig, reset, ctrl, thr, dis, vcc, lower: nextNode(), spec: s.spec }) });
+        break;
+      }
+      case 'lamp': {
+        // To the solver a lamp is a resistance that follows the heat of its filament
+        const rating = lampRating(el, s);
+        if (!rating) {
+          errors.push(`${el.tag}: potenza o tensione non valide`);
+          break;
+        }
+        const [a, b] = [node(s.a), node(s.b)];
+        const params = lampParams(rating);
+        pending.push({ element, needsBranch: false, build: () => ({ kind: 'lamp', element, a, b, params }) });
         break;
       }
       case 'relay': {

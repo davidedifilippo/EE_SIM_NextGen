@@ -132,6 +132,8 @@ export type SpiceDef =
   | { kind: 'mcu'; pins: string[]; vcc: string; gnd: string; sketchProp: string; hexProp: string }
   /** A 555 timer, its pins by function. */
   | { kind: 'timer'; gnd: string; trig: string; out: string; reset: string; ctrl: string; thr: string; dis: string; vcc: string; spec: TimerSpec }
+  /** A lamp from its rating: the power it gives at its rated voltage, as a resistance V²/P. */
+  | { kind: 'lamp'; a: string; b: string; powerProp: string; voltsProp: string }
   /** The coil between coil1 and coil2; a normally open contact between c1 and c2. */
   | { kind: 'relay'; coil1: string; coil2: string; c1: string; c2: string; spec: RelaySpec }
   | { kind: 'block'; pins: string[]; modelProp: string }

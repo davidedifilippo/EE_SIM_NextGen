@@ -870,6 +870,28 @@ const POTENTIOMETER: ComponentDef = {
   spice: { kind: 'pot', a: 'a', b: 'b', wiper: 'w', valueProp: 'value', positionProp: 'position' },
 };
 
+/** A lamp as the IEC draws it, a circle with a cross; its rating in two fields, power and voltage. */
+const LAMP_CROSS = 16 / Math.SQRT2;
+const LAMP: ComponentDef = {
+  id: 'lamp',
+  category: 'Passivi',
+  name: 'Lampada',
+  tagPrefix: 'LP',
+  searchTerms: 'lampada lampadina luce incandescenza carico',
+  terminals: twoPin('a', 'b'),
+  symbol: [
+    ...leads(16),
+    { t: 'circle', cx: 0, cy: 0, r: 16, fill: 'var(--sch-part)' },
+    { t: 'line', x1: -LAMP_CROSS, y1: -LAMP_CROSS, x2: LAMP_CROSS, y2: LAMP_CROSS },
+    { t: 'line', x1: -LAMP_CROSS, y1: LAMP_CROSS, x2: LAMP_CROSS, y2: -LAMP_CROSS },
+  ],
+  props: [
+    { key: 'power', label: 'Potenza (W)', type: 'text', default: '10' },
+    { key: 'volts', label: 'Tensione nominale (V)', type: 'text', default: '48' },
+  ],
+  spice: { kind: 'lamp', a: 'a', b: 'b', powerProp: 'power', voltsProp: 'volts' },
+};
+
 /** The blade of the relay contact, from its pivot on the lower contact: at rest, and pulled in by the coil. */
 export const RELAY_BLADE = { open: { x1: 20, y1: 14, x2: 8, y2: -12 }, closed: { x1: 20, y1: 14, x2: 20, y2: -14 } };
 
@@ -1116,7 +1138,7 @@ const SENSORS = [
   sensorDevice('TMP36', { offset: 0.5, slope: 0.01, tempProp: 'temp', iMax: 10e-3, dropout: 1, vMin: 2.7, vMax: 5.5, vAbsMax: 7 }, 50e-6, [-40, 125]),
 ];
 
-DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, ...RELAYS, ARDUINO_UNO, ...PORTS, ...COMPOSITES, ...TIMERS);
+DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, LAMP, ...RELAYS, ARDUINO_UNO, ...PORTS, ...COMPOSITES, ...TIMERS);
 for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));

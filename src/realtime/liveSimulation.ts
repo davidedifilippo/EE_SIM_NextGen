@@ -54,8 +54,13 @@ export interface LiveFrame {
   motors: ({ rpm: number; state: MotorState } | null)[];
   /** Each Arduino: the LED L, what draws beyond its maximum current, and what it wrote on the serial port since the last frame. */
   mcus: ({ id: string; led: boolean; warnings: string[]; serial: string } | null)[];
-  /** The mean current of each LED since the last frame, as the eye sees it under a PWM; NaN for the other parts. */
-  ledMean: Float64Array;
+  /**
+   * What lights each LED and lamp, averaged since the last frame as the eye sees it under a PWM or on
+   * alternating current: the current of a LED, the power of a lamp; NaN for the other parts.
+   */
+  glowMean: Float64Array;
+  /** The RMS voltage of each lamp since the last frame; NaN for the other parts. */
+  lampRms: Float64Array;
   /** Each 555: whether its output is high, and what is beyond its limits. */
   timers: ({ isHigh: boolean; warnings: string[] } | null)[];
   /** Each relay: whether its contact is closed. */
@@ -110,6 +115,8 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
       return [s.plus, s.minus];
     case 'pot':
       return [s.a, s.b, s.wiper];
+    case 'lamp':
+      return [s.a, s.b];
     case 'relay':
       return [s.coil1, s.coil2, s.c1, s.c2];
     case 'mcu':
@@ -212,9 +219,11 @@ export class LiveSimulation {
   private lastCircuit: Circuit | null = null;
   private meters = new Map<string, { index: number; mode: unknown; window: MeterWindow; read: () => number }>();
   private period: number | null = null;
-  /** The LEDs, by device, with the sum of their currents over the steps since the last frame. */
+  /** The LEDs and lamps, by device, with the sum of their currents or powers over the steps since the last frame. */
   private leds: number[] = [];
+  private lamps: number[] = [];
   private ledSum = new Float64Array(0);
+  private lampSquares = new Float64Array(0);
   private ledSteps = 0;
 
   /** Probes are sampled at every solver step: at frame rate, fast signals would show up as corners. */
@@ -334,8 +343,11 @@ export class LiveSimulation {
       throw err;
     }
     this.engine = next;
-    this.leds = compiled.elementIds.flatMap((id, i) => (circuit.elements.find((el) => el.id === id)?.def === 'led' ? [i] : []));
+    const defOf = (id: string) => circuit.elements.find((el) => el.id === id)?.def;
+    this.leds = compiled.elementIds.flatMap((id, i) => (defOf(id) === 'led' ? [i] : []));
+    this.lamps = compiled.elementIds.flatMap((id, i) => (defOf(id) === 'lamp' ? [i] : []));
     this.ledSum = new Float64Array(compiled.devices.length);
+    this.lampSquares = new Float64Array(compiled.devices.length);
     this.ledSteps = 0;
     this.resolveProbes();
     this.resolveMeters();
@@ -352,7 +364,11 @@ export class LiveSimulation {
       this.engine.step(h);
       done++;
       for (const i of this.leds) this.ledSum[i] += this.engine.deviceCurrent(i);
-      if (this.leds.length > 0) this.ledSteps++;
+      for (const i of this.lamps) {
+        this.ledSum[i] += this.lampPower(i);
+        this.lampSquares[i] += this.lampVoltage(i) ** 2;
+      }
+      if (this.leds.length + this.lamps.length > 0) this.ledSteps++;
       this.meters.forEach((meter) => meter.window.add(meter.read(), h, window));
       if (this.readers.length > 0) {
         this.sampleTimes.push(this.engine.time);
@@ -361,6 +377,18 @@ export class LiveSimulation {
       if ((done & 7) === 0 && performance.now() - start > budgetMs) break;
     }
     return done;
+  }
+
+  /** The voltage across a lamp now. */
+  private lampVoltage(index: number): number {
+    const engine = this.engine!;
+    const d = engine.compiled.devices[index];
+    return engine.nodeVoltage(d.a) - engine.nodeVoltage(d.b);
+  }
+
+  /** The power a lamp takes now: its voltage times its current. */
+  private lampPower(index: number): number {
+    return this.lampVoltage(index) * this.engine!.deviceCurrent(index);
   }
 
   markFailed() {
@@ -421,10 +449,14 @@ export class LiveSimulation {
     const relays = devices.map((_, i) => engine.relayIsClosed(i));
     const mcus = devices.map((_, i) => engine.mcuStatus(i));
     const timers = devices.map((_, i) => engine.timerStatus(i));
-    const ledMean = new Float64Array(devices.length).fill(NaN);
-    for (const i of this.leds) ledMean[i] = this.ledSteps > 0 ? this.ledSum[i] / this.ledSteps : engine.deviceCurrent(i);
+    const glowMean = new Float64Array(devices.length).fill(NaN);
+    for (const i of this.leds) glowMean[i] = this.ledSteps > 0 ? this.ledSum[i] / this.ledSteps : engine.deviceCurrent(i);
+    for (const i of this.lamps) glowMean[i] = this.ledSteps > 0 ? this.ledSum[i] / this.ledSteps : this.lampPower(i);
+    const lampRms = new Float64Array(devices.length).fill(NaN);
+    for (const i of this.lamps) lampRms[i] = this.ledSteps > 0 ? Math.sqrt(this.lampSquares[i] / this.ledSteps) : Math.abs(this.lampVoltage(i));
+    this.lampSquares.fill(0);
     this.ledSum.fill(0);
     this.ledSteps = 0;
-    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, relays, mcus, timers, ledMean, logic, scope: this.takeSamples() };
+    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, relays, mcus, timers, glowMean, lampRms, logic, scope: this.takeSamples() };
   }
 }

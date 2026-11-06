@@ -28,7 +28,7 @@ import { MotorView } from '../ui/MotorView';
 import { RelayView } from '../ui/RelayView';
 import { ArduinoView } from '../ui/ArduinoView';
 import { TimerView } from '../ui/TimerView';
-import { LedGlow, LogicLevels, SegmentGlow } from '../ui/LogicView';
+import { LampGlow, LedGlow, LogicLevels, SegmentGlow } from '../ui/LogicView';
 import { regulatorSummaries, RegulatorSummary } from '../ui/regulatorPower';
 import { LiveLegendHandle } from '../ui/LiveControls';
 import { liveTraces, nextSlot, ScopeTrace, traceLabel } from '../ui/scopeTraces';
@@ -128,6 +128,7 @@ export function useWorkbench() {
   const hasRegulator = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'regulator'), [resolved]);
   const hasLogic = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'logic'), [resolved]);
   const hasLed = useMemo(() => resolved.elements.some((el) => el.def === 'led'), [resolved]);
+  const hasLamp = useMemo(() => resolved.elements.some((el) => el.def === 'lamp'), [resolved]);
   const hasMotor = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'motor'), [resolved]);
   const hasArduino = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'mcu'), [resolved]);
   const hasTimer = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'timer'), [resolved]);
@@ -146,11 +147,12 @@ export function useWorkbench() {
           {hasTimer && <TimerView circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasRelay && <RelayView circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasLed && <LedGlow circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
+          {hasLamp && <LampGlow circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasDisplay && <SegmentGlow circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasLogic && <LogicLevels circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
         </>
       ),
-    [showValues, isDc, hasMeter, hasRegulator, hasMotor, hasRelay, hasArduino, hasTimer, hasLed, hasDisplay, hasLogic, live.errors.length, resolved, live.layout, live.frameRef],
+    [showValues, isDc, hasMeter, hasRegulator, hasMotor, hasRelay, hasArduino, hasTimer, hasLed, hasLamp, hasDisplay, hasLogic, live.errors.length, resolved, live.layout, live.frameRef],
   );
 
   const latestCircuitForKeys = useRef(circuit);

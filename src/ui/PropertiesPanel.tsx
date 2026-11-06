@@ -10,6 +10,7 @@ import { LiveReadout } from './LiveControls';
 import { ArduinoProgram } from './ArduinoProgram';
 import { InsideView } from './InsideView';
 import { TimerNote } from './TimerView';
+import { LampNote } from './LampNote';
 import { compositeParts } from '../library/composites';
 import { CUSTOM_SKETCH } from '../samples/arduino/sketches';
 import { ModelImporter } from './ModelImporter';
@@ -105,7 +106,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
     <div className="properties">
       <strong>{def ? def.name : singleWire ? 'Filo' : `${selectedIds.size} oggetti selezionati`}</strong>
       {deviceIndex >= 0 && (
-        <LiveReadout deviceIndex={deviceIndex} sign={single ? drawingSign(single) : 1} transistorFirstDot={def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' ? layout!.devices[deviceIndex].firstDot : null} isMos={def?.spice.kind === 'mos'} windingsFirstDot={def?.spice.kind === 'transformer' || def?.spice.kind === 'relay' ? layout!.devices[deviceIndex].firstDot : null} isPot={def?.spice.kind === 'pot'} boardFirstDot={def?.spice.kind === 'mcu' ? layout!.devices[deviceIndex].firstDot : null} timerFirstDot={def?.spice.kind === 'timer' ? layout!.devices[deviceIndex].firstDot : null} regulatorFirstDot={def?.spice.kind === 'regulator' ? layout!.devices[deviceIndex].firstDot : null} isSensor={def?.spice.kind === 'regulator' && !!def.spice.sensor} frameRef={frameRef} />
+        <LiveReadout deviceIndex={deviceIndex} sign={single ? drawingSign(single) : 1} transistorFirstDot={def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' ? layout!.devices[deviceIndex].firstDot : null} isMos={def?.spice.kind === 'mos'} windingsFirstDot={def?.spice.kind === 'transformer' || def?.spice.kind === 'relay' ? layout!.devices[deviceIndex].firstDot : null} isPot={def?.spice.kind === 'pot'} isLamp={def?.spice.kind === 'lamp'} boardFirstDot={def?.spice.kind === 'mcu' ? layout!.devices[deviceIndex].firstDot : null} timerFirstDot={def?.spice.kind === 'timer' ? layout!.devices[deviceIndex].firstDot : null} regulatorFirstDot={def?.spice.kind === 'regulator' ? layout!.devices[deviceIndex].firstDot : null} isSensor={def?.spice.kind === 'regulator' && !!def.spice.sensor} frameRef={frameRef} />
       )}
       {single && def?.spice.kind === 'logic' && def.spice.gate === 'table' && def.spice.tableProp && (
         <TruthTableEditor element={single} inputs={def.spice.inputs} outputs={def.spice.outputs} onChange={(patch) => update(patch)} />
@@ -219,6 +220,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
       {/* Only for the part still selected: another selection, or none, closes it */}
       {insideOf && insideOf.id === single?.id && <InsideView key={insideOf.id} id={insideOf.def} tag={insideOf.tag} onClose={() => setInsideOf(null)} />}
       {single && def?.spice.kind === 'timer' && <TimerNote circuit={circuit} element={single} spec={def.spice.spec} />}
+      {single && def?.spice.kind === 'lamp' && <LampNote element={single} spice={def.spice} />}
       {single && def?.spice.kind === 'pot' && (
         <p className="hint">Il cursore va da 0 % sull'estremo a, a sinistra nel simbolo non ruotato, a 100 % sull'estremo b. All'oscilloscopio, Cursore è la tensione del cursore verso massa.</p>
       )}

@@ -10,6 +10,7 @@ import { METER_TEST_CURRENT, meterResistance } from '../realtime/meter';
 import { LogicNetwork, gateExpression, levelExpression, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicParams, nextStateTable, outputTable, sequentialSpec, tableExpression } from '../realtime/logic';
 import { CONTACT_CLOSED, CONTACT_OPEN, contactResistances } from '../realtime/switches';
 import { potResistances } from '../realtime/pot';
+import { filamentExpression, lampParams, lampRating, radiatedExpression } from '../realtime/lamp';
 import { relayThresholds } from '../realtime/relay';
 import { supplyResistance, TIMER_INPUT_RESISTANCE, TIMER_OFF_RESISTANCE, TIMER_RESET_PULLUP } from '../realtime/timer555';
 import { SEGMENT_LEAK, segmentColor, segmentExpression } from '../realtime/display7';
@@ -362,6 +363,26 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
       case 'mcu':
         errors.push(`${el.tag}: un Arduino si simula solo nell'animazione: l'Analisi precisa non esegue il programma`);
         break;
+      case 'lamp': {
+        const rating = lampRating(el, s);
+        if (!rating) {
+          errors.push(`${el.tag}: potenza o tensione non valide`);
+          break;
+        }
+        const name = uniqueName('X', el.tag);
+        if (!name) break;
+        // The temperature of the filament on a node of its own, a capacitor of tau farad charged by the
+        // power taken and emptied by the power radiated, both as shares of the rated power; the filament a
+        // current that follows the resistance of that temperature
+        const params = lampParams(rating);
+        const [a, b, temp] = [node(s.a), node(s.b), `xt${name}`];
+        const v = `(${a === '0' ? '0' : `v(${a})`}-${b === '0' ? '0' : `v(${b})`})`;
+        const resistance = filamentExpression(params, `v(${temp})`);
+        lines.push(`BF${name} ${a} ${b} I=${v}/${resistance}`);
+        lines.push(`BT${name} 0 ${temp} I=${v}*${v}/${resistance}/${params.power}-${radiatedExpression(`v(${temp})`)}`, `CT${name} ${temp} 0 ${params.tau}`, `RT${name} ${temp} 0 1e9`);
+        lines.push(`RL${name} ${a} ${b} 1e12`);
+        break;
+      }
       case 'pot': {
         const halves = potResistances(el, s.valueProp, s.positionProp);
         if (!halves) {

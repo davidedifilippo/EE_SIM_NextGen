@@ -87,6 +87,8 @@ export const LiveReadout: React.FC<{
   windingsFirstDot: number | null;
   /** A potentiometer: the voltage of its wiper too. */
   isPot?: boolean;
+  /** A lamp: the power it takes too. */
+  isLamp?: boolean;
   /** Set for an Arduino: where the dots of its pins start, the 5V after the twenty of the program. */
   boardFirstDot?: number | null;
   /** Set for a 555: where the dots of its pins start, OUT the third. */
@@ -96,7 +98,7 @@ export const LiveReadout: React.FC<{
   /** A temperature sensor: no heat to show. */
   isSensor?: boolean;
   frameRef: React.MutableRefObject<LiveFrame | null>;
-}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor = false, isPot = false, boardFirstDot = null, timerFirstDot = null, frameRef }) => {
+}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor = false, isPot = false, isLamp = false, boardFirstDot = null, timerFirstDot = null, frameRef }) => {
   const [rows, setRows] = React.useState<[string, string][] | null>(null);
 
   React.useEffect(() => {
@@ -129,6 +131,12 @@ export const LiveReadout: React.FC<{
               ['I bobina', amps(frame.deviceCurrent[deviceIndex])],
               ['Contatto', relay ? 'Chiuso' : 'Aperto'],
               ['I contatto', amps(frame.dotCurrent[windingsFirstDot + 1])],
+            ]
+          : isLamp
+          ? [
+              ['Tensione', volts(frame.deviceVoltage[deviceIndex])],
+              ['Corrente', amps(frame.deviceCurrent[deviceIndex])],
+              ['Potenza', formatEngineering(frame.glowMean[deviceIndex], 'W')],
             ]
           : isPot
           ? [
@@ -184,7 +192,7 @@ export const LiveReadout: React.FC<{
     refresh();
     const timer = setInterval(refresh, 200);
     return () => clearInterval(timer);
-  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor, isPot, boardFirstDot, timerFirstDot, frameRef]);
+  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor, isPot, isLamp, boardFirstDot, timerFirstDot, frameRef]);
 
   if (!rows) return null;
   return (

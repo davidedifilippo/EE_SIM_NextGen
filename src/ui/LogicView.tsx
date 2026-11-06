@@ -4,6 +4,7 @@ import { Circuit } from '../model/types';
 import { LiveFrame, LiveLayout } from '../realtime/liveSimulation';
 import { SEGMENT_LINES, segmentColor } from '../realtime/display7';
 import { localToWorld } from '../utils/geometry';
+import { LAMP_OVERVOLTAGE, lampBrightness, lampRating } from '../realtime/lamp';
 
 interface Props {
   circuit: Circuit;
@@ -99,7 +100,7 @@ export const LedGlow: React.FC<Props> = ({ circuit, layout, frameRef }) => {
       if (!frame) return;
       // The mean since the last frame: a PWM faster than the frames shows as a dimmer light, not a flicker
       leds.forEach(({ index }, i) => {
-        const mean = frame.ledMean[index];
+        const mean = frame.glowMean[index];
         glows[i]?.setAttribute('opacity', String(0.75 * ledBrightness(Number.isNaN(mean) ? frame.deviceCurrent[index] : mean)));
       });
     };
@@ -112,6 +113,55 @@ export const LedGlow: React.FC<Props> = ({ circuit, layout, frameRef }) => {
     <g ref={rootRef} pointerEvents="none" data-testid="led-glow">
       {leds.map(({ el, color }) => (
         <circle key={el.id} cx={el.x} cy={el.y} r={17} fill={color} opacity={0} style={{ filter: `drop-shadow(0 0 6px ${color})` }} />
+      ))}
+    </g>
+  );
+};
+
+/**
+ * The light of each lamp, from the power it takes against its rating; in red above it, when its voltage
+ * is more than a real one would stand for long.
+ */
+export const LampGlow: React.FC<Props> = ({ circuit, layout, frameRef }) => {
+  const rootRef = useRef<SVGGElement>(null);
+  const lamps = useMemo(() => {
+    const byId = new Map(circuit.elements.map((el) => [el.id, el]));
+    return layout.devices.flatMap((device, index) => {
+      const el = byId.get(device.elementId)!;
+      const def = getDevice(el.def);
+      if (def?.spice.kind !== 'lamp') return [];
+      const rating = lampRating(el, def.spice);
+      return rating ? [{ el, index, rated: rating.power, volts: rating.volts }] : [];
+    });
+  }, [circuit, layout]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const glows = [...root.querySelectorAll<SVGCircleElement>('circle')];
+    const warnings = [...root.querySelectorAll<SVGTextElement>('text')];
+    const refresh = () => {
+      const frame = frameRef.current;
+      if (!frame) return;
+      lamps.forEach(({ index, rated, volts }, i) => {
+        const power = frame.glowMean[index];
+        glows[i]?.setAttribute('opacity', String(0.85 * lampBrightness(power, rated)));
+        // By the voltage, RMS on alternating current: the inrush of a cold filament is no fault of the supply
+        if (warnings[i]) warnings[i].textContent = frame.lampRms[index] > LAMP_OVERVOLTAGE * volts ? 'Oltre la tensione nominale' : '';
+      });
+    };
+    refresh();
+    const timer = setInterval(refresh, REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [frameRef, lamps]);
+
+  return (
+    <g ref={rootRef} pointerEvents="none" data-testid="lamp-glow">
+      {lamps.map(({ el }) => (
+        <g key={el.id}>
+          <circle cx={el.x} cy={el.y} r={20} fill="#fde047" opacity={0} style={{ filter: 'drop-shadow(0 0 10px #facc15)' }} />
+          <text x={el.x} y={el.y - 30} textAnchor="middle" fontSize={11} fontWeight={700} fill="var(--sch-alert)" style={{ paintOrder: 'stroke', stroke: 'var(--sch-halo)', strokeWidth: 3 }} />
+        </g>
       ))}
     </g>
   );
