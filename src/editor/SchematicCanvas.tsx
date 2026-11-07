@@ -1,5 +1,6 @@
 // Adapted from PowerCad_NextGen (see THIRD_PARTY_NOTICES.md).
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { applyRailPushes, planRailPushes, RailPush } from './railPush';
 import { Circuit, ComponentDef, Element, Pt, Rotation, Wire } from '../model/types';
 import { canMirror, canRotate, createElement, getDevice } from '../library/devices';
 import { Box, dist, isElementInBox, isPointInBox, isPointOnSegment, isWireInBox, localToWorld, snap, snapPt } from '../utils/geometry';
@@ -37,6 +38,10 @@ type DragState =
       startScreen: Pt;
       origElemPos: Pt;
       followers: WireFollower[];
+      /** The circuit as the drag found it, and the rails the part may push on its way. */
+      origWires: Wire[];
+      origElements: Element[];
+      pushes: RailPush[];
       wasSelectedAtStart: boolean;
       isDragging: boolean;
       hasRecordedHistory: boolean;
@@ -617,12 +622,14 @@ export const SchematicCanvas: React.FC<Props> = ({
     } else if (drag.type === 'element') {
       const [newX, newY] = [snap(drag.origElemPos.x + dx), snap(drag.origElemPos.y + dy)];
       const [moveX, moveY] = [newX - drag.origElemPos.x, newY - drag.origElemPos.y];
+      // A lead that reached its wire pushes it along, rather than carrying the other leads across it
+      const pushed = applyRailPushes(drag.origWires, drag.origElements, drag.pushes, { x: moveX, y: moveY });
       onChange(
         {
           ...circuit,
-          elements: circuit.elements.map((el) => (el.id === drag.id ? { ...el, x: newX, y: newY } : el)),
+          elements: pushed.elements.map((el) => (el.id === drag.id ? { ...el, x: newX, y: newY } : el)),
           // Wires stay attached to the terminals of the moved element
-          wires: circuit.wires.map((w) => {
+          wires: pushed.wires.map((w) => {
             const follower = drag.followers.find((f) => f.wireId === w.id);
             return follower ? { ...w, pts: followMove(follower, moveX, moveY) } : w;
           }),
@@ -760,12 +767,17 @@ export const SchematicCanvas: React.FC<Props> = ({
 
     const terminalsOf = (el: Element) => (getDevice(el.def)?.terminals ?? []).map((t) => localToWorld(el.x, el.y, t, el.rot, el.flip));
     const otherTerminals = circuit.elements.filter((el) => el.id !== elem.id).flatMap(terminalsOf);
+    const followers = wireFollowers(circuit.wires, terminalsOf(elem), otherTerminals);
+    const pushes = planRailPushes(circuit, elem.id, new Set(followers.map((f) => f.wireId)));
     dragRef.current = {
       type: 'element',
       id: elem.id,
       startScreen: { x: e.clientX, y: e.clientY },
       origElemPos: { x: elem.x, y: elem.y },
-      followers: wireFollowers(circuit.wires, terminalsOf(elem), otherTerminals),
+      followers,
+      origWires: circuit.wires,
+      origElements: circuit.elements,
+      pushes,
       wasSelectedAtStart: isAlreadySelected,
       isDragging: false,
       hasRecordedHistory: false,
