@@ -275,3 +275,11 @@ describe('generateNetlist', () => {
     expect(generateNetlist(c, TRAN).text).toContain('RLOAD 0 n1 1k');
   });
 });
+
+describe('the title line', () => {
+  it('reaches ngspice in plain ASCII: accents dropped, other letters as underscores', async () => {
+    const { spiceTitle } = await import('./generate');
+    expect(spiceTitle('Relè SPDT – 230 V°')).toBe('Rele SPDT _ 230 V_');
+    expect(spiceTitle('Partitore di tensione')).toBe('Partitore di tensione');
+  });
+});

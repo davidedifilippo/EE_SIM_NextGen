@@ -122,7 +122,7 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
     case 'opto':
       return [s.anode, s.cathode, s.collector, s.emitter];
     case 'relay':
-      return [s.coil1, s.coil2, s.c1, s.c2];
+      return s.nc ? [s.coil1, s.coil2, s.c1, s.c2, s.nc] : [s.coil1, s.coil2, s.c1, s.c2];
     case 'mcu':
       return [...s.pins, s.vcc, s.gnd];
     case 'port':
@@ -178,6 +178,8 @@ export function buildLiveLayout(circuit: Circuit, compiled: CompiledCircuit): Li
     if (isPerLead) points.forEach((p) => dots.push({ a: p, b: { x: el.x, y: el.y } }));
     // One run per winding: the primary, and each half of the secondary to the centre tap
     else if (def.spice.kind === 'ctransformer') dots.push({ a: points[0], b: points[1] }, { a: points[2], b: points[3] }, { a: points[3], b: points[4] });
+    // A changeover relay: through the coil, then from the common to each of its two ways
+    else if (def.spice.kind === 'relay' && points.length === 5) dots.push({ a: points[0], b: points[1] }, { a: points[2], b: points[3] }, { a: points[2], b: points[4] });
     else if (points.length === 2) dots.push({ a: points[0], b: points[1] });
     else if (points.length === 4) dots.push({ a: points[0], b: points[1] }, { a: points[2], b: points[3] });
     else points.forEach((p) => dots.push({ a: p, b: { x: el.x, y: el.y } }));
@@ -461,6 +463,7 @@ export class LiveSimulation {
       const { firstDot } = layout.devices[i];
       if (d.kind === 'logic' || d.kind === 'display7' || d.kind === 'bridge' || d.kind === 'mcu') currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
       else if (d.kind === 'ctransformer') [dotCurrent[firstDot], dotCurrent[firstDot + 1], dotCurrent[firstDot + 2]] = [currents[0], currents[2], -currents[4]];
+      else if (d.kind === 'relay' && currents.length === 5) [dotCurrent[firstDot], dotCurrent[firstDot + 1], dotCurrent[firstDot + 2]] = [currents[0], -currents[3], -currents[4]];
       else if (currents.length === 2) dotCurrent[firstDot] = currents[0];
       else if (currents.length === 4) [dotCurrent[firstDot], dotCurrent[firstDot + 1]] = [currents[0], currents[2]];
       else currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));

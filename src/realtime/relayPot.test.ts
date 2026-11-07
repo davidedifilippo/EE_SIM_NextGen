@@ -7,6 +7,9 @@ import { compileCircuit } from './compile';
 import { RealtimeEngine } from './engine';
 import { nextRelayState, relayThresholds } from './relay';
 import { circuitFromNets, Part } from './testCircuits';
+import { EXAMPLES } from '../samples/examples';
+import { Circuit } from '../model/types';
+import { computeConnectivity } from '../netlist/connectivity';
 
 const dc = (tag: string, plus: string, volts: string): Part => ({ def: 'vsource', tag, nets: [plus, '0'], props: { shape: 'dc', amplitude: volts, offset: '0', frequency: '50', phase: '0', duty: '50', spec: '' } });
 const pot = (position: string): Part => ({ def: 'potentiometer', tag: 'P1', nets: ['top', '0', 'w'], props: { value: '10k', position } });
@@ -106,4 +109,67 @@ describe('the relay', () => {
     expect(realEdges[1]).toBeCloseTo(0.025 + tau * Math.log(5 / 0.5), 3);
     realEdges.forEach((t, j) => expect(Math.abs(t - ngEdges[j])).toBeLessThan(5e-5));
   });
+});
+
+describe('the changeover relay', () => {
+  /** The example: K1 between two lamps on 12 V, its coil on V1 through S1, here closed, with V1 as given. */
+  const example = (v1: Record<string, string>) => {
+    const circuit = EXAMPLES.find((e) => e.id === 'relay_spdt')!.build();
+    circuit.elements = circuit.elements.map((el) => (el.id === 'v1' ? { ...el, def: 'vsource', props: { ...el.props, ...v1 } } : el.id === 's1' ? { ...el, props: { ...el.props, closed: '1' } } : el));
+    return circuit;
+  };
+  /** The voltage of each way of K1 in the animation, by its terminal. */
+  const ways = (circuit: Circuit) => {
+    const compiled = compileCircuit(circuit);
+    if (!compiled.ok) throw new Error(compiled.errors.join());
+    const engine = new RealtimeEngine(compiled.compiled);
+    engine.initialize();
+    const { netOf } = computeConnectivity(circuit);
+    const at = (terminal: string) => {
+      const node = compiled.compiled.netIndex.get(netOf.get(terminalKey('k1', terminal))!)!;
+      return () => engine.nodeVoltage(node);
+    };
+    return { engine, k: compiled.compiled.elementIds.indexOf('k1'), no: at('14'), nc: at('12') };
+  };
+
+  it('rests on the normally closed way, and moves to the normally open one with the coil fed', () => {
+    for (const [volts, isPulled] of [['0', false], ['5', true]] as const) {
+      const { engine, k, no, nc } = ways(example({ shape: 'dc', amplitude: volts }));
+      expect(engine.relayIsClosed(k)).toBe(isPulled);
+      expect(no()).toBeCloseTo(isPulled ? 12 : 0, 1);
+      expect(nc()).toBeCloseTo(isPulled ? 0 : 12, 1);
+    }
+  });
+
+  it('both ways change at the same instants in both engines', async () => {
+    // 0 to 5 V at 20 Hz on the coil: up at 0, down at 25 ms
+    const circuit = example({ shape: 'square', amplitude: '2.5', offset: '2.5', frequency: '20', phase: '0', duty: '50', spec: '', rint: '0' });
+    const { engine, no, nc } = ways(circuit);
+    const h = 1e-5;
+    const [noTrace, ncTrace, times]: number[][] = [[], [], []];
+    for (let t = 0; t < 0.045; t += h) {
+      engine.step(h);
+      noTrace.push(no());
+      ncTrace.push(nc());
+      times.push(engine.time);
+    }
+    const netlist = generateNetlist(circuit, { type: 'tran', step: '10u', stop: '45m', maxStep: '10u' });
+    expect(netlist.errors).toEqual([]);
+    const result = await runTransient(netlist.text);
+    const ngAt = (terminal: string) => result.voltages.get(netlist.nodeOf.get(terminalKey('k1', terminal))!)!;
+    const edgesOf = (time: ArrayLike<number>, values: ArrayLike<number>) => {
+      const edges: number[] = [];
+      for (let j = 1; j < values.length; j++) if (values[j] > 6 !== values[j - 1] > 6) edges.push(time[j]);
+      return edges;
+    };
+    const [realNo, realNc] = [edgesOf(times, noTrace), edgesOf(times, ncTrace)];
+    const [ngNo, ngNc] = [edgesOf(result.time, ngAt('14')), edgesOf(result.time, ngAt('12'))];
+    // The normally closed way opens as the coil pulls in, and closes again as it lets go
+    expect(realNo).toHaveLength(2);
+    expect(realNc).toHaveLength(2);
+    realNo.forEach((t, j) => expect(Math.abs(t - realNc[j])).toBeLessThan(2 * h));
+    realNo.forEach((t, j) => expect(Math.abs(t - ngNo[j])).toBeLessThan(1e-4));
+    realNc.forEach((t, j) => expect(Math.abs(t - ngNc[j])).toBeLessThan(1e-4));
+    // ngspice follows the filaments of the two lamps too: slower than the others
+  }, 30000);
 });

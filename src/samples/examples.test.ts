@@ -131,3 +131,25 @@ describe('a new circuit', () => {
     expect(compileCircuit(circuit)).toMatchObject({ ok: true });
   });
 });
+
+describe('the changeover relay example', () => {
+  const lamps = (closed: string) => {
+    const circuit = EXAMPLES.find((e) => e.id === 'relay_spdt')!.build();
+    circuit.elements = circuit.elements.map((el) => (el.id === 's1' ? { ...el, props: { ...el.props, closed } } : el));
+    const compiled = compileCircuit(circuit);
+    if (!compiled.ok) throw new Error(compiled.errors.join());
+    const engine = new RealtimeEngine(compiled.compiled);
+    engine.initialize();
+    const current = (id: string) => Math.abs(engine.deviceCurrent(compiled.compiled.elementIds.indexOf(id)));
+    return { lp1: current('lp1'), lp2: current('lp2') };
+  };
+
+  it('at rest LP2 is on; with S1 closed LP1 is on instead', () => {
+    const rest = lamps('0');
+    expect(rest.lp2).toBeGreaterThan(0.3);
+    expect(rest.lp1).toBeLessThan(1e-6);
+    const pulled = lamps('1');
+    expect(pulled.lp1).toBeGreaterThan(0.3);
+    expect(pulled.lp2).toBeLessThan(1e-6);
+  });
+});

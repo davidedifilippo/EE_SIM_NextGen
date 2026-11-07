@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react';
-import { getDevice, RELAY_BLADE } from '../library/devices';
+import { getDevice, relayBlade } from '../library/devices';
 import { Circuit } from '../model/types';
 import { LiveFrame, LiveLayout } from '../realtime/liveSimulation';
 import { localToWorld } from '../utils/geometry';
@@ -20,10 +20,12 @@ export const RelayView: React.FC<Props> = ({ circuit, layout, frameRef }) => {
     const byId = new Map(circuit.elements.map((el) => [el.id, el]));
     return layout.devices.flatMap((device, index) => {
       const el = byId.get(device.elementId)!;
-      if (getDevice(el.def)?.spice.kind !== 'relay') return [];
+      const spice = getDevice(el.def)?.spice;
+      if (spice?.kind !== 'relay') return [];
       const at = (x: number, y: number) => localToWorld(el.x, el.y, { x, y }, el.rot, el.flip);
-      const line = ({ x1, y1, x2, y2 }: typeof RELAY_BLADE.open) => ({ a: at(x1, y1), b: at(x2, y2) });
-      return [{ id: el.id, index, open: line(RELAY_BLADE.open), closed: line(RELAY_BLADE.closed), contacts: [at(20, -14), at(20, 14)] }];
+      const blade = relayBlade(!!spice.nc);
+      const line = ({ x1, y1, x2, y2 }: typeof blade.rest) => ({ a: at(x1, y1), b: at(x2, y2) });
+      return [{ id: el.id, index, open: line(blade.rest), closed: line(blade.pulled), contacts: blade.contacts.map(([x, y]) => at(x, y)) }];
     });
   }, [circuit, layout]);
 

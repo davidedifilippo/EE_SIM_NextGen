@@ -136,8 +136,11 @@ export type SpiceDef =
   | { kind: 'lamp'; a: string; b: string; powerProp: string; voltsProp: string }
   /** An optocoupler: LED from anode to cathode, phototransistor from collector to emitter; its CTR class in a property. */
   | { kind: 'opto'; anode: string; cathode: string; collector: string; emitter: string; ctrProp: string }
-  /** The coil between coil1 and coil2; a normally open contact between c1 and c2. */
-  | { kind: 'relay'; coil1: string; coil2: string; c1: string; c2: string; spec: RelaySpec }
+  /**
+   * The coil between coil1 and coil2; a normally open contact between c1, the common, and c2. A changeover
+   * relay has a normally closed contact as well, from the common to nc.
+   */
+  | { kind: 'relay'; coil1: string; coil2: string; c1: string; c2: string; nc?: string; spec: RelaySpec }
   | { kind: 'block'; pins: string[]; modelProp: string }
   | { kind: 'meter'; a: string; b: string; modeProp: string }
   /** A mains transformer with a centre tap on the secondary, sized from its plate. */

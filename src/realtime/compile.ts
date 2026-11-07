@@ -119,8 +119,11 @@ export type CompiledDevice =
   | { kind: 'lamp'; element: number; a: NodeIndex; b: NodeIndex; params: LampParams }
   /** A potentiometer: g1 from the end a to the wiper w, g2 from the wiper to the end b. */
   | { kind: 'pot'; element: number; a: NodeIndex; b: NodeIndex; w: NodeIndex; g1: number; g2: number }
-  /** A relay: the coil from a to b as R and L in one branch; the contact from c to d, closed or open with the coil current. */
-  | { kind: 'relay'; element: number; a: NodeIndex; b: NodeIndex; c: NodeIndex; d: NodeIndex; branch: number; spec: RelaySpec }
+  /**
+   * A relay: the coil from a to b as R and L in one branch; the normally open contact from the common c to
+   * d, closed with the coil current; for a changeover, the normally closed one from c to nc, the other way.
+   */
+  | { kind: 'relay'; element: number; a: NodeIndex; b: NodeIndex; c: NodeIndex; d: NodeIndex; nc: NodeIndex | null; branch: number; spec: RelaySpec }
   /** An Arduino Uno: a is its 5V, a source behind a small resistance in its branch, b its ground; pins in the order of the program. */
   | { kind: 'mcu'; element: number; a: NodeIndex; b: NodeIndex; pins: NodeIndex[]; branch: number; program: Uint16Array; programKey: string }
   /** A 555: a is OUT and b GND; lower is the inner node of the divider at a third of the supply. */
@@ -426,7 +429,8 @@ export function compileCircuit(circuit: Circuit): CompileResult {
       }
       case 'relay': {
         const [a, b, c, d] = [node(s.coil1), node(s.coil2), node(s.c1), node(s.c2)];
-        pending.push({ element, needsBranch: true, build: (branch) => ({ kind: 'relay', element, a, b, c, d, branch, spec: s.spec }) });
+        const nc = s.nc ? node(s.nc) : null;
+        pending.push({ element, needsBranch: true, build: (branch) => ({ kind: 'relay', element, a, b, c, d, nc, branch, spec: s.spec }) });
         break;
       }
       case 'logic': {
@@ -587,7 +591,7 @@ export function compileCircuit(circuit: Circuit): CompileResult {
 
   const signature = JSON.stringify([
     branch,
-    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'motor' ? d.e : d.kind === 'pot' ? d.w : d.kind === 'relay' ? [d.c, d.d] : d.kind === 'opto' ? [d.junction, d.c, d.e] : d.kind === 'timer' ? [d.trig, d.reset, d.ctrl, d.thr, d.dis, d.vcc, d.lower] : d.kind === 'mcu' ? [...d.pins, d.programKey] : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.outputs, ...d.inputs] : d.kind === 'switch' ? d.ways : d.kind === 'display7' ? d.segments : d.kind === 'bridge' ? [d.ac1, d.ac2, ...d.junctions] : d.kind === 'ctransformer' ? [...d.starts, ...d.ends, ...d.inner] : 0]),
+    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'motor' ? d.e : d.kind === 'pot' ? d.w : d.kind === 'relay' ? [d.c, d.d, d.nc ?? -2] : d.kind === 'opto' ? [d.junction, d.c, d.e] : d.kind === 'timer' ? [d.trig, d.reset, d.ctrl, d.thr, d.dis, d.vcc, d.lower] : d.kind === 'mcu' ? [...d.pins, d.programKey] : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.outputs, ...d.inputs] : d.kind === 'switch' ? d.ways : d.kind === 'display7' ? d.segments : d.kind === 'bridge' ? [d.ac1, d.ac2, ...d.junctions] : d.kind === 'ctransformer' ? [...d.starts, ...d.ends, ...d.inner] : 0]),
   ]);
   return { ok: true, compiled: { size: branch, devices, netIndex, elementIds, signature } };
 }

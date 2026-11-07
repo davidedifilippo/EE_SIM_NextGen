@@ -424,6 +424,13 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         lines.push(`RK${name} ${coil1} ${inner} ${coilResistance}`, `LK${name} ${inner} ${coil2} ${coilInductance}`);
         lines.push(`BK${name} ${control} 0 V=abs(v(${coil1})-v(${inner}))/${coilResistance}`);
         lines.push(`SK${name} ${node(s.c1)} ${node(s.c2)} ${control} 0 ${model}`);
+        if (s.nc) {
+          // The normally closed contact: the same hysteresis on the opposite of the control, so that it opens
+          // when the other closes, and closes again when the other opens
+          const opposite = `${model}_NC`;
+          relayModels.set(opposite, `.model ${opposite} SW(VT=${-(pickup + dropout) / 2} VH=${(pickup - dropout) / 2} RON=${CONTACT_CLOSED} ROFF=${CONTACT_OPEN})`);
+          lines.push(`BN${name} xn${name} 0 V=-v(${control})`, `SN${name} ${node(s.c1)} ${node(s.nc)} xn${name} 0 ${opposite}`);
+        }
         break;
       }
       case 'logic': {
@@ -689,9 +696,19 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
   lines.push(...relayModels.values(), ...[...timerModels.values()].flat());
   // The memory of a 555 is much faster than the step: the trapezoidal rule rings on it, Gear damps it
   const options = hasTimer && analysis.type === 'tran' ? ['.options method=gear'] : [];
-  const text = [circuit.title, ...lines, ...modelCards.map((m) => m.card), ...options, command, '.end', ''].join('\n');
+  const text = [spiceTitle(circuit.title), ...lines, ...modelCards.map((m) => m.card), ...options, command, '.end', ''].join('\n');
   return { text, errors, nodeOf };
 }
+
+/**
+ * The title line as ngspice can take it: the version inside the app hangs on a letter outside ASCII, as the
+ * è of "Relè". Accents are dropped, anything else outside ASCII becomes an underscore.
+ */
+export const spiceTitle = (title: string) =>
+  title
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\x20-\x7e]/g, '_');
 
 /** The switches of the latches: a little hysteresis around the middle, so master and slave are never closed together. */
 const LATCH_SWITCH_MODEL = '.model LOGIC_SW SW(VT=0 VH=0.1 RON=100 ROFF=1e12)';

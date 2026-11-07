@@ -95,12 +95,15 @@ export const LiveReadout: React.FC<{
   timerFirstDot?: number | null;
   /** Set for an optocoupler: where its dots start, the LED then the output. */
   optoFirstDot?: number | null;
+  /** Set for a relay: where its dots start, the coil first, then each contact; and whether it is a changeover. */
+  relayFirstDot?: number | null;
+  isChangeover?: boolean;
   /** Set for a regulator: where the dots of its pins start. */
   regulatorFirstDot: number | null;
   /** A temperature sensor: no heat to show. */
   isSensor?: boolean;
   frameRef: React.MutableRefObject<LiveFrame | null>;
-}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor = false, isPot = false, isLamp = false, boardFirstDot = null, timerFirstDot = null, optoFirstDot = null, frameRef }) => {
+}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor = false, isPot = false, isLamp = false, boardFirstDot = null, timerFirstDot = null, optoFirstDot = null, relayFirstDot = null, isChangeover = false, frameRef }) => {
   const [rows, setRows] = React.useState<[string, string][] | null>(null);
 
   React.useEffect(() => {
@@ -134,12 +137,13 @@ export const LiveReadout: React.FC<{
               // Into the 5V pin is what the board takes: out of it, what it gives the circuit
               ['Erogati', amps(-frame.dotCurrent[boardFirstDot + UNO_PINS.length])],
             ]
-          : relay !== null && relay !== undefined && windingsFirstDot !== null
+          : relay !== null && relay !== undefined && relayFirstDot !== null
           ? [
               ['Bobina', volts(frame.deviceVoltage[deviceIndex])],
               ['I bobina', amps(frame.deviceCurrent[deviceIndex])],
-              ['Contatto', relay ? 'Chiuso' : 'Aperto'],
-              ['I contatto', amps(frame.dotCurrent[windingsFirstDot + 1])],
+              ['Contatto', isChangeover ? (relay ? 'Su NO (14)' : 'Su NC (12)') : relay ? 'Chiuso' : 'Aperto'],
+              // The common carries what goes to both ways
+              [isChangeover ? 'I comune' : 'I contatto', amps(frame.dotCurrent[relayFirstDot + 1] + (isChangeover ? frame.dotCurrent[relayFirstDot + 2] : 0))],
             ]
           : isLamp
           ? [
@@ -201,7 +205,7 @@ export const LiveReadout: React.FC<{
     refresh();
     const timer = setInterval(refresh, 200);
     return () => clearInterval(timer);
-  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor, isPot, isLamp, boardFirstDot, timerFirstDot, optoFirstDot, frameRef]);
+  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor, isPot, isLamp, boardFirstDot, timerFirstDot, optoFirstDot, relayFirstDot, isChangeover, frameRef]);
 
   if (!rows) return null;
   return (

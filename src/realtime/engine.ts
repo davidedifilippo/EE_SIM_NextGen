@@ -431,6 +431,7 @@ export class RealtimeEngine {
           this.addBranchColumns(d.a, d.b, d.branch);
           base[d.branch * n + d.branch] = -(d.spec.coilResistance + (h > 0 ? (2 * d.spec.coilInductance) / h : 0));
           this.addG(d.c, d.d, 1 / (this.relayClosed[i] ? CONTACT_CLOSED : CONTACT_OPEN));
+          if (d.nc !== null) this.addG(d.c, d.nc, 1 / (this.relayClosed[i] ? CONTACT_OPEN : CONTACT_CLOSED));
           break;
         case 'display7':
           for (const segment of d.segments) this.addG(segment, d.b, 1 / SEGMENT_LEAK);
@@ -1511,8 +1512,12 @@ export class RealtimeEngine {
       return [ia, ib, -(ia + ib)];
     }
     if (d.kind === 'relay') {
-      const contact = (this.voltage(d.c) - this.voltage(d.d)) / (this.relayClosed[index] ? CONTACT_CLOSED : CONTACT_OPEN);
-      return [this.x[d.branch], -this.x[d.branch], contact, -contact];
+      // Into the coil and out of it; into the common, out of the normally open way, and out of the normally closed one
+      const isPulled = this.relayClosed[index] === 1;
+      const toNo = (this.voltage(d.c) - this.voltage(d.d)) / (isPulled ? CONTACT_CLOSED : CONTACT_OPEN);
+      if (d.nc === null) return [this.x[d.branch], -this.x[d.branch], toNo, -toNo];
+      const toNc = (this.voltage(d.c) - this.voltage(d.nc)) / (isPulled ? CONTACT_OPEN : CONTACT_CLOSED);
+      return [this.x[d.branch], -this.x[d.branch], toNo + toNc, -toNo, -toNc];
     }
     if (d.kind === 'logic') {
       const outs = d.outputs.map((node, j) => (this.voltage(node) - ((this.logicOut[index] >> j) & 1 ? d.vdd : 0)) / LOGIC_OUTPUT_RESISTANCE);

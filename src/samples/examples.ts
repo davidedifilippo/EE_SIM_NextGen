@@ -555,6 +555,41 @@ const optoExample = (): Circuit => ({
   models: [],
 });
 
+/**
+ * A changeover relay between two 12 V lamps: at rest the normally closed contact lights LP2; with S1
+ * closed the coil pulls the blade onto the normally open one, and LP1 lights instead.
+ */
+const relayChangeover = (): Circuit => ({
+  title: 'Relè SPDT che scambia due lampade',
+  elements: [
+    part('v1', 'dcsupply', 0, 40, 90, 'V1', { amplitude: '5' }),
+    part('s1', 'switch', 80, 0, 0, 'S1'),
+    // Across the coil: at turn-off it carries the current of the coil, which would otherwise spark
+    part('d1', 'diode', 160, 40, 270, 'D1', { model: 'DIODO_1A' }),
+    part('k1', 'relay5_spdt', 240, 40, 0, 'K1'),
+    part('lp1', 'lamp', 380, -100, 0, 'LP1', { power: '5', volts: '12' }),
+    part('lp2', 'lamp', 380, 0, 0, 'LP2', { power: '5', volts: '12' }),
+    part('v2', 'dcsupply', 440, 200, 90, 'V2', { amplitude: '12' }),
+    ground(120, 80),
+    ground(480, 240, 'gnd2'),
+  ],
+  wires: [
+    wire('w1', [0, 0], [40, 0]),
+    wire('w2', [120, 0], [160, 0]),
+    wire('w3', [160, 0], [220, 0]),
+    wire('w4', [0, 80], [120, 80]),
+    wire('w5', [120, 80], [160, 80]),
+    wire('w6', [160, 80], [220, 80]),
+    wire('wcom', [260, 80], [260, 160], [440, 160]),
+    wire('wno', [260, 0], [260, -100], [340, -100]),
+    wire('wnc', [280, 0], [340, 0]),
+    wire('wl1', [420, -100], [520, -100], [520, 240]),
+    wire('wl2', [420, 0], [520, 0]),
+    wire('wv2', [440, 240], [520, 240]),
+  ],
+  models: [],
+});
+
 /** What Nuovo opens: an empty sheet, but with the ground that every circuit needs. */
 export const emptyCircuit = (): Circuit => ({ title: 'Circuito', elements: [ground(0, 0)], wires: [], models: [] });
 
@@ -580,6 +615,7 @@ export const EXAMPLES: Example[] = [
   { id: 'arduino_blink', title: 'Arduino: Blink', hint: 'Il programma Blink accende e spegne il LED L della scheda e il LED su D12 ogni secondo, in tempo reale. Nelle proprietà di A1 si cambia programma o se ne carica uno .hex', build: arduinoBlink },
   { id: 'arduino_pot', title: 'Arduino: potenziometro e LED', hint: 'Sposta il cursore di P1: Arduino legge A0 e regola con il PWM la luminosità del LED su D9. I valori compaiono nel Monitor seriale', build: arduinoPot },
   { id: 'arduino_lm35', title: 'Arduino: termometro LM35', hint: 'Cambia la temperatura di U1: Arduino legge A0 e scrive i gradi nel Monitor seriale ogni mezzo secondo', build: arduinoThermometer },
+  { id: 'relay_spdt', title: 'Relè SPDT che scambia due lampade', hint: 'A riposo il contatto 11–12 accende LP2. Chiudi S1: la bobina tira la lamina sul contatto 14, LP2 si spegne e si accende LP1', build: relayChangeover },
   { id: 'sensors', title: 'Sensori di temperatura LM35 e TMP36', hint: 'Sposta la temperatura nelle proprietà di U1 e U2: 10 mV per grado. LM35: 0 V a 0 °C; TMP36: 0,5 V a 0 °C', build: sensors },
   { id: 'regulator', title: 'Regolatore 7805', hint: '5 V sul carico da 100 Ω: guarda la potenza e la temperatura del regolatore', build: regulator },
 ];

@@ -926,46 +926,73 @@ const OPTO: ComponentDef = {
   spice: { kind: 'opto', anode: 'A', cathode: 'K', collector: 'C', emitter: 'E', ctrProp: 'ctr' },
 };
 
-/** The blade of the relay contact, from its pivot on the lower contact: at rest, and pulled in by the coil. */
-export const RELAY_BLADE = { open: { x1: 20, y1: 14, x2: 8, y2: -12 }, closed: { x1: 20, y1: 14, x2: 20, y2: -14 } };
+/** A segment of a drawing. */
+type Segment = { x1: number; y1: number; x2: number; y2: number };
 
 /**
- * A relay with one normally open contact: the coil on the left, A1 above and A2 below; the contact on
- * the right, 13 above and 14 below, its blade linked to the coil by a dashed line.
+ * The blade of a relay contact, from its pivot on the common: at rest, and pulled in by the coil, with
+ * the contacts it can touch. Normally open, it rests in the air; changeover, it rests on the normally
+ * closed contact, to the right, and is pulled onto the normally open one, straight up.
  */
-function relayDevice(id: string, spec: RelaySpec, searchTerms: string): ComponentDef {
+export function relayBlade(isChangeover: boolean): { rest: Segment; pulled: Segment; contacts: [number, number][] } {
+  const pulled = { x1: 20, y1: 14, x2: 20, y2: -14 };
+  return isChangeover
+    ? { rest: { x1: 20, y1: 14, x2: 38, y2: -12 }, pulled, contacts: [[20, -14], [40, -14], [20, 14]] }
+    : { rest: { x1: 20, y1: 14, x2: 8, y2: -12 }, pulled, contacts: [[20, -14], [20, 14]] };
+}
+
+/**
+ * A relay: the coil on the left, A1 above and A2 below, linked by a dashed line to the blade of its
+ * contact on the right. Normally open: 13 above, 14 below. Changeover: the common 11 below, the normally
+ * open 14 above it, the normally closed 12 above and to the right.
+ */
+function relayDevice(id: string, spec: RelaySpec, isChangeover: boolean, searchTerms: string): ComponentDef {
+  const blade = relayBlade(isChangeover);
   return {
     id,
     category: 'Passivi',
-    name: `Relè SPST ${spec.coilVolts} V`,
+    name: `Relè ${isChangeover ? 'SPDT' : 'SPST'} ${spec.coilVolts} V`,
     tagPrefix: 'K',
-    searchTerms: `relè rele relay bobina contatto spst normalmente aperto ${searchTerms}`,
-    terminals: [
-      { id: 'A1', x: -20, y: -40 },
-      { id: 'A2', x: -20, y: 40 },
-      { id: '13', x: 20, y: -40 },
-      { id: '14', x: 20, y: 40 },
-    ],
+    searchTerms: `relè rele relay bobina contatto ${isChangeover ? 'spdt scambio deviatore normalmente aperto chiuso' : 'spst normalmente aperto'} ${searchTerms}`,
+    terminals: isChangeover
+      ? [
+          { id: 'A1', x: -20, y: -40 },
+          { id: 'A2', x: -20, y: 40 },
+          { id: '11', x: 20, y: 40 },
+          { id: '14', x: 20, y: -40 },
+          { id: '12', x: 40, y: -40 },
+        ]
+      : [
+          { id: 'A1', x: -20, y: -40 },
+          { id: 'A2', x: -20, y: 40 },
+          { id: '13', x: 20, y: -40 },
+          { id: '14', x: 20, y: 40 },
+        ],
     symbol: [
       { t: 'line', x1: -20, y1: -40, x2: -20, y2: -12 },
       { t: 'line', x1: -20, y1: 12, x2: -20, y2: 40 },
       { t: 'rect', x: -30, y: -12, w: 20, h: 24, fill: 'var(--sch-part)' },
       { t: 'line', x1: 20, y1: -40, x2: 20, y2: -14 },
       { t: 'line', x1: 20, y1: 14, x2: 20, y2: 40 },
-      { t: 'path', d: 'M -10 0 L -6 0 M -2 0 L 2 0 M 6 0 L 10 0' },
-      { t: 'line', ...RELAY_BLADE.open, w: 2 },
-      contact(20, -14),
-      contact(20, 14),
+      ...(isChangeover ? [{ t: 'line', x1: 40, y1: -40, x2: 40, y2: -14 } as Prim] : []),
+      { t: 'path', d: isChangeover ? 'M -10 0 L -6 0 M -2 0 L 2 0 M 6 0 L 10 0 M 14 0 L 18 0 M 22 0 L 25 0' : 'M -10 0 L -6 0 M -2 0 L 2 0 M 6 0 L 10 0' },
+      { t: 'line', ...blade.rest, w: 2 },
+      ...blade.contacts.map(([x, y]) => contact(x, y)),
     ],
     props: [],
-    spice: { kind: 'relay', coil1: 'A1', coil2: 'A2', c1: '13', c2: '14', spec },
+    spice: isChangeover ? { kind: 'relay', coil1: 'A1', coil2: 'A2', c1: '11', c2: '14', nc: '12', spec } : { kind: 'relay', coil1: 'A1', coil2: 'A2', c1: '13', c2: '14', spec },
   };
 }
 
 /** Typical values of the small relays of the Arduino modules, as the SRD series: the coil inductance is estimated. */
+const RELAY_5V: RelaySpec = { coilVolts: 5, coilResistance: 70, coilInductance: 0.2, pickup: 3.75, dropout: 0.5 };
+const RELAY_12V: RelaySpec = { coilVolts: 12, coilResistance: 400, coilInductance: 1.2, pickup: 9, dropout: 1.2 };
+
 const RELAYS = [
-  relayDevice('relay5', { coilVolts: 5, coilResistance: 70, coilInductance: 0.2, pickup: 3.75, dropout: 0.5 }, '5v srd-05vdc arduino modulo'),
-  relayDevice('relay12', { coilVolts: 12, coilResistance: 400, coilInductance: 1.2, pickup: 9, dropout: 1.2 }, '12v srd-12vdc'),
+  relayDevice('relay5', RELAY_5V, false, '5v srd-05vdc arduino modulo'),
+  relayDevice('relay12', RELAY_12V, false, '12v srd-12vdc'),
+  relayDevice('relay5_spdt', RELAY_5V, true, '5v srd-05vdc arduino modulo'),
+  relayDevice('relay12_spdt', RELAY_12V, true, '12v srd-12vdc'),
 ];
 
 /**

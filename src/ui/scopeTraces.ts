@@ -48,7 +48,7 @@ export function elementProbes(el: Element): ProbeChoice[] {
     return [spice.out, spice.thr, spice.trig, spice.dis, spice.ctrl].map((terminal) => ({ label: terminal, probe: { id: `pin:${el.id}:${terminal}`, kind: 'pin', elementId: el.id, terminal } }));
   }
   if (spice.kind === 'opto') return [choice('VF', 'voltage'), choice('IF', 'current'), choice('VCE', 'vbe'), choice('IC', 'ib')];
-  if (spice.kind === 'relay') return [choice('V bobina', 'voltage'), choice('I bobina', 'current'), choice('V contatto', 'vbe'), choice('I contatto', 'ib')];
+  if (spice.kind === 'relay') return [choice('V bobina', 'voltage'), choice('I bobina', 'current'), choice(spice.nc ? 'V comune–NO' : 'V contatto', 'vbe'), choice(spice.nc ? 'I comune' : 'I contatto', 'ib')];
   if (spice.kind === 'pot') {
     return [choice('Tensione', 'voltage'), choice('Corrente', 'current'), { label: 'Cursore', probe: { id: `pin:${el.id}:${spice.wiper}`, kind: 'pin', elementId: el.id, terminal: spice.wiper } }];
   }
