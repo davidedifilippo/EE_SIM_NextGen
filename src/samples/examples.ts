@@ -528,6 +528,33 @@ const timerMonostable = () =>
     ],
   });
 
+/** A switch lights the LED of a PC817 on 5 V; on the other side, on 12 V, its transistor lights a red LED. */
+const optoExample = (): Circuit => ({
+  title: 'Optoisolatore PC817',
+  elements: [
+    part('v1', 'dcsupply', -240, 40, 90, 'V1', { amplitude: '5' }),
+    part('s1', 'switch', -160, 0, 0, 'S1'),
+    part('r1', 'resistor', -60, 0, 0, 'R1', { value: '330' }),
+    part('u1', 'pc817', 40, 20, 0, 'U1'),
+    ground(-120, 80),
+    part('v2', 'dcsupply', 360, 40, 90, 'V2', { amplitude: '12' }),
+    part('r2', 'resistor', 260, -40, 0, 'R2', { value: '1k' }),
+    part('d1', 'led', 160, -40, 180, 'D1', { model: 'LED_ROSSO' }),
+    ground(240, 80, 'gnd2'),
+  ],
+  wires: [
+    wire('w1', [-240, 0], [-200, 0]),
+    wire('w2', [-120, 0], [-100, 0]),
+    wire('w3', [-20, 0], [0, 0]),
+    wire('w4', [0, 40], [0, 80], [-240, 80]),
+    wire('w5', [300, -40], [360, -40], [360, 0]),
+    wire('w6', [200, -40], [220, -40]),
+    wire('w7', [120, -40], [80, -40], [80, 0]),
+    wire('w8', [80, 40], [80, 80], [360, 80]),
+  ],
+  models: [],
+});
+
 /** What Nuovo opens: an empty sheet, but with the ground that every circuit needs. */
 export const emptyCircuit = (): Circuit => ({ title: 'Circuito', elements: [ground(0, 0)], wires: [], models: [] });
 
@@ -546,6 +573,7 @@ export const EXAMPLES: Example[] = [
   { id: 'mux', title: 'Multiplexer 4:1', hint: 'S1 e S0 scelgono quale ingresso tra D0 e D3 arriva al LED: tocca i dati e la selezione. Mostra l’interno, nelle proprietà di U1, apre i tre MUX 2:1 di cui è fatto', build: muxExample },
   { id: 'astable', title: '555 astabile', hint: 'Il LED lampeggia a circa 1 Hz: f = 1,44/((R1 + 2·R2)·C1) = 0,96 Hz. All’oscilloscopio, THR di U1 sale e scende fra 1/3 e 2/3 di Vcc', build: timerAstable },
   { id: 'monostable', title: '555 monostabile', hint: 'Tieni premuto S1 un attimo: il LED resta acceso per circa 1,1·R1·C1, 1,1 s, poi si spegne da solo', build: timerMonostable },
+  { id: 'opto', title: 'Optoisolatore PC817', hint: 'Chiudi S1: circa 12 mA nel LED di U1, e dall’altra parte il fototransistor accende il LED rosso sui 12 V. I due lati non sono collegati: guarda le correnti di U1 nelle proprietà', build: optoExample },
   { id: 'dual', title: 'Alimentatore duale con presa centrale', hint: 'Trasformatore 230 V → 12+12 V, ponte di Graetz e due condensatori: circa +17 V e −17 V rispetto alla presa centrale', build: dualSupply },
   { id: 'motor', title: 'Motoriduttore IG22', hint: 'Chiudi S1: all’avvio la corrente fa uno spunto, poi scende a circa 0,2 A e il motore gira a 789 giri/min. Alza il carico di M1: la velocità scende e la corrente sale', build: gearMotor },
   { id: 'relay', title: 'Relè che comanda un motore', hint: 'Chiudi S1: la bobina di K1 si eccita, il contatto 13–14 si chiude e il motore da 12 V parte. Riapri S1: D1 porta la corrente della bobina e il contatto si riapre', build: relayMotor },

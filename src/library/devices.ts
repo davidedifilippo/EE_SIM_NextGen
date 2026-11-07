@@ -8,6 +8,7 @@ import { SourceShape, sourceShape } from '../netlist/source';
 import { CUSTOM_SKETCH, SKETCHES } from '../samples/arduino/sketches';
 import { UNO_PINS } from '../realtime/unoPins';
 import { NE555, TLC555 } from '../realtime/timerSpecs';
+import { CTR_CLASSES } from '../realtime/opto';
 
 
 /** One part for each number of pins, as terminals belong to the kind of part: half on the left, the rest on the right. */
@@ -892,6 +893,39 @@ const LAMP: ComponentDef = {
   spice: { kind: 'lamp', a: 'a', b: 'b', powerProp: 'power', voltsProp: 'volts' },
 };
 
+/**
+ * An optocoupler in its box: the LED on the left, anode above, the phototransistor on the right,
+ * collector above, two arrows of light between them.
+ */
+const OPTO: ComponentDef = {
+  id: 'pc817',
+  category: 'Semiconduttori',
+  name: 'Optoisolatore PC817',
+  tagPrefix: 'U',
+  searchTerms: 'optoisolatore fotoaccoppiatore optocoupler pc817 isolamento fototransistor',
+  terminals: [
+    { id: 'A', x: -40, y: -20 },
+    { id: 'K', x: -40, y: 20 },
+    { id: 'C', x: 40, y: -20 },
+    { id: 'E', x: 40, y: 20 },
+  ],
+  symbol: [
+    { t: 'rect', x: -30, y: -32, w: 60, h: 64, fill: 'var(--sch-part-soft)' },
+    // The LED, pointing down
+    { t: 'path', d: 'M -40 -20 H -16 V -8 M -40 20 H -16 V 8' },
+    { t: 'path', d: 'M -24 -8 H -8 L -16 6 Z', fill: 'var(--sch-part)' },
+    { t: 'line', x1: -24, y1: 7, x2: -8, y2: 7, w: 2 },
+    // The light
+    { t: 'path', d: 'M -5 -4 L 3 -4 M 0 -7 L 3 -4 L 0 -1 M -5 4 L 3 4 M 0 1 L 3 4 L 0 7', w: 1.2 },
+    // The phototransistor: base bar, collector up, emitter down with its arrow
+    { t: 'line', x1: 8, y1: -11, x2: 8, y2: 11, w: 2 },
+    { t: 'path', d: 'M 8 -5 L 20 -13 V -20 H 40 M 8 5 L 20 13 V 20 H 40' },
+    { t: 'path', d: 'M 14 12 L 20 13 L 17 7 Z', fill: 'var(--sch-ink)' },
+  ],
+  props: [{ key: 'ctr', label: 'Classe CTR', type: 'choice', default: 'none', options: CTR_CLASSES.map(({ value, label }) => ({ value, label })) }],
+  spice: { kind: 'opto', anode: 'A', cathode: 'K', collector: 'C', emitter: 'E', ctrProp: 'ctr' },
+};
+
 /** The blade of the relay contact, from its pivot on the lower contact: at rest, and pulled in by the coil. */
 export const RELAY_BLADE = { open: { x1: 20, y1: 14, x2: 8, y2: -12 }, closed: { x1: 20, y1: 14, x2: 20, y2: -14 } };
 
@@ -1138,7 +1172,7 @@ const SENSORS = [
   sensorDevice('TMP36', { offset: 0.5, slope: 0.01, tempProp: 'temp', iMax: 10e-3, dropout: 1, vMin: 2.7, vMax: 5.5, vAbsMax: 7 }, 50e-6, [-40, 125]),
 ];
 
-DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, LAMP, ...RELAYS, ARDUINO_UNO, ...PORTS, ...COMPOSITES, ...TIMERS);
+DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, LAMP, OPTO, ...RELAYS, ARDUINO_UNO, ...PORTS, ...COMPOSITES, ...TIMERS);
 for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));

@@ -93,12 +93,14 @@ export const LiveReadout: React.FC<{
   boardFirstDot?: number | null;
   /** Set for a 555: where the dots of its pins start, OUT the third. */
   timerFirstDot?: number | null;
+  /** Set for an optocoupler: where its dots start, the LED then the output. */
+  optoFirstDot?: number | null;
   /** Set for a regulator: where the dots of its pins start. */
   regulatorFirstDot: number | null;
   /** A temperature sensor: no heat to show. */
   isSensor?: boolean;
   frameRef: React.MutableRefObject<LiveFrame | null>;
-}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor = false, isPot = false, isLamp = false, boardFirstDot = null, timerFirstDot = null, frameRef }) => {
+}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor = false, isPot = false, isLamp = false, boardFirstDot = null, timerFirstDot = null, optoFirstDot = null, frameRef }) => {
   const [rows, setRows] = React.useState<[string, string][] | null>(null);
 
   React.useEffect(() => {
@@ -111,7 +113,14 @@ export const LiveReadout: React.FC<{
       const relay = frame.relays[deviceIndex];
       const timer = frame.timers[deviceIndex];
       setRows(
-        timer && timerFirstDot !== null
+        optoFirstDot !== null
+          ? [
+              ['VF', volts(frame.deviceVoltage[deviceIndex])],
+              ['IF', amps(frame.deviceCurrent[deviceIndex])],
+              ['VCE', volts(frame.deviceVbe[deviceIndex])],
+              ['IC', amps(frame.dotCurrent[optoFirstDot + 1])],
+            ]
+          : timer && timerFirstDot !== null
           ? [
               ['Vcc', volts(frame.deviceVbe[deviceIndex])],
               ['OUT', volts(frame.deviceVoltage[deviceIndex])],
@@ -192,7 +201,7 @@ export const LiveReadout: React.FC<{
     refresh();
     const timer = setInterval(refresh, 200);
     return () => clearInterval(timer);
-  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor, isPot, isLamp, boardFirstDot, timerFirstDot, frameRef]);
+  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor, isPot, isLamp, boardFirstDot, timerFirstDot, optoFirstDot, frameRef]);
 
   if (!rows) return null;
   return (

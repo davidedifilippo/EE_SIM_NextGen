@@ -134,6 +134,8 @@ export type SpiceDef =
   | { kind: 'timer'; gnd: string; trig: string; out: string; reset: string; ctrl: string; thr: string; dis: string; vcc: string; spec: TimerSpec }
   /** A lamp from its rating: the power it gives at its rated voltage, as a resistance V²/P. */
   | { kind: 'lamp'; a: string; b: string; powerProp: string; voltsProp: string }
+  /** An optocoupler: LED from anode to cathode, phototransistor from collector to emitter; its CTR class in a property. */
+  | { kind: 'opto'; anode: string; cathode: string; collector: string; emitter: string; ctrProp: string }
   /** The coil between coil1 and coil2; a normally open contact between c1 and c2. */
   | { kind: 'relay'; coil1: string; coil2: string; c1: string; c2: string; spec: RelaySpec }
   | { kind: 'block'; pins: string[]; modelProp: string }

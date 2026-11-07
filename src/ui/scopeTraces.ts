@@ -47,6 +47,7 @@ export function elementProbes(el: Element): ProbeChoice[] {
   if (spice.kind === 'timer') {
     return [spice.out, spice.thr, spice.trig, spice.dis, spice.ctrl].map((terminal) => ({ label: terminal, probe: { id: `pin:${el.id}:${terminal}`, kind: 'pin', elementId: el.id, terminal } }));
   }
+  if (spice.kind === 'opto') return [choice('VF', 'voltage'), choice('IF', 'current'), choice('VCE', 'vbe'), choice('IC', 'ib')];
   if (spice.kind === 'relay') return [choice('V bobina', 'voltage'), choice('I bobina', 'current'), choice('V contatto', 'vbe'), choice('I contatto', 'ib')];
   if (spice.kind === 'pot') {
     return [choice('Tensione', 'voltage'), choice('Corrente', 'current'), { label: 'Cursore', probe: { id: `pin:${el.id}:${spice.wiper}`, kind: 'pin', elementId: el.id, terminal: spice.wiper } }];
@@ -95,6 +96,8 @@ export function traceLabel(probe: ScopeProbe, circuit: Circuit): string {
         ? { voltage: 'Vin−Vout', current: 'Iin', vbe: 'Vout', ib: 'Iout' }
         : kind === 'transformer'
         ? { voltage: 'V1', current: 'I1', vbe: 'V2', ib: 'I2' }
+        : kind === 'opto'
+        ? { voltage: 'VF', current: 'IF', vbe: 'VCE', ib: 'IC' }
         : kind === 'relay'
         ? { voltage: 'Vbob', current: 'Ibob', vbe: 'Vcont', ib: 'Icont' }
         : kind === 'mos'

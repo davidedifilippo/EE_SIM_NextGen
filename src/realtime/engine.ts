@@ -5,6 +5,7 @@ import { REGULATOR_GAIN, REGULATOR_LEAK, RegulatorRegion, regulatorPoint, regula
 import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams, MosParams } from './compile';
 import { luFactor, luSolve } from './linear';
 import { nextRelayState } from './relay';
+import { OPTO_DARK, saturation } from './opto';
 import { filamentRate, filamentResistance, LAMP_AMBIENT, steadyTemperature } from './lamp';
 import { nextTimerState, supplyResistance, TIMER_INPUT_RESISTANCE, TIMER_OFF_RESISTANCE, TIMER_RESET_PULLUP, timerSupply } from './timer555';
 import { ArduinoUno, LED_PIN, PIN_MAX_CURRENT, PinMode, SUPPLY_MAX_CURRENT, UNO_PINS, UNO_SUPPLY_RESISTANCE, UNO_VCC } from './arduino';
@@ -31,6 +32,10 @@ const TRANSFORMER_LEAK_CONDUCTANCE = 1e-9;
 const FIRST_INSTANT = 1e-9;
 /** State of an ideal op amp: linear, or stuck on one of its rails. */
 const LINEAR = 0;
+
+/** Below this collector-emitter voltage an optocoupler is near its knee, where Newton takes short steps. */
+const OPTO_KNEE = 0.3;
+const OPTO_KNEE_STEP = 0.1;
 
 /** A failed step is retried at half the size, up to this many times. */
 const MAX_HALVINGS = 8;
@@ -287,12 +292,12 @@ export class RealtimeEngine {
     this.unitRhs = new Float64Array(size);
     this.vCrit = new Float64Array(devices.length);
     devices.forEach((d, i) => {
-      if (d.kind === 'diode' || d.kind === 'bridge') this.vCrit[i] = criticalVoltage(d.params.is, d.params.nvt);
+      if (d.kind === 'diode' || d.kind === 'bridge' || d.kind === 'opto') this.vCrit[i] = criticalVoltage(d.params.is, d.params.nvt);
       else if (d.kind === 'mos') this.vCrit[i] = criticalVoltage(d.params.body.is, d.params.body.nvt);
       else if (d.kind === 'bjt') this.vCrit[i] = criticalVoltage(d.params.is, d.params.vt);
       else if (d.kind === 'opamp') this.opAmps.push({ index: i, device: d });
     });
-    this.isNonlinear = devices.some((d) => d.kind === 'diode' || d.kind === 'bridge' || d.kind === 'bjt' || d.kind === 'mos' || d.kind === 'opamp' || d.kind === 'regulator' || d.kind === 'display7' || d.kind === 'motor');
+    this.isNonlinear = devices.some((d) => d.kind === 'diode' || d.kind === 'bridge' || d.kind === 'bjt' || d.kind === 'mos' || d.kind === 'opamp' || d.kind === 'regulator' || d.kind === 'display7' || d.kind === 'motor' || d.kind === 'opto');
   }
 
   private voltage(node: number): number {
@@ -409,6 +414,13 @@ export class RealtimeEngine {
         }
         case 'lamp':
           this.addG(d.a, d.b, 1 / this.lampR[i]);
+          break;
+        case 'opto':
+          // The series resistance of the LED, the dark current, and each side tied to ground as an isolated winding is
+          this.addG(d.a, d.junction, 1 / d.params.rs);
+          this.addG(d.c, d.e, OPTO_DARK);
+          this.addG(d.b, -1, TRANSFORMER_LEAK_CONDUCTANCE);
+          this.addG(d.e, -1, TRANSFORMER_LEAK_CONDUCTANCE);
           break;
         case 'pot':
           this.addG(d.a, d.w, d.g1);
@@ -782,6 +794,65 @@ export class RealtimeEngine {
     return this.opAmps.filter(({ index, device }) => this.opAmpState[index] === LINEAR && this.isUnstable(device)).map(({ device }) => this.compiled.elementIds[device.element]);
   }
 
+  /**
+   * The LED as a diode; the phototransistor as a current from collector to emitter, CTR times the LED
+   * current times its saturation.
+   */
+  private stampOpto(i: number, d: Extract<CompiledDevice, { kind: 'opto' }>): boolean {
+    const raw = this.voltage(d.junction) - this.voltage(d.b);
+    const v = limitDiode(raw, this.vIter[i], d.params, this.vCrit[i]);
+    this.vIter[i] = v;
+    const led = diodeOperatingPoint(v, d.params);
+    const ledI = led.i;
+    const g = led.g + GMIN;
+    const ieq = ledI + GMIN * v - g * v;
+    this.addLu(d.junction, d.junction, g);
+    this.addLu(d.junction, d.b, -g);
+    this.addLu(d.b, d.junction, -g);
+    this.addLu(d.b, d.b, g);
+    this.addRhs(d.junction, -ieq);
+    this.addRhs(d.b, ieq);
+
+    // The output follows the LED, never the other way: it takes the LED current of this iteration as it
+    // is, and is linearized in its own voltage only. Linearized in the LED voltage too, the first wild
+    // guesses of the LED would throw the collector where the curve is flat, and Newton could not come back
+    // Near the knee of saturation the curve turns from flat to flat within a tenth of a volt: Newton walks
+    // there in steps of a tenth, elsewhere as for a drain
+    const rawVce = this.voltage(d.c) - this.voltage(d.e);
+    const oldVce = this.vIterBc[i];
+    const vce = Math.min(rawVce, oldVce) < OPTO_KNEE ? Math.max(oldVce - OPTO_KNEE_STEP, Math.min(oldVce + OPTO_KNEE_STEP, rawVce)) : limitDrain(rawVce, oldVce);
+    this.vIterBc[i] = vce;
+    const { x, dx } = saturation(vce);
+    const source = Math.max(ledI, 0) * d.ctr;
+    const go = source * dx;
+    const ieqOut = source * x - go * vce;
+    for (const [row, sign] of [[d.c, 1], [d.e, -1]] as const) {
+      this.addLu(row, d.c, sign * go);
+      this.addLu(row, d.e, -sign * go);
+      this.addRhs(row, -sign * ieqOut);
+    }
+    return v !== raw || vce !== rawVce;
+  }
+
+  /** The LED current and the collector current of an optocoupler, at the present solution. */
+  private optoCurrents(d: Extract<CompiledDevice, { kind: 'opto' }>): { led: number; collector: number } {
+    const led = diodeOperatingPoint(this.voltage(d.junction) - this.voltage(d.b), d.params).i;
+    const vce = this.voltage(d.c) - this.voltage(d.e);
+    return { led, collector: Math.max(led, 0) * d.ctr * saturation(vce).x + OPTO_DARK * vce };
+  }
+
+  /** What an optocoupler takes beyond its absolute maxima, for the display. */
+  optoStatus(index: number): string[] | null {
+    const d = this.compiled.devices[index];
+    if (d?.kind !== 'opto') return null;
+    const { led, collector } = this.optoCurrents(d);
+    return [
+      ...(led > 0.05 ? ['LED oltre 50 mA'] : []),
+      ...(Math.abs(collector) > 0.05 ? ['Uscita oltre 50 mA'] : []),
+      ...(this.voltage(d.c) - this.voltage(d.e) > 35 ? ['VCE oltre 35 V'] : []),
+    ];
+  }
+
   /** Adds the linearized diodes and transistors to the LU copy of the matrix and to the right-hand side. */
   private stampNonlinear(): boolean {
     const { lu, rhs, n } = this;
@@ -835,6 +906,10 @@ export class RealtimeEngine {
           this.addRhs(segment, -ieq);
           this.addRhs(d.b, ieq);
         }
+      }
+      if (d.kind === 'opto') {
+        if (this.stampOpto(i, d)) limited = true;
+        return;
       }
       if (d.kind !== 'diode') return;
       const raw = this.voltage(d.junction) - this.voltage(d.b);
@@ -1241,7 +1316,7 @@ export class RealtimeEngine {
     // Newton has nothing to hold on to: from zero, the limiter walks there safely
     this.compiled.devices.forEach((d, i) => {
       const before = previous.compiled.devices[i];
-      if ((d.kind === 'diode' || d.kind === 'bjt' || d.kind === 'mos' || d.kind === 'bridge') && before.kind === d.kind && JSON.stringify(before.params) !== JSON.stringify(d.params)) {
+      if ((d.kind === 'diode' || d.kind === 'bjt' || d.kind === 'mos' || d.kind === 'bridge' || d.kind === 'opto') && before.kind === d.kind && JSON.stringify(before.params) !== JSON.stringify(d.params)) {
         this.vIterBridge.fill(0, 4 * i, 4 * i + 4);
         this.vIter[i] = 0;
         this.vIterBc[i] = 0;
@@ -1319,6 +1394,7 @@ export class RealtimeEngine {
       case 'pot':
       case 'mcu':
       case 'timer':
+      case 'opto':
       case 'display7':
       case 'bridge':
         return this.terminalCurrents(index)[0];
@@ -1400,6 +1476,11 @@ export class RealtimeEngine {
       // Into the common, out of each way
       const toWays = d.ways.map((way, k) => d.g[k] * (this.voltage(d.a) - this.voltage(way)));
       return [toWays.reduce((sum, i) => sum + i, 0), ...toWays.map((i) => -i)];
+    }
+    if (d.kind === 'opto') {
+      // Into anode, out of cathode; into collector, out of emitter
+      const { led, collector } = this.optoCurrents(d);
+      return [led, -led, collector, -collector];
     }
     if (d.kind === 'timer') {
       // Into each pin, in the order of the chip: GND, TRIG, OUT, RESET, CTRL, THR, DIS, VCC

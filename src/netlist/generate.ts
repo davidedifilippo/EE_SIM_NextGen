@@ -10,6 +10,7 @@ import { METER_TEST_CURRENT, meterResistance } from '../realtime/meter';
 import { LogicNetwork, gateExpression, levelExpression, LOGIC_INPUT_RESISTANCE, LOGIC_OUTPUT_RESISTANCE, logicParams, nextStateTable, outputTable, sequentialSpec, tableExpression } from '../realtime/logic';
 import { CONTACT_CLOSED, CONTACT_OPEN, contactResistances } from '../realtime/switches';
 import { potResistances } from '../realtime/pot';
+import { ctrOf, ledParams, OPTO_DARK, PC817, saturationExpression } from '../realtime/opto';
 import { filamentExpression, lampParams, lampRating, radiatedExpression } from '../realtime/lamp';
 import { relayThresholds } from '../realtime/relay';
 import { supplyResistance, TIMER_INPUT_RESISTANCE, TIMER_OFF_RESISTANCE, TIMER_RESET_PULLUP } from '../realtime/timer555';
@@ -363,6 +364,21 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
       case 'mcu':
         errors.push(`${el.tag}: un Arduino si simula solo nell'animazione: l'Analisi precisa non esegue il programma`);
         break;
+      case 'opto': {
+        const name = uniqueName('X', el.tag);
+        if (!name) break;
+        // The LED with a sensing source of 0 V, the phototransistor a current CTR times the LED current
+        // times its saturation, and each side tied to ground as an isolated winding is
+        const led = ledParams(PC817);
+        const model = `OPTO_${PC817.name}_LED`;
+        relayModels.set(model, `.model ${model} D(IS=${led.is} N=${led.n} RS=${led.rs})`);
+        const [anode, cathode, collector, emitter] = [node(s.anode), node(s.cathode), node(s.collector), node(s.emitter)];
+        const v = (n: string) => (n === '0' ? '0' : `v(${n})`);
+        lines.push(`D${name} ${anode} xs${name} ${model}`, `VS${name} xs${name} ${cathode} 0`);
+        lines.push(`BC${name} ${collector} ${emitter} I=${ctrOf(el.props[s.ctrProp])}*max(i(VS${name}),0)*${saturationExpression(`(${v(collector)}-${v(emitter)})`)}`);
+        lines.push(`RD${name} ${collector} ${emitter} ${1 / OPTO_DARK}`, `RG1${name} ${cathode} 0 ${TRANSFORMER_LEAK}`, `RG2${name} ${emitter} 0 ${TRANSFORMER_LEAK}`);
+        break;
+      }
       case 'lamp': {
         const rating = lampRating(el, s);
         if (!rating) {

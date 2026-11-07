@@ -41,7 +41,7 @@ export interface LiveFrame {
   deviceVoltage: Float64Array;
   /**
    * Base minus emitter or gate minus source of a transistor, voltage of the secondary of a transformer,
-   * output of a regulator, wiper to ground of a potentiometer, voltage across the contact of a relay, supply of a 555, 0 for the rest.
+   * output of a regulator, wiper to ground of a potentiometer, voltage across the contact of a relay, supply of a 555, collector to emitter of an optocoupler, 0 for the rest.
    */
   deviceVbe: Float64Array;
   dotCurrent: Float64Array;
@@ -63,6 +63,8 @@ export interface LiveFrame {
   lampRms: Float64Array;
   /** Each 555: whether its output is high, and what is beyond its limits. */
   timers: ({ isHigh: boolean; warnings: string[] } | null)[];
+  /** Each optocoupler: what it takes beyond its absolute maxima. */
+  optos: (string[] | null)[];
   /** Each relay: whether its contact is closed. */
   relays: (boolean | null)[];
   /** For each logic part: the level of each output, then of each input. */
@@ -117,6 +119,8 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
       return [s.a, s.b, s.wiper];
     case 'lamp':
       return [s.a, s.b];
+    case 'opto':
+      return [s.anode, s.cathode, s.collector, s.emitter];
     case 'relay':
       return [s.coil1, s.coil2, s.c1, s.c2];
     case 'mcu':
@@ -267,10 +271,11 @@ export class LiveSimulation {
           if (device.kind === 'transformer') return () => engine.nodeVoltage(device.c) - engine.nodeVoltage(device.d);
           if (device.kind === 'ctransformer') return () => engine.nodeVoltage(device.starts[1]) - engine.nodeVoltage(device.ends[2]);
           if (device.kind === 'relay') return () => engine.nodeVoltage(device.c) - engine.nodeVoltage(device.d);
+          if (device.kind === 'opto') return () => engine.nodeVoltage(device.c) - engine.nodeVoltage(device.e);
           return device.kind === 'bjt' || device.kind === 'mos' ? () => engine.nodeVoltage(device.base) - engine.nodeVoltage(device.b) : () => NaN;
         case 'ib':
           if (device.kind === 'regulator') return () => -engine.terminalCurrents(index)[1];
-          if (device.kind === 'transformer' || device.kind === 'relay') return () => engine.terminalCurrents(index)[2];
+          if (device.kind === 'transformer' || device.kind === 'relay' || device.kind === 'opto') return () => engine.terminalCurrents(index)[2];
           return device.kind === 'bjt' ? () => engine.terminalCurrents(index)[1] : () => NaN;
       }
     });
@@ -452,6 +457,7 @@ export class LiveSimulation {
       if (d.kind === 'pot') deviceVbe[i] = engine.nodeVoltage(d.w);
       if (d.kind === 'relay') deviceVbe[i] = engine.nodeVoltage(d.c) - engine.nodeVoltage(d.d);
       if (d.kind === 'timer') deviceVbe[i] = engine.nodeVoltage(d.vcc) - engine.nodeVoltage(d.b);
+      if (d.kind === 'opto') deviceVbe[i] = engine.nodeVoltage(d.c) - engine.nodeVoltage(d.e);
       const { firstDot } = layout.devices[i];
       if (d.kind === 'logic' || d.kind === 'display7' || d.kind === 'bridge' || d.kind === 'mcu') currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
       else if (d.kind === 'ctransformer') [dotCurrent[firstDot], dotCurrent[firstDot + 1], dotCurrent[firstDot + 2]] = [currents[0], currents[2], -currents[4]];
@@ -481,6 +487,7 @@ export class LiveSimulation {
     const relays = devices.map((_, i) => engine.relayIsClosed(i));
     const mcus = devices.map((_, i) => engine.mcuStatus(i));
     const timers = devices.map((_, i) => engine.timerStatus(i));
+    const optos = devices.map((_, i) => engine.optoStatus(i));
     const glowMean = new Float64Array(devices.length).fill(NaN);
     for (const i of this.leds) glowMean[i] = this.ledSteps > 0 ? this.ledSum[i] / this.ledSteps : engine.deviceCurrent(i);
     for (const i of this.lamps) glowMean[i] = this.ledSteps > 0 ? this.ledSum[i] / this.ledSteps : this.lampPower(i);
@@ -489,6 +496,6 @@ export class LiveSimulation {
     this.lampSquares.fill(0);
     this.ledSum.fill(0);
     this.ledSteps = 0;
-    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, relays, mcus, timers, glowMean, lampRms, logic, scope: this.takeSamples() };
+    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, relays, mcus, timers, optos, glowMean, lampRms, logic, scope: this.takeSamples() };
   }
 }

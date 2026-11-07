@@ -11,6 +11,7 @@ import { MotorParams, motorParamsOf } from './motor';
 import { contactResistances } from './switches';
 import { potResistances } from './pot';
 import { LampParams, lampParams, lampRating } from './lamp';
+import { ctrOf, ledParams, PC817 } from './opto';
 import { parseIntelHex, programKey } from './intelHex';
 import { sketchHex } from '../samples/arduino/sketches';
 import { RelaySpec } from './relay';
@@ -112,6 +113,8 @@ export type CompiledDevice =
   | { kind: 'bridge'; element: number; a: NodeIndex; b: NodeIndex; ac1: NodeIndex; ac2: NodeIndex; anodes: NodeIndex[]; cathodes: NodeIndex[]; junctions: NodeIndex[]; params: DiodeParams }
   /** a is the first segment, b the common cathode; forward is the voltage where the segments start to light. */
   | { kind: 'display7'; element: number; a: NodeIndex; b: NodeIndex; segments: NodeIndex[]; forward: number }
+  /** An optocoupler: the LED from a to b, junction after its series resistance; the phototransistor from c to e, CTR times the LED current. */
+  | { kind: 'opto'; element: number; a: NodeIndex; b: NodeIndex; junction: NodeIndex; c: NodeIndex; e: NodeIndex; params: DiodeParams; ctr: number }
   /** A lamp: its filament as a resistance, which the engine moves between steps with the heat it takes. */
   | { kind: 'lamp'; element: number; a: NodeIndex; b: NodeIndex; params: LampParams }
   /** A potentiometer: g1 from the end a to the wiper w, g2 from the wiper to the end b. */
@@ -401,6 +404,14 @@ export function compileCircuit(circuit: Circuit): CompileResult {
         pending.push({ element, needsBranch: false, build: (_, nextNode) => ({ kind: 'timer', element, a, b, trig, reset, ctrl, thr, dis, vcc, lower: nextNode(), spec: s.spec }) });
         break;
       }
+      case 'opto': {
+        const led = ledParams(PC817);
+        const params: DiodeParams = { is: led.is, nvt: led.n * THERMAL_VOLTAGE, rs: led.rs, breakdown: null };
+        const [a, b, c, e] = [node(s.anode), node(s.cathode), node(s.collector), node(s.emitter)];
+        const ctr = ctrOf(el.props[s.ctrProp]);
+        pending.push({ element, needsBranch: false, build: (_, nextNode) => ({ kind: 'opto', element, a, b, junction: nextNode(), c, e, params, ctr }) });
+        break;
+      }
       case 'lamp': {
         // To the solver a lamp is a resistance that follows the heat of its filament
         const rating = lampRating(el, s);
@@ -576,7 +587,7 @@ export function compileCircuit(circuit: Circuit): CompileResult {
 
   const signature = JSON.stringify([
     branch,
-    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'motor' ? d.e : d.kind === 'pot' ? d.w : d.kind === 'relay' ? [d.c, d.d] : d.kind === 'timer' ? [d.trig, d.reset, d.ctrl, d.thr, d.dis, d.vcc, d.lower] : d.kind === 'mcu' ? [...d.pins, d.programKey] : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.outputs, ...d.inputs] : d.kind === 'switch' ? d.ways : d.kind === 'display7' ? d.segments : d.kind === 'bridge' ? [d.ac1, d.ac2, ...d.junctions] : d.kind === 'ctransformer' ? [...d.starts, ...d.ends, ...d.inner] : 0]),
+    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'motor' ? d.e : d.kind === 'pot' ? d.w : d.kind === 'relay' ? [d.c, d.d] : d.kind === 'opto' ? [d.junction, d.c, d.e] : d.kind === 'timer' ? [d.trig, d.reset, d.ctrl, d.thr, d.dis, d.vcc, d.lower] : d.kind === 'mcu' ? [...d.pins, d.programKey] : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.outputs, ...d.inputs] : d.kind === 'switch' ? d.ways : d.kind === 'display7' ? d.segments : d.kind === 'bridge' ? [d.ac1, d.ac2, ...d.junctions] : d.kind === 'ctransformer' ? [...d.starts, ...d.ends, ...d.inner] : 0]),
   ]);
   return { ok: true, compiled: { size: branch, devices, netIndex, elementIds, signature } };
 }
