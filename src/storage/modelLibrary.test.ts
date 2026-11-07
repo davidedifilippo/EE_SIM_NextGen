@@ -99,8 +99,9 @@ describe('models in the menu', () => {
   it('lists the circuit, then the library, then the built-in ones, once each', () => {
     const circuit = withTransistor('A', [OWN_2N3904]);
     const names = modelsOfType(circuit, 'NPN', [A, { name: '2N3904', card: '.model 2N3904 NPN(BF=1)' }]).map((m) => m.name);
-    expect(names).toEqual(['2N3904', 'A']);
-    expect(modelsOfType(circuit, 'PNP', [P]).map((m) => m.name)).toEqual(['P', '2N3906']);
+    // The built-in ones follow, standard library included
+    expect(names).toEqual(['2N3904', 'A', 'BC547B', '2N2222A', 'BD139', 'TIP31C']);
+    expect(modelsOfType(circuit, 'PNP', [P]).map((m) => m.name)).toEqual(['P', '2N3906', 'BC557B', '2N2907A', 'BD140', 'TIP32C']);
   });
 });
 

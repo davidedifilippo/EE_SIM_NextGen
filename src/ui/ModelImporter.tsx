@@ -61,6 +61,11 @@ export const ModelImporter: React.FC<Props> = ({ library, onImport, onRemove }) 
           onChange={(e) => setText(e.target.value)}
         />
       </label>
+      <p className="hint">
+        Già inclusi: diodi 1N4148, 1N4007, 1N5408, 1N5819; zener 1N4728A–1N4744A; BC547B, BC557B, 2N2222A, 2N2907A, 2N3904, 2N3906, BD139, BD140, TIP31C, TIP32C; 2N7000, BS170, IRF540N,
+        IRF9540N, IRLZ44N. Per altri, con Da file si può caricare un'intera libreria: per esempio standard.bjt, standard.dio o standard.mos dalla cartella lib/cmp del proprio LTspice. Resta nella tua libreria
+        personale, anche per i prossimi circuiti.
+      </p>
       <div className="button-row">
         <button type="button" className="primary" disabled={!text.trim()} onClick={() => importText(text)}>
           Aggiungi

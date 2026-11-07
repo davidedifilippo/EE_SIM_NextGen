@@ -1,5 +1,6 @@
 import { Circuit, ModelType, SpiceModel } from '../model/types';
 import { getDevice } from './devices';
+import { STANDARD_MODELS } from './standardModels';
 
 /** Commonly published parameters of real parts, except the zener, which is a generic 5.1 V one. */
 export const D1N4148: SpiceModel = {
@@ -35,7 +36,7 @@ export const LED_MODELS: SpiceModel[] = [
   { name: 'LED_BIANCO', card: '.model LED_BIANCO D(IS=2.48e-28 N=2 RS=5)' },
 ];
 
-const LIBRARY: SpiceModel[] = [D1N4148, DZ5V1, Q2N3904, Q2N3906, MN1, MP1, DIODE_1A, ...LED_MODELS];
+const LIBRARY: SpiceModel[] = [D1N4148, DZ5V1, Q2N3904, Q2N3906, MN1, MP1, DIODE_1A, ...LED_MODELS, ...STANDARD_MODELS];
 
 /** A model of the circuit, or of the library. The circuit's own take precedence. */
 export function findModel(circuit: Circuit, name: string): SpiceModel | undefined {
