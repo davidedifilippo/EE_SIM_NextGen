@@ -1,7 +1,7 @@
 import React from 'react';
 import { SharePanel } from './ui/SharePanel';
 import { SavePanel } from './ui/SavePanel';
-import { Logo } from './ui/Logo';
+import { LogoButton } from './ui/AboutPanel';
 import { ScopePanel } from './ui/ScopePanel';
 import { SerialMonitor } from './ui/SerialMonitor';
 import { AnalysisControls } from './ui/AnalysisControls';
@@ -16,7 +16,7 @@ export const App: React.FC<{ wb: Workbench; onPhoneLayout: () => void }> = ({ wb
     {wb.isSaving && <SavePanel circuit={wb.circuit} onSave={wb.saveAs} onClose={() => wb.setIsSaving(false)} />}
     <header className="toolbar">
       <h1>
-        <Logo />
+        <LogoButton />
       </h1>
       <div className="button-row">
         <button onClick={wb.newCircuit}>Nuovo</button>

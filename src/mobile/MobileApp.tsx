@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AnalysisControls } from '../ui/AnalysisControls';
-import { Logo } from '../ui/Logo';
+import { LogoButton } from '../ui/AboutPanel';
 import { ResultsView } from '../ui/ResultsView';
 import { ScopePanel } from '../ui/ScopePanel';
 import { SerialMonitor } from '../ui/SerialMonitor';
@@ -88,7 +88,7 @@ export const MobileApp: React.FC<{ wb: Workbench; onFullLayout: () => void }> = 
       {isMenuOpen && <MobileMenu wb={wb} onFullLayout={onFullLayout} onClose={() => setIsMenuOpen(false)} />}
       <CircuitFileInput wb={wb} />
       <header className="mobile-bar">
-        <Logo />
+        <LogoButton />
         <button className="icon" aria-label={wb.liveRunning ? 'Ferma l’animazione' : 'Avvia l’animazione'} onClick={() => wb.setLiveRunning((r) => !r)}>
           {wb.liveRunning ? '⏸' : '▶'}
         </button>
