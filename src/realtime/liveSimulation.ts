@@ -211,6 +211,8 @@ export class LiveSimulation {
   private injected = new Float64Array(0);
   /** Set after a solver failure: the circuit needs an edit before it can run again. */
   private failed = false;
+  /** Whether the engine already started again on its own after a failure, since the last edit. */
+  private hasRestarted = false;
   private probes: ScopeProbe[] = [];
   private probeRevision = 0;
   private readers: (() => number)[] = [];
@@ -324,9 +326,13 @@ export class LiveSimulation {
 
     const previous = this.engine;
     const next = new RealtimeEngine(compiled);
+    // After a step that did not converge, what the old engine holds is no solution: a new value starts
+    // from a new operating point, rather than from that
+    const canAdopt = previous !== null && !this.failed && previous.compiled.signature === compiled.signature;
     this.failed = false;
+    this.hasRestarted = false;
     try {
-      if (previous && previous.compiled.signature === compiled.signature) {
+      if (canAdopt) {
         next.adoptState(previous);
       } else {
         // New topology: a new operating point, but the sources carry on from the same time, and a
@@ -389,6 +395,32 @@ export class LiveSimulation {
   /** The power a lamp takes now: its voltage times its current. */
   private lampPower(index: number): number {
     return this.lampVoltage(index) * this.engine!.deviceCurrent(index);
+  }
+
+  /**
+   * After a step that did not converge, once for each version of the circuit: a new operating point at
+   * the same time, as a fresh load would find it, with the boards going on with their programs. A
+   * passing difficulty, as a sharp edge met with a long step, so does not stop the animation; one that
+   * comes back is shown.
+   */
+  restartOnce(): boolean {
+    const previous = this.engine;
+    if (this.hasRestarted || !previous) return false;
+    this.hasRestarted = true;
+    const next = new RealtimeEngine(previous.compiled);
+    next.time = previous.time;
+    try {
+      next.initialize();
+    } catch (err) {
+      if (err instanceof SolverError) return false;
+      throw err;
+    }
+    next.adoptMcus(previous);
+    this.engine = next;
+    this.failed = false;
+    this.resolveProbes();
+    this.resolveMeters();
+    return true;
   }
 
   markFailed() {

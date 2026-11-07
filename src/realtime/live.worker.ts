@@ -67,8 +67,11 @@ setInterval(() => {
     if (requested > 0) keptUp += (done / requested - keptUp) * 0.1;
   } catch (err) {
     if (!(err instanceof SolverError)) throw err;
-    simulation.markFailed();
-    post({ type: 'status', revision, errors: [err.message] });
+    owedSteps = 0;
+    if (!simulation.restartOnce()) {
+      simulation.markFailed();
+      post({ type: 'status', revision, errors: [err.message] });
+    }
   }
 
   if (now - lastFrame >= FRAME_MS) {

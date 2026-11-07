@@ -331,3 +331,44 @@ describe('performance', () => {
     expect(steps).toBe(2400);
   });
 });
+
+describe('after a step that does not converge', () => {
+  /** A transformer and a Graetz bridge on a capacitor, as in the report of the author. */
+  const rectifier = (load: string) =>
+    circuitFromNets('t', [
+      { def: 'vsource', tag: 'V1', nets: ['p', '0'], props: { shape: 'sin', amplitude: '325', offset: '0', frequency: '50', phase: '0', duty: '50', spec: '', rint: '0' } },
+      { def: 'transformer', tag: 'T1', nets: ['p', '0', 's1', 's2'], props: { ratio: '10', inductance: '10', coupling: '0.999' } },
+      { def: 'resistor', tag: 'RL', nets: ['s1', 's2'], props: { value: load } },
+    ]);
+  /** As a failed step leaves it: no solution in the engine. */
+  const spoil = (sim: LiveSimulation) => (sim as unknown as { engine: { x: Float64Array } }).engine.x.fill(NaN);
+  const run = (sim: LiveSimulation) => {
+    for (let k = 0; k < 20; k++) sim.advance(48, 0.02 / 2400, 1000);
+  };
+
+  it('a new value starts from a new operating point, not from what failed', () => {
+    const sim = new LiveSimulation();
+    sim.load(rectifier('1k'));
+    run(sim);
+    spoil(sim);
+    sim.markFailed();
+    expect(sim.load(rectifier('1.1k'))).toEqual({ ok: true });
+    expect(() => run(sim)).not.toThrow();
+    expect(sim.frame()!.deviceCurrent.every(Number.isFinite)).toBe(true);
+  });
+
+  it('the animation starts again on its own, once for each version of the circuit', () => {
+    const sim = new LiveSimulation();
+    sim.load(rectifier('1k'));
+    run(sim);
+    const time = sim.time;
+    spoil(sim);
+    expect(sim.restartOnce()).toBe(true);
+    expect(sim.time).toBeCloseTo(time, 9);
+    expect(() => run(sim)).not.toThrow();
+    // A second failure of the same circuit is shown
+    expect(sim.restartOnce()).toBe(false);
+    sim.load(rectifier('1.2k'));
+    expect(sim.restartOnce()).toBe(true);
+  });
+});
