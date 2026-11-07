@@ -13,6 +13,7 @@ import { potResistances } from '../realtime/pot';
 import { ctrOf, ledParams, OPTO_DARK, PC817, saturationExpression } from '../realtime/opto';
 import { filamentExpression, lampParams, lampRating, radiatedExpression } from '../realtime/lamp';
 import { relayThresholds } from '../realtime/relay';
+import { ssrSpecOf, TRIAC_OFF } from '../realtime/ssr';
 import { supplyResistance, TIMER_INPUT_RESISTANCE, TIMER_OFF_RESISTANCE, TIMER_RESET_PULLUP } from '../realtime/timer555';
 import { SEGMENT_LEAK, segmentColor, segmentExpression } from '../realtime/display7';
 import { ctTransformerParams } from '../realtime/ctTransformer';
@@ -152,6 +153,7 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
 
   const lines: string[] = [];
   let needsLatchModel = false;
+  let hasSsr = false;
   /** One switch model for each kind of relay in the circuit. */
   const relayModels = new Map<string, string>();
   /** The switches of the output stages, once for each kind of 555. */
@@ -397,6 +399,39 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
         lines.push(`BF${name} ${a} ${b} I=${v}/${resistance}`);
         lines.push(`BT${name} 0 ${temp} I=${v}*${v}/${resistance}/${params.power}-${radiatedExpression(`v(${temp})`)}`, `CT${name} ${temp} 0 ${params.tau}`, `RT${name} ${temp} 0 1e9`);
         lines.push(`RL${name} ${a} ${b} 1e12`);
+        break;
+      }
+      case 'ssr': {
+        const name = uniqueName('X', el.tag);
+        if (!name) break;
+        const spec = ssrSpecOf({ current: el.props[s.currentProp], type: el.props[s.typeProp], control: el.props[s.controlProp] });
+        const [plus, minus, out1, out2] = [node(s.plus), node(s.minus), node(s.out1), node(s.out2)];
+        const v = (n: string) => (n === '0' ? '0' : `v(${n})`);
+        // The input as its impedance; the control active with the hysteresis between the minimum control
+        // voltage and the drop-out one, as a switch that brings a node to 1
+        const input = `SSR_IN_${Math.round(spec.pickup * 10)}`;
+        relayModels.set(input, `.model ${input} SW(VT=${(spec.pickup + spec.dropout) / 2} VH=${(spec.pickup - spec.dropout) / 2} RON=1 ROFF=1e12)`);
+        lines.push(`RI${name} ${plus} ${minus} ${spec.inputResistance}`, `VA${name} xv${name} 0 1`, `SA${name} xv${name} xa${name} ${plus} ${minus} ${input}`, `RA${name} xa${name} 0 1e6`);
+        // The triac as a switch, its current read by a source of 0 V; the snubber across it
+        const triac = `SSR_TRIAC_${spec.ratedCurrent}`;
+        relayModels.set(triac, `.model ${triac} SW(VT=0.5 VH=0.1 RON=${spec.onResistance} ROFF=${TRIAC_OFF})`);
+        lines.push(`ST${name} ${out1} xi${name} xq${name} 0 ${triac}`, `VT${name} xi${name} ${out2} 0`);
+        lines.push(`RS${name} ${out1} xs${name} ${spec.snubberR}`, `CS${name} xs${name} ${out2} ${spec.snubberC}`);
+        // Its state as the latch of the 555: a capacitor the switch joins to "on" when the control may turn
+        // it on, at once or inside the window around zero, and to "off" when its current falls below the
+        // holding one with nothing to turn it on
+        const window = spec.isZeroCross ? `*(0.5+0.5*tanh((${spec.zeroWindow}-abs(${v(out1)}-${v(out2)}))/${SSR_WINDOW_EDGE}))` : '';
+        lines.push(`BO${name} xo${name} 0 V=v(xa${name})${window}`);
+        lines.push(`BL${name} xl${name} 0 V=0.5+0.5*tanh((${spec.holdCurrent}-abs(i(VT${name})))/${SSR_HOLD_EDGE})`);
+        const [on, low] = [`v(xo${name})`, `v(xl${name})`];
+        lines.push(`BC${name} xc${name} 0 V=(${on}+${low}-${on}*${low})-0.75`);
+        lines.push(`BD${name} xd${name} 0 V=0.5+0.5*tanh((${on}-0.5)/0.01)`, `SM${name} xd${name} xm${name} xc${name} 0 LOGIC_SW`);
+        lines.push(`CM${name} xm${name} 0 ${LATCH_CAPACITANCE}`, `RM${name} xm${name} 0 ${LATCH_LEAK}`);
+        lines.push(`BQ${name} xq${name} 0 V=0.5+0.5*tanh((v(xm${name})-0.5)/0.02)`);
+        // Each side tied to ground as an isolated winding is
+        lines.push(`RG1${name} ${minus} 0 ${TRANSFORMER_LEAK}`, `RG2${name} ${out2} 0 ${TRANSFORMER_LEAK}`);
+        needsLatchModel = true;
+        hasSsr = true;
         break;
       }
       case 'pot': {
@@ -695,7 +730,7 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
   if (needsLatchModel) lines.push(LATCH_SWITCH_MODEL, LATCH_FORCE_MODEL);
   lines.push(...relayModels.values(), ...[...timerModels.values()].flat());
   // The memory of a 555 is much faster than the step: the trapezoidal rule rings on it, Gear damps it
-  const options = hasTimer && analysis.type === 'tran' ? ['.options method=gear'] : [];
+  const options = (hasTimer || hasSsr) && analysis.type === 'tran' ? ['.options method=gear'] : [];
   const text = [spiceTitle(circuit.title), ...lines, ...modelCards.map((m) => m.card), ...options, command, '.end', ''].join('\n');
   return { text, errors, nodeOf };
 }
@@ -717,6 +752,9 @@ const LATCH_CAPACITANCE = '1n';
 /** How sharp the comparators of a 555 are for ngspice, in volts: a step, but smooth for Newton. */
 const TIMER_EDGE_WIDTH = 0.005;
 const LATCH_LEAK = 1e12;
+/** How sharp the window of a zero-cross relay is for ngspice, in volts, and its holding current, in amperes. */
+const SSR_WINDOW_EDGE = 0.5;
+const SSR_HOLD_EDGE = 0.002;
 
 /**
  * A latch with no clock, as the SR: one capacitor per state bit, which the switch joins to the next

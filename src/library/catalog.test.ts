@@ -57,7 +57,7 @@ describe('the sections of the library', () => {
 
   it('find a part by name, section or tag', () => {
     expect(searchParts(parts, 'res').map((def) => def.name)).toEqual(['Resistore', 'Trasformatore a presa centrale', 'Ingresso logico', 'Potenziometro']);
-    expect(searchParts(parts, 'relè').map((def) => def.name)).toEqual(['Relè SPST 5 V', 'Relè SPST 12 V', 'Relè SPDT 5 V', 'Relè SPDT 12 V']);
+    expect(searchParts(parts, 'relè').map((def) => def.name)).toEqual(['Relè SPST 5 V', 'Relè SPST 12 V', 'Relè SPDT 5 V', 'Relè SPDT 12 V', 'Relè a stato solido AQ-G']);
     expect(searchParts(parts, 'porta').map((def) => def.name)).toEqual(['AND', 'OR', 'NOT', 'NAND', 'NOR', 'XOR']);
     expect(searchParts(parts, '781').map((def) => def.name)).toEqual(['7812', '7815']);
     expect(searchParts(parts, 'mm').map((def) => def.name)).toEqual(['Multimetro', 'Multimetro compatto']);

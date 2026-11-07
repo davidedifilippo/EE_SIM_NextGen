@@ -11,6 +11,7 @@ import { ArduinoProgram } from './ArduinoProgram';
 import { InsideView } from './InsideView';
 import { TimerNote } from './TimerView';
 import { LampNote } from './LampNote';
+import { SsrNote } from './SsrNote';
 import { compositeParts } from '../library/composites';
 import { CUSTOM_SKETCH } from '../samples/arduino/sketches';
 import { ModelImporter } from './ModelImporter';
@@ -106,7 +107,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
     <div className="properties">
       <strong>{def ? def.name : singleWire ? 'Filo' : `${selectedIds.size} oggetti selezionati`}</strong>
       {deviceIndex >= 0 && (
-        <LiveReadout deviceIndex={deviceIndex} sign={single ? drawingSign(single) : 1} transistorFirstDot={def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' ? layout!.devices[deviceIndex].firstDot : null} isMos={def?.spice.kind === 'mos'} windingsFirstDot={def?.spice.kind === 'transformer' ? layout!.devices[deviceIndex].firstDot : null} relayFirstDot={def?.spice.kind === 'relay' ? layout!.devices[deviceIndex].firstDot : null} isChangeover={def?.spice.kind === 'relay' && !!def.spice.nc} isPot={def?.spice.kind === 'pot'} isLamp={def?.spice.kind === 'lamp'} boardFirstDot={def?.spice.kind === 'mcu' ? layout!.devices[deviceIndex].firstDot : null} timerFirstDot={def?.spice.kind === 'timer' ? layout!.devices[deviceIndex].firstDot : null} optoFirstDot={def?.spice.kind === 'opto' ? layout!.devices[deviceIndex].firstDot : null} regulatorFirstDot={def?.spice.kind === 'regulator' ? layout!.devices[deviceIndex].firstDot : null} isSensor={def?.spice.kind === 'regulator' && !!def.spice.sensor} frameRef={frameRef} />
+        <LiveReadout deviceIndex={deviceIndex} sign={single ? drawingSign(single) : 1} transistorFirstDot={def?.spice.kind === 'bjt' || def?.spice.kind === 'mos' ? layout!.devices[deviceIndex].firstDot : null} isMos={def?.spice.kind === 'mos'} windingsFirstDot={def?.spice.kind === 'transformer' ? layout!.devices[deviceIndex].firstDot : null} relayFirstDot={def?.spice.kind === 'relay' ? layout!.devices[deviceIndex].firstDot : null} isChangeover={def?.spice.kind === 'relay' && !!def.spice.nc} isPot={def?.spice.kind === 'pot'} isLamp={def?.spice.kind === 'lamp'} boardFirstDot={def?.spice.kind === 'mcu' ? layout!.devices[deviceIndex].firstDot : null} timerFirstDot={def?.spice.kind === 'timer' ? layout!.devices[deviceIndex].firstDot : null} optoFirstDot={def?.spice.kind === 'opto' ? layout!.devices[deviceIndex].firstDot : null} ssrFirstDot={def?.spice.kind === 'ssr' ? layout!.devices[deviceIndex].firstDot : null} regulatorFirstDot={def?.spice.kind === 'regulator' ? layout!.devices[deviceIndex].firstDot : null} isSensor={def?.spice.kind === 'regulator' && !!def.spice.sensor} frameRef={frameRef} />
       )}
       {single && def?.spice.kind === 'logic' && def.spice.gate === 'table' && def.spice.tableProp && (
         <TruthTableEditor element={single} inputs={def.spice.inputs} outputs={def.spice.outputs} onChange={(patch) => update(patch)} />
@@ -225,6 +226,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
           Dal datasheet del PC817: LED infrarosso da 1,2 V tipici a 20 mA; la corrente di collettore è CTR volte quella del LED finché il circuito di uscita la lascia passare, poi il fototransistor satura a circa 0,1 V. La classe dice il CTR a 5 mA. Ingresso e uscita non sono collegati: possono avere masse diverse. Massimi: 50 mA sul LED e in uscita, 35 V fra collettore ed emettitore. Il CTR è costante e i tempi di commutazione (pochi µs) non sono simulati.
         </p>
       )}
+      {single && def?.spice.kind === 'ssr' && <SsrNote element={single} />}
       {single && def?.spice.kind === 'lamp' && <LampNote element={single} spice={def.spice} />}
       {single && def?.spice.kind === 'pot' && (
         <p className="hint">Il cursore va da 0 % sull'estremo a, a sinistra nel simbolo non ruotato, a 100 % sull'estremo b. All'oscilloscopio, Cursore è la tensione del cursore verso massa.</p>

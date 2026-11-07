@@ -9,6 +9,7 @@ import { CUSTOM_SKETCH, SKETCHES } from '../samples/arduino/sketches';
 import { UNO_PINS } from '../realtime/unoPins';
 import { NE555, TLC555 } from '../realtime/timerSpecs';
 import { CTR_CLASSES } from '../realtime/opto';
+import { CONTROL_OPTIONS, CURRENT_OPTIONS, TYPE_OPTIONS } from '../realtime/ssr';
 
 
 /** One part for each number of pins, as terminals belong to the kind of part: half on the left, the rest on the right. */
@@ -926,6 +927,45 @@ const OPTO: ComponentDef = {
   spice: { kind: 'opto', anode: 'A', cathode: 'K', collector: 'C', emitter: 'E', ctrProp: 'ctr' },
 };
 
+/**
+ * A solid state relay of the Panasonic AQ-G series in its box, as the catalogue draws it: the input on the
+ * left, 3 (+) above, through its LED; the triac on the right between 1 and 2. The version in three choices,
+ * as in its part number.
+ */
+const SSR_AQG: ComponentDef = {
+  id: 'aqg',
+  category: 'Passivi',
+  name: 'Relè a stato solido AQ-G',
+  tagPrefix: 'U',
+  searchTerms: 'relè rele ssr stato solido solid state relay triac zero-cross random panasonic aqg alternata 230v',
+  terminals: [
+    { id: '3', x: -40, y: -20 },
+    { id: '4', x: -40, y: 20 },
+    { id: '1', x: 40, y: -20 },
+    { id: '2', x: 40, y: 20 },
+  ],
+  symbol: [
+    { t: 'rect', x: -30, y: -32, w: 60, h: 64, fill: 'var(--sch-part-soft)' },
+    // The LED of the input, pointing down
+    { t: 'path', d: 'M -40 -20 H -16 V -8 M -40 20 H -16 V 8' },
+    { t: 'path', d: 'M -24 -8 H -8 L -16 6 Z', fill: 'var(--sch-part)' },
+    { t: 'line', x1: -24, y1: 7, x2: -8, y2: 7, w: 2 },
+    { t: 'path', d: 'M -5 -4 L 3 -4 M 0 -7 L 3 -4 L 0 -1 M -5 4 L 3 4 M 0 1 L 3 4 L 0 7', w: 1.2 },
+    // The triac: two diodes the opposite way, between two bars
+    { t: 'path', d: 'M 40 -20 H 20 V -10 M 40 20 H 20 V 10' },
+    { t: 'line', x1: 9, y1: -10, x2: 31, y2: -10, w: 2 },
+    { t: 'line', x1: 9, y1: 10, x2: 31, y2: 10, w: 2 },
+    { t: 'path', d: 'M 10 -10 H 20 L 15 10 Z', fill: 'var(--sch-part)' },
+    { t: 'path', d: 'M 20 10 H 30 L 25 -10 Z', fill: 'var(--sch-part)' },
+  ],
+  props: [
+    { key: 'current', label: 'Corrente di carico', type: 'choice', default: '1', options: CURRENT_OPTIONS },
+    { key: 'type', label: 'Accensione', type: 'choice', default: '1', options: TYPE_OPTIONS },
+    { key: 'control', label: 'Tensione di comando', type: 'choice', default: '05', options: CONTROL_OPTIONS },
+  ],
+  spice: { kind: 'ssr', plus: '3', minus: '4', out1: '1', out2: '2', currentProp: 'current', typeProp: 'type', controlProp: 'control' },
+};
+
 /** A segment of a drawing. */
 type Segment = { x1: number; y1: number; x2: number; y2: number };
 
@@ -1199,7 +1239,7 @@ const SENSORS = [
   sensorDevice('TMP36', { offset: 0.5, slope: 0.01, tempProp: 'temp', iMax: 10e-3, dropout: 1, vMin: 2.7, vMax: 5.5, vAbsMax: 7 }, 50e-6, [-40, 125]),
 ];
 
-DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, LAMP, OPTO, ...RELAYS, ARDUINO_UNO, ...PORTS, ...COMPOSITES, ...TIMERS);
+DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, LAMP, OPTO, ...RELAYS, SSR_AQG, ARDUINO_UNO, ...PORTS, ...COMPOSITES, ...TIMERS);
 for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));

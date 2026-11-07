@@ -590,6 +590,34 @@ const relayChangeover = (): Circuit => ({
   models: [],
 });
 
+/**
+ * A solid state relay switches a 60 W lamp on the 230 V mains: a switch on 5 V gives its input. Zero-cross
+ * or random in its properties, to see on the oscilloscope where the current of the lamp starts.
+ */
+const ssrExample = (): Circuit => ({
+  title: 'SSR AQ-G accende una lampada a 230 V',
+  elements: [
+    part('v1', 'dcsupply', 0, 40, 90, 'V1', { amplitude: '5' }),
+    part('s1', 'switch', 80, 0, 0, 'S1'),
+    part('u1', 'aqg', 200, 20, 0, 'U1'),
+    part('lp1', 'lamp', 320, -40, 0, 'LP1', { power: '60', volts: '230' }),
+    part('v2', 'vsource', 420, 40, 90, 'V2', sine('325', '50')),
+    ground(80, 80),
+    ground(320, 80, 'gnd2'),
+  ],
+  wires: [
+    wire('w1', [0, 0], [40, 0]),
+    wire('w2', [120, 0], [160, 0]),
+    wire('w3', [160, 40], [160, 80], [80, 80]),
+    wire('w4', [80, 80], [0, 80]),
+    wire('w5', [240, 0], [240, -40], [280, -40]),
+    wire('w6', [360, -40], [420, -40], [420, 0]),
+    wire('w7', [240, 40], [240, 80], [320, 80]),
+    wire('w8', [320, 80], [420, 80]),
+  ],
+  models: [],
+});
+
 /** What Nuovo opens: an empty sheet, but with the ground that every circuit needs. */
 export const emptyCircuit = (): Circuit => ({ title: 'Circuito', elements: [ground(0, 0)], wires: [], models: [] });
 
@@ -612,6 +640,7 @@ export const EXAMPLES: Example[] = [
   { id: 'dual', title: 'Alimentatore duale con presa centrale', hint: 'Trasformatore 230 V → 12+12 V, ponte di Graetz e due condensatori: circa +17 V e −17 V rispetto alla presa centrale', build: dualSupply },
   { id: 'motor', title: 'Motoriduttore IG22', hint: 'Chiudi S1: all’avvio la corrente fa uno spunto, poi scende a circa 0,2 A e il motore gira a 789 giri/min. Alza il carico di M1: la velocità scende e la corrente sale', build: gearMotor },
   { id: 'relay', title: 'Relè che comanda un motore', hint: 'Chiudi S1: la bobina di K1 si eccita, il contatto 13–14 si chiude e il motore da 12 V parte. Riapri S1: D1 porta la corrente della bobina e il contatto si riapre', build: relayMotor },
+  { id: 'ssr', title: 'SSR AQ-G accende una lampada a 230 V', hint: 'Chiudi S1: il triac di U1 accende la lampada da 60 W. Prova zero-cross e random nelle proprietà di U1 e guarda all’oscilloscopio la corrente della lampada: con lo zero-cross parte dallo zero della sinusoide, con il random subito. Da spento passa circa 1 mA nello snubber', build: ssrExample },
   { id: 'arduino_blink', title: 'Arduino: Blink', hint: 'Il programma Blink accende e spegne il LED L della scheda e il LED su D12 ogni secondo, in tempo reale. Nelle proprietà di A1 si cambia programma o se ne carica uno .hex', build: arduinoBlink },
   { id: 'arduino_pot', title: 'Arduino: potenziometro e LED', hint: 'Sposta il cursore di P1: Arduino legge A0 e regola con il PWM la luminosità del LED su D9. I valori compaiono nel Monitor seriale', build: arduinoPot },
   { id: 'arduino_lm35', title: 'Arduino: termometro LM35', hint: 'Cambia la temperatura di U1: Arduino legge A0 e scrive i gradi nel Monitor seriale ogni mezzo secondo', build: arduinoThermometer },

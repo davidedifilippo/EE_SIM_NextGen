@@ -29,6 +29,7 @@ import { RelayView } from '../ui/RelayView';
 import { ArduinoView } from '../ui/ArduinoView';
 import { TimerView } from '../ui/TimerView';
 import { OptoView } from '../ui/OptoView';
+import { SsrView } from '../ui/SsrView';
 import { LampGlow, LedGlow, LogicLevels, SegmentGlow } from '../ui/LogicView';
 import { regulatorSummaries, RegulatorSummary } from '../ui/regulatorPower';
 import { LiveLegendHandle } from '../ui/LiveControls';
@@ -134,6 +135,7 @@ export function useWorkbench() {
   const hasArduino = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'mcu'), [resolved]);
   const hasTimer = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'timer'), [resolved]);
   const hasOpto = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'opto'), [resolved]);
+  const hasSsr = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'ssr'), [resolved]);
   const hasRelay = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'relay'), [resolved]);
   const hasDisplay = useMemo(() => resolved.elements.some((el) => el.def === 'display7'), [resolved]);
   const labels = useMemo(
@@ -148,6 +150,7 @@ export function useWorkbench() {
           {hasArduino && <ArduinoView circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasTimer && <TimerView circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasOpto && <OptoView circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
+          {hasSsr && <SsrView circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasRelay && <RelayView circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasLed && <LedGlow circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasLamp && <LampGlow circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}

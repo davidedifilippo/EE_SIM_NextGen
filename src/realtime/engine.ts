@@ -5,6 +5,7 @@ import { REGULATOR_GAIN, REGULATOR_LEAK, RegulatorRegion, regulatorPoint, regula
 import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams, MosParams } from './compile';
 import { luFactor, luSolve } from './linear';
 import { nextRelayState } from './relay';
+import { nextControl, nextTriac, SSR_PEAK_TAU, SSR_RMS_TAU, SsrStatus, ssrWarnings, TRIAC_OFF } from './ssr';
 import { OPTO_DARK, saturation } from './opto';
 import { filamentRate, filamentResistance, LAMP_AMBIENT, steadyTemperature } from './lamp';
 import { nextTimerState, supplyResistance, TIMER_INPUT_RESISTANCE, TIMER_OFF_RESISTANCE, TIMER_RESET_PULLUP, timerSupply } from './timer555';
@@ -236,6 +237,11 @@ export class RealtimeEngine {
   private readonly lampR: Float64Array;
   /** 1 for a 555 whose output is high: as a relay, it moves only between steps. */
   private readonly timerHigh: Uint8Array;
+  /** Per solid state relay: control active and triac on, which move only between steps; voltage and current of the triac at the last accepted point; the readings behind its warnings. */
+  private readonly ssrControl: Uint8Array;
+  private readonly ssrOn: Uint8Array;
+  private readonly ssrLast: Float64Array;
+  private readonly ssrReadings: Float64Array;
   /** The microcontroller of each Arduino, which runs between the steps; it passes to the next engine with the same program. */
   private readonly mcus: (ArduinoUno | null)[];
   /** Per centre-tapped transformer: voltage and current of each of its three windings at the last accepted point. */
@@ -284,6 +290,10 @@ export class RealtimeEngine {
     this.lampTemp = new Float64Array(devices.length).fill(LAMP_AMBIENT);
     this.lampR = Float64Array.from(devices, (d) => (d.kind === 'lamp' ? filamentResistance(d.params, LAMP_AMBIENT) : 0));
     this.timerHigh = new Uint8Array(devices.length);
+    this.ssrControl = new Uint8Array(devices.length);
+    this.ssrOn = new Uint8Array(devices.length);
+    this.ssrLast = new Float64Array(devices.length * 2);
+    this.ssrReadings = new Float64Array(devices.length * 3);
     this.mcus = devices.map((d) => (d.kind === 'mcu' ? new ArduinoUno(d.program) : null));
     this.vIterBridge = new Float64Array(devices.length * 4);
     this.vPrevW = new Float64Array(devices.length * 3);
@@ -422,6 +432,15 @@ export class RealtimeEngine {
           this.addG(d.b, -1, TRANSFORMER_LEAK_CONDUCTANCE);
           this.addG(d.e, -1, TRANSFORMER_LEAK_CONDUCTANCE);
           break;
+        case 'ssr':
+          // The input as its impedance; the triac as it stands; the snubber; each side tied to ground as an isolated winding is
+          this.addG(d.a, d.b, 1 / d.spec.inputResistance);
+          this.addG(d.c, d.d, 1 / (this.ssrOn[i] ? d.spec.onResistance : TRIAC_OFF));
+          this.addG(d.c, d.s, 1 / d.spec.snubberR);
+          if (h > 0) this.addG(d.s, d.d, (2 * d.spec.snubberC) / h);
+          this.addG(d.b, -1, TRANSFORMER_LEAK_CONDUCTANCE);
+          this.addG(d.d, -1, TRANSFORMER_LEAK_CONDUCTANCE);
+          break;
         case 'pot':
           this.addG(d.a, d.w, d.g1);
           this.addG(d.w, d.b, d.g2);
@@ -514,6 +533,13 @@ export class RealtimeEngine {
             const current = (d.spec.highDrop / d.spec.rHigh) * sourceScale;
             if (d.a >= 0) rhs[d.a] -= current;
             if (d.vcc >= 0) rhs[d.vcc] += current;
+          }
+          break;
+        case 'ssr':
+          if (h > 0) {
+            const ieq = ((2 * d.spec.snubberC) / h) * this.vPrev[i] + this.iPrev[i];
+            if (d.s >= 0) rhs[d.s] += ieq;
+            if (d.d >= 0) rhs[d.d] -= ieq;
           }
           break;
         case 'relay':
@@ -998,6 +1024,11 @@ export class RealtimeEngine {
         const v = this.voltage(d.e) - this.voltage(d.b);
         this.iPrev2[i] = h > 0 ? ((2 * d.params.c) / h) * (v - this.vPrev2[i]) - this.iPrev2[i] : 0;
         this.vPrev2[i] = v;
+      } else if (d.kind === 'ssr') {
+        // The capacitor of the snubber
+        const v = this.voltage(d.s) - this.voltage(d.d);
+        this.iPrev[i] = h > 0 ? ((2 * d.spec.snubberC) / h) * (v - this.vPrev[i]) - this.iPrev[i] : 0;
+        this.vPrev[i] = v;
       } else if (d.kind === 'relay') {
         // The inductance of the coil alone, as on the motor
         const current = this.x[d.branch];
@@ -1127,6 +1158,48 @@ export class RealtimeEngine {
     return hasChanged;
   }
 
+  /**
+   * Moves the control and the triac of each solid state relay with the accepted point, for the next step,
+   * and follows the readings behind its warnings over h. True if a triac moved: the matrix changes.
+   */
+  private updateSsrs(h: number): boolean {
+    let hasChanged = false;
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind !== 'ssr') return;
+      const voltage = this.voltage(d.c) - this.voltage(d.d);
+      const current = voltage / (this.ssrOn[i] ? d.spec.onResistance : TRIAC_OFF);
+      const before = { voltage: this.ssrLast[2 * i], current: this.ssrLast[2 * i + 1] };
+      this.ssrLast[2 * i] = voltage;
+      this.ssrLast[2 * i + 1] = current;
+      const readings = this.ssrReadings.subarray(3 * i, 3 * i + 3);
+      const [peak, rms] = [Math.exp(-h / SSR_PEAK_TAU), Math.exp(-h / SSR_RMS_TAU)];
+      readings[0] = Math.max(Math.abs(voltage), readings[0] * peak);
+      readings[1] = Math.max(Math.abs(current), readings[1] * peak);
+      readings[2] = readings[2] * rms + (1 - rms) * current * current;
+      const isControlled = nextControl(d.spec, this.ssrControl[i] === 1, this.voltage(d.a) - this.voltage(d.b));
+      this.ssrControl[i] = isControlled ? 1 : 0;
+      const isOn = nextTriac(d.spec, this.ssrOn[i] === 1, isControlled, { voltage, current }, before);
+      if (isOn === (this.ssrOn[i] === 1)) return;
+      this.ssrOn[i] = isOn ? 1 : 0;
+      hasChanged = true;
+    });
+    if (hasChanged) this.stampedStep = null;
+    return hasChanged;
+  }
+
+  /** A solid state relay: its control and its triac, and what is beyond its ratings. */
+  ssrStatus(index: number): SsrStatus | null {
+    const d = this.compiled.devices[index];
+    if (d?.kind !== 'ssr') return null;
+    const [peakVoltage, peakCurrent, meanSquare] = this.ssrReadings.subarray(3 * index, 3 * index + 3);
+    const isControlled = this.ssrControl[index] === 1;
+    return {
+      isControlled,
+      isOn: this.ssrOn[index] === 1,
+      warnings: ssrWarnings(d.spec, this.voltage(d.a) - this.voltage(d.b), isControlled, peakVoltage, peakCurrent, Math.sqrt(meanSquare)),
+    };
+  }
+
   /** Moves the flip-flop of each 555 with the voltages of the accepted point. True if one moved: the matrix changes. */
   private updateTimers(): boolean {
     let hasChanged = false;
@@ -1231,6 +1304,10 @@ export class RealtimeEngine {
     this.regulatorState.fill(REGULATOR_ACTIVE);
     this.relayClosed.fill(0);
     this.timerHigh.fill(0);
+    this.ssrControl.fill(0);
+    this.ssrOn.fill(0);
+    this.ssrLast.fill(0);
+    this.ssrReadings.fill(0);
     this.lampTemp.fill(LAMP_AMBIENT);
     this.compiled.devices.forEach((d, i) => {
       if (d.kind === 'lamp') this.lampR[i] = filamentResistance(d.params, LAMP_AMBIENT);
@@ -1258,7 +1335,8 @@ export class RealtimeEngine {
     this.updateMcuInputs();
     // A relay with its coil already fed starts pulled in; what its contact feeds may move another.
     // A 555 starts as its pins say: with an empty capacitor on TRIG, high
-    for (let round = 0; round < LOGIC_SETTLE_ROUNDS && (this.updateRelays() || this.updateTimers()); round++) {
+    // A solid state relay with its input already fed starts on, where its triac may turn on
+    for (let round = 0; round < LOGIC_SETTLE_ROUNDS && (this.updateRelays() || this.updateTimers() || this.updateSsrs(0)); round++) {
       if (!this.solve(this.time, 0, 1)) throw new SolverError('Punto di lavoro non trovato');
     }
     // Each lamp hot as its power keeps it, as ngspice finds it at its operating point
@@ -1304,6 +1382,10 @@ export class RealtimeEngine {
     this.logicState.set(previous.logicState);
     this.relayClosed.set(previous.relayClosed);
     this.timerHigh.set(previous.timerHigh);
+    this.ssrControl.set(previous.ssrControl);
+    this.ssrOn.set(previous.ssrOn);
+    this.ssrLast.set(previous.ssrLast);
+    this.ssrReadings.set(previous.ssrReadings);
     this.lampTemp.set(previous.lampTemp);
     this.lampR.set(previous.lampR);
     previous.mcus.forEach((uno, i) => {
@@ -1341,6 +1423,7 @@ export class RealtimeEngine {
       this.commit(h);
       this.updateRelays();
       this.updateTimers();
+      this.updateSsrs(h);
       this.updateLamps(h);
       this.updateMcuInputs();
       this.updateLogic(this.time + h);
@@ -1396,6 +1479,7 @@ export class RealtimeEngine {
       case 'mcu':
       case 'timer':
       case 'opto':
+      case 'ssr':
       case 'display7':
       case 'bridge':
         return this.terminalCurrents(index)[0];
@@ -1482,6 +1566,12 @@ export class RealtimeEngine {
       // Into anode, out of cathode; into collector, out of emitter
       const { led, collector } = this.optoCurrents(d);
       return [led, -led, collector, -collector];
+    }
+    if (d.kind === 'ssr') {
+      // Into the input and out of it; into 1 through the triac and the snubber, out of 2
+      const input = (this.voltage(d.a) - this.voltage(d.b)) / d.spec.inputResistance;
+      const output = (this.voltage(d.c) - this.voltage(d.d)) / (this.ssrOn[index] ? d.spec.onResistance : TRIAC_OFF) + (this.voltage(d.c) - this.voltage(d.s)) / d.spec.snubberR;
+      return [input, -input, output, -output];
     }
     if (d.kind === 'timer') {
       // Into each pin, in the order of the chip: GND, TRIG, OUT, RESET, CTRL, THR, DIS, VCC

@@ -141,6 +141,8 @@ export type SpiceDef =
    * relay has a normally closed contact as well, from the common to nc.
    */
   | { kind: 'relay'; coil1: string; coil2: string; c1: string; c2: string; nc?: string; spec: RelaySpec }
+  /** A solid state relay: the input from plus to minus, the triac output from out1 to out2; its version in three properties. */
+  | { kind: 'ssr'; plus: string; minus: string; out1: string; out2: string; currentProp: string; typeProp: string; controlProp: string }
   | { kind: 'block'; pins: string[]; modelProp: string }
   | { kind: 'meter'; a: string; b: string; modeProp: string }
   /** A mains transformer with a centre tap on the secondary, sized from its plate. */

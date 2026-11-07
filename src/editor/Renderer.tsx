@@ -7,6 +7,7 @@ import { METER_MODES } from '../realtime/meterModes';
 import { parseSpiceValue } from '../netlist/values';
 import { formatEngineering } from '../ui/chartMath';
 import { Box, dist, isPointOnSegment, localToWorld } from '../utils/geometry';
+import { ssrPartNumber } from '../realtime/ssr';
 
 type Press = React.PointerEvent;
 
@@ -225,11 +226,11 @@ const ElementItem: React.FC<{
   const firstProp = def.props[0];
   // A choice shows its name, as the LED its colour; a logic part shows its level on itself already
   const firstValue = !firstProp ? '' : firstProp.type === 'choice' ? (firstProp.options?.find((o) => o.value === String(elem.props[firstProp.key]))?.label ?? '') : String(elem.props[firstProp.key] ?? '');
-  const value = def.spice.kind === 'vsource' ? sourceLabel(elem.props) : def.spice.kind === 'isource' ? currentLabel(elem.props.value) : def.spice.kind === 'logic' && def.spice.gate === 'network' ? def.name : def.spice.kind === 'timer' ? def.spice.spec.name : def.spice.kind === 'opamp' || def.spice.kind === 'meter' || def.spice.kind === 'logic' || def.spice.kind === 'motor' || isRegulator ? '' : def.spice.kind === 'transformer' ? `${elem.props.ratio}:1` : def.spice.kind === 'ctransformer' ? `${elem.props.primary}/${elem.props.secondary}+${elem.props.secondary} V · ${elem.props.power} VA` : def.spice.kind === 'pot' ? `${firstValue} · ${elem.props.position}%` : def.spice.kind === 'lamp' ? `${elem.props.power} W · ${elem.props.volts} V` : def.spice.kind === 'opto' ? `PC817${elem.props.ctr === 'none' ? '' : elem.props.ctr}` : firstValue;
+  const value = def.spice.kind === 'vsource' ? sourceLabel(elem.props) : def.spice.kind === 'isource' ? currentLabel(elem.props.value) : def.spice.kind === 'logic' && def.spice.gate === 'network' ? def.name : def.spice.kind === 'timer' ? def.spice.spec.name : def.spice.kind === 'opamp' || def.spice.kind === 'meter' || def.spice.kind === 'logic' || def.spice.kind === 'motor' || isRegulator ? '' : def.spice.kind === 'transformer' ? `${elem.props.ratio}:1` : def.spice.kind === 'ctransformer' ? `${elem.props.primary}/${elem.props.secondary}+${elem.props.secondary} V · ${elem.props.power} VA` : def.spice.kind === 'pot' ? `${firstValue} · ${elem.props.position}%` : def.spice.kind === 'lamp' ? `${elem.props.power} W · ${elem.props.volts} V` : def.spice.kind === 'opto' ? `PC817${elem.props.ctr === 'none' ? '' : elem.props.ctr}` : def.spice.kind === 'ssr' ? ssrPartNumber(elem.props) : firstValue;
   // Parts whose drawing fills the space the labels usually take: name and value go below them, or,
   // beside a bridge on its side, below its lead
   const labelsBelow: [number, number] | null =
-    (def.spice.kind === 'ctransformer' || def.spice.kind === 'bridge') && !isBesideLabel ? [56, 69] : def.spice.kind === 'bridge' ? [18, 31] : def.spice.kind === 'opto' && !isBesideLabel ? [-51, -38] : null;
+    (def.spice.kind === 'ctransformer' || def.spice.kind === 'bridge') && !isBesideLabel ? [56, 69] : def.spice.kind === 'bridge' ? [18, 31] : (def.spice.kind === 'opto' || def.spice.kind === 'ssr') && !isBesideLabel ? [-51, -38] : null;
   const labelProps = isRegulator && elem.rot === 180
     ? { x: 8, textAnchor: 'start' as const } // Clear of the lead that now goes up
     : def.spice.kind === 'opamp' && !isBesideLabel
