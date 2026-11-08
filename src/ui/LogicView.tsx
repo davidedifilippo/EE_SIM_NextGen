@@ -19,7 +19,7 @@ const REFRESH_MS = 100;
 const LED_DIM = 1e-4;
 const LED_FULL = 1e-2;
 
-const LED_COLORS: Record<string, string> = {
+export const LED_COLORS: Record<string, string> = {
   LED_ROSSO: '#ef4444',
   LED_GIALLO: '#facc15',
   LED_VERDE: '#22c55e',

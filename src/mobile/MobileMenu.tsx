@@ -23,6 +23,7 @@ export const MobileMenu: React.FC<Props> = ({ wb, onFullLayout, onClose }) => {
         <button onClick={act(() => wb.setIsSaving(true))}>Salva…</button>
         <button onClick={act(() => wb.setIsSharing(true))}>Condividi</button>
         <hr />
+        <button onClick={act(() => wb.setView(wb.view === 'schematic' ? 'breadboard' : 'schematic'))}>{wb.view === 'schematic' ? 'Vista breadboard' : 'Vista schema'}</button>
         <SpeedSelect wb={wb} />
         <ValuesToggle wb={wb} />
         <ThemeSelect wb={wb} />

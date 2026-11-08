@@ -1441,3 +1441,174 @@ button.close-results {
     font-size: 16px;
   }
 }
+
+/* The breadboard view: the canvas, the line that compares it with the schematic, the tray of parts to mount */
+.breadboard-area {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.breadboard-canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--sheet);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
+
+.breadboard-canvas svg {
+  display: block;
+}
+
+.breadboard-stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Top left: the hint of an example takes the top right */
+.breadboard-summary {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  max-width: min(420px, calc(100% - 16px));
+  padding: 4px 10px;
+  color: var(--warning-text);
+  background: var(--surface-glass);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.breadboard-summary.ok {
+  color: var(--run);
+}
+
+.breadboard-summary button.link {
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  background: none;
+  border: none;
+}
+
+.breadboard-summary ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  color: var(--text);
+}
+
+.breadboard-summary li.short {
+  color: var(--danger);
+}
+
+/* Beside the breadboard, not over it: every hole stays in reach */
+.breadboard-tray {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 4px;
+  width: 150px;
+  padding: 8px;
+  overflow-y: auto;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+
+.breadboard-tray h3 {
+  margin: 0 0 2px;
+  font-size: 13px;
+}
+
+.breadboard-tray button {
+  text-align: left;
+  font-size: 12px;
+}
+
+.breadboard-tray button.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+
+.breadboard-tray .hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.view-switch {
+  display: inline-flex;
+}
+
+.view-switch button {
+  border-radius: 0;
+}
+
+.view-switch button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.view-switch button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.view-switch button.active {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.jumper-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.jumper-colors button {
+  width: 32px;
+  min-width: 0;
+  height: 32px;
+  padding: 0;
+  border: 2px solid var(--border-strong);
+  border-radius: 16px;
+}
+
+.jumper-colors button.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* On a narrow screen the tray runs along the top, and the breadboard keeps the whole width */
+@media (max-width: 600px) {
+  .breadboard-area {
+    flex-direction: column;
+  }
+
+  .breadboard-tray {
+    flex-direction: row;
+    align-items: center;
+    width: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .breadboard-tray button {
+    flex-shrink: 0;
+  }
+
+  .breadboard-tray .hint {
+    flex-shrink: 0;
+    max-width: 160px;
+    margin: 0;
+  }
+}

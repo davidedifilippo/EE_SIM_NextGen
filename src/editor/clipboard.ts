@@ -88,7 +88,9 @@ export function pasteClipboard(circuit: Circuit, available: Circuit, clip: Clip,
   const ids = new Set<string>();
   clip.elements.forEach((el, k) => {
     const prefix = getDevice(el.def)?.tagPrefix;
-    const pasted: Element = { ...el, id: `elem_${stamp}_${k}`, x: el.x + move.x, y: el.y + move.y, tag: prefix ? nextTag(prefix, elements) : el.tag, props: { ...el.props } };
+    // A copy goes to the tray of the breadboard: on the original's holes it would short it
+    const { bb: _, ...original } = el;
+    const pasted: Element = { ...original, id: `elem_${stamp}_${k}`, x: el.x + move.x, y: el.y + move.y, tag: prefix ? nextTag(prefix, elements) : el.tag, props: { ...el.props } };
     elements.push(pasted);
     ids.add(pasted.id);
   });

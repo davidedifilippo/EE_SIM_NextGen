@@ -12,6 +12,7 @@ import { InsideView } from './InsideView';
 import { TimerNote } from './TimerView';
 import { LampNote } from './LampNote';
 import { SsrNote } from './SsrNote';
+import { changeJumper, JUMPER_COLORS } from '../breadboard/edit';
 import { compositeParts } from '../library/composites';
 import { CUSTOM_SKETCH } from '../samples/arduino/sketches';
 import { ModelImporter } from './ModelImporter';
@@ -87,6 +88,25 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
         <p className="hint">Seleziona un componente per modificarne i valori. Per collegare, parti da un terminale. Per un'area, tieni fermo un dito sul foglio e poi trascina, oppure trascina con il mouse.</p>
         {circuit.elements.length + circuit.wires.length > 0 && <button onClick={onSelectAll}>Seleziona tutto</button>}
         {onPaste && <button onClick={() => onPaste()}>Incolla</button>}
+      </div>
+    );
+  }
+
+  // A jumper of the breadboard: its colour, or out
+  const jumper = selectedIds.size === 1 ? circuit.breadboard?.wires.find((w) => selectedIds.has(w.id)) : undefined;
+  if (jumper) {
+    return (
+      <div className="properties">
+        <h2>Ponticello</h2>
+        <div className="jumper-colors" role="group" aria-label="Colore del ponticello">
+          {JUMPER_COLORS.map(({ value, label }) => (
+            <button key={value} aria-pressed={jumper.color === value} className={jumper.color === value ? 'active' : ''} title={label} aria-label={label} style={{ background: value }} onClick={() => onChange(changeJumper(circuit, jumper.id, { color: value }))} />
+          ))}
+        </div>
+        <p className="hint">Trascina un estremo per spostarlo in un altro foro.</p>
+        <button className="danger" onClick={onDeleteSelected}>
+          Togli
+        </button>
       </div>
     );
   }
