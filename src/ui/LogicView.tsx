@@ -36,7 +36,9 @@ export const LogicLevels: React.FC<Props> = ({ circuit, layout, frameRef }) => {
   const parts = useMemo(() => {
     const byId = new Map(circuit.elements.map((el) => [el.id, el]));
     return layout.devices.flatMap((device, index) => {
-      const el = byId.get(device.elementId)!;
+      // The parts inside a block have no drawing of their own
+      const el = byId.get(device.elementId);
+      if (!el) return [];
       const def = getDevice(el.def);
       if (def?.spice.kind !== 'logic') return [];
       // An SR says when both its inputs are high: below the box, clear of its name above
@@ -86,7 +88,9 @@ export const LedGlow: React.FC<Props> = ({ circuit, layout, frameRef }) => {
   const leds = useMemo(() => {
     const byId = new Map(circuit.elements.map((el) => [el.id, el]));
     return layout.devices.flatMap((device, index) => {
-      const el = byId.get(device.elementId)!;
+      // The parts inside a block have no drawing of their own
+      const el = byId.get(device.elementId);
+      if (!el) return [];
       return el.def === 'led' ? [{ el, index, color: LED_COLORS[String(el.props.model)] ?? LED_COLORS.LED_ROSSO }] : [];
     });
   }, [circuit, layout]);
@@ -127,7 +131,9 @@ export const LampGlow: React.FC<Props> = ({ circuit, layout, frameRef }) => {
   const lamps = useMemo(() => {
     const byId = new Map(circuit.elements.map((el) => [el.id, el]));
     return layout.devices.flatMap((device, index) => {
-      const el = byId.get(device.elementId)!;
+      // The parts inside a block have no drawing of their own
+      const el = byId.get(device.elementId);
+      if (!el) return [];
       const def = getDevice(el.def);
       if (def?.spice.kind !== 'lamp') return [];
       const rating = lampRating(el, def.spice);
@@ -173,7 +179,9 @@ export const SegmentGlow: React.FC<Props> = ({ circuit, layout, frameRef }) => {
   const displays = useMemo(() => {
     const byId = new Map(circuit.elements.map((el) => [el.id, el]));
     return layout.devices.flatMap((device, index) => {
-      const el = byId.get(device.elementId)!;
+      // The parts inside a block have no drawing of their own
+      const el = byId.get(device.elementId);
+      if (!el) return [];
       return el.def === 'display7' ? [{ el, index, firstDot: device.firstDot, color: segmentColor(el.props.color).color }] : [];
     });
   }, [circuit, layout]);

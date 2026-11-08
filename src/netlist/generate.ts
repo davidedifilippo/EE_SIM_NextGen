@@ -1,3 +1,4 @@
+import { flattenBlocks } from '../library/blocks';
 import { Circuit, ModelType, SpiceModel } from '../model/types';
 import { getDevice } from '../library/devices';
 import { logicNetwork } from '../library/composites';
@@ -116,7 +117,9 @@ const OPAMP_RAIL_TIME = 100e-9;
  * kicked names the op amps with nowhere stable to rest at the start, as in an oscillator: an exact
  * solver would stay there forever, so they get a push during the first step, as noise would give.
  */
-export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Set<string> = new Set()): NetlistResult {
+export function generateNetlist(drawn: Circuit, analysis: Analysis, kicked: Set<string> = new Set()): NetlistResult {
+  // Each block opened into its parts: from here on, an ordinary circuit
+  const circuit = flattenBlocks(drawn);
   const errors: string[] = [];
   const { netOf, unconnected } = computeConnectivity(circuit);
 
@@ -192,7 +195,7 @@ export function generateNetlist(circuit: Circuit, analysis: Analysis, kicked: Se
 
   for (const el of circuit.elements) {
     const s = getDevice(el.def)?.spice;
-    if (!s || s.kind === 'ground' || s.kind === 'port') continue;
+    if (!s || s.kind === 'ground' || s.kind === 'port' || s.kind === 'userblock') continue;
     const node = (terminal: string) => nodeName(netOf.get(terminalKey(el.id, terminal))!);
 
     switch (s.kind) {

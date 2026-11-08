@@ -9,13 +9,21 @@ import { RegulatorRegion } from './regulator';
 import { SsrStatus } from './ssr';
 import { RealtimeEngine, SolverError } from './engine';
 import { buildWireGraph, solveWireCurrents, WireGraph } from './wireGraph';
+import { flattenBlocks, isInsideBlock } from '../library/blocks';
 
 export interface LiveDevice {
   elementId: string;
   /** World position of each terminal: first and second, or collector, base and emitter. */
   terminals: Pt[];
-  /** Where its dots start in LiveLayout.dots and LiveFrame.dotCurrent. */
+  /** Where its dots start in LiveLayout.dots and LiveFrame.dotCurrent; -1 for a part inside a block, which is not drawn. */
   firstDot: number;
+}
+
+/** A pin of a block on the sheet, and the terminals inside the block on its node: what they take enters by the pin. */
+export interface LiveBlockPin {
+  at: Pt;
+  /** Device index and terminal index, in the order of terminalCurrents. */
+  inside: [number, number][];
 }
 
 /** A path of animated dots inside a device. Positive current flows from a to b. */
@@ -31,6 +39,7 @@ export interface LiveLayout {
   edgeNode: Int32Array;
   devices: LiveDevice[];
   dots: DeviceDots[];
+  blockPins: LiveBlockPin[];
 }
 
 export interface LiveFrame {
@@ -106,6 +115,8 @@ export function drawingSign(el: Element): 1 | -1 {
 
 const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
   switch (s.kind) {
+    case 'userblock':
+      return [];
     case 'regulator':
       return [s.input, s.output, s.ref];
     case 'block':
@@ -157,10 +168,17 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
   }
 };
 
+/**
+ * What the animation draws. The blocks are opened as for the engine, but the parts inside a block are not
+ * on the sheet: they get no dots, and only the wires of the sheet are drawn.
+ */
 export function buildLiveLayout(circuit: Circuit, compiled: CompiledCircuit): LiveLayout {
+  const opened = flattenBlocks(circuit);
+  const onSheet = (id: string) => !isInsideBlock(id);
   const terminals: Pt[] = [];
   const grounds: Pt[] = [];
-  for (const el of circuit.elements) {
+  for (const el of opened.elements) {
+    if (!onSheet(el.id)) continue;
     const def = getDevice(el.def);
     for (const t of def?.terminals ?? []) {
       const pt = localToWorld(el.x, el.y, t, el.rot, el.flip);
@@ -169,9 +187,10 @@ export function buildLiveLayout(circuit: Circuit, compiled: CompiledCircuit): Li
     }
   }
 
-  const byId = new Map(circuit.elements.map((el) => [el.id, el]));
+  const byId = new Map(opened.elements.map((el) => [el.id, el]));
   const dots: DeviceDots[] = [];
   const devices = compiled.elementIds.map((id): LiveDevice => {
+    if (!onSheet(id)) return { elementId: id, terminals: [], firstDot: -1 };
     const el = byId.get(id)!;
     const def = getDevice(el.def)!;
     const at = (terminal: string) => localToWorld(el.x, el.y, def.terminals.find((t) => t.id === terminal)!, el.rot, el.flip);
@@ -191,10 +210,35 @@ export function buildLiveLayout(circuit: Circuit, compiled: CompiledCircuit): Li
     return { elementId: id, terminals: points, firstDot };
   });
 
-  const graph = buildWireGraph(circuit.wires, terminals, grounds);
-  const { wireNet } = computeConnectivity(circuit);
+  const { wireNet, netOf } = computeConnectivity(opened);
+  // Each pin of a block takes what the terminals inside it on its node take
+  const blockPins: LiveBlockPin[] = [];
+  for (const el of opened.elements) {
+    const def = getDevice(el.def);
+    if (!onSheet(el.id) || def?.spice.kind !== 'userblock') continue;
+    const prefix = `${el.id}/`;
+    const claimed = new Set<string>();
+    for (const t of def.terminals) {
+      const net = netOf.get(terminalKey(el.id, t.id));
+      const inside: [number, number][] = [];
+      // Two pins on one node inside: the first takes it all
+      if (net !== undefined && !claimed.has(net)) {
+        claimed.add(net);
+        compiled.elementIds.forEach((id, index) => {
+          if (!id.startsWith(prefix)) return;
+          const inner = byId.get(id)!;
+          terminalsOf(getDevice(inner.def)!.spice as Exclude<SpiceDef, { kind: 'ground' }>).forEach((terminal, k) => {
+            if (netOf.get(terminalKey(id, terminal)) === net) inside.push([index, k]);
+          });
+        });
+      }
+      blockPins.push({ at: localToWorld(el.x, el.y, t, el.rot, el.flip), inside });
+    }
+  }
+
+  const graph = buildWireGraph(opened.wires.filter((w) => onSheet(w.id)), terminals, grounds);
   const edgeNode = Int32Array.from(graph.edges, (e) => compiled.netIndex.get(wireNet.get(e.wireId)!) ?? -1);
-  return { graph, edgeNode, devices, dots };
+  return { graph, edgeNode, devices, dots, blockPins };
 }
 
 /** The op amps of a circuit that start where they cannot stay, for the precise analysis to give them a push. */
@@ -222,6 +266,8 @@ export class LiveSimulation {
   private layout: LiveLayout | null = null;
   /** Per device, the vertex index of each terminal, -1 if the terminal touches no wire. */
   private deviceVertices: number[][] = [];
+  /** The vertex of each pin of a block, -1 if no wire reaches it. */
+  private pinVertices: number[] = [];
   private injected = new Float64Array(0);
   /** Set after a solver failure: the circuit needs an edit before it can run again. */
   private failed = false;
@@ -325,7 +371,9 @@ export class LiveSimulation {
   }
 
   load(circuit: Circuit): LoadResult {
-    const result = compileCircuit(circuit);
+    // Opened here once, so that the layout, the probes and the engine see the same parts
+    const opened = flattenBlocks(circuit);
+    const result = compileCircuit(opened);
     if (!result.ok) {
       this.engine = null;
       this.resolveProbes();
@@ -333,11 +381,12 @@ export class LiveSimulation {
       return result;
     }
     const { compiled } = result;
-    this.lastCircuit = circuit;
+    this.lastCircuit = opened;
 
-    this.layout = buildLiveLayout(circuit, compiled);
-    const { graph, devices } = this.layout;
+    this.layout = buildLiveLayout(opened, compiled);
+    const { graph, devices, blockPins } = this.layout;
     this.deviceVertices = devices.map((d) => d.terminals.map((p) => graph.vertexOf.get(ptKey(p)) ?? -1));
+    this.pinVertices = blockPins.map((pin) => graph.vertexOf.get(ptKey(pin.at)) ?? -1);
     this.injected = new Float64Array(graph.vertexCount);
 
     const previous = this.engine;
@@ -365,7 +414,7 @@ export class LiveSimulation {
       throw err;
     }
     this.engine = next;
-    const defOf = (id: string) => circuit.elements.find((el) => el.id === id)?.def;
+    const defOf = (id: string) => opened.elements.find((el) => el.id === id)?.def;
     this.leds = compiled.elementIds.flatMap((id, i) => (defOf(id) === 'led' ? [i] : []));
     this.lamps = compiled.elementIds.flatMap((id, i) => (defOf(id) === 'lamp' ? [i] : []));
     this.ledSum = new Float64Array(compiled.devices.length);
@@ -461,8 +510,10 @@ export class LiveSimulation {
     const deviceVbe = new Float64Array(devices.length);
     const dotCurrent = new Float64Array(layout.dots.length);
     injected.fill(0);
+    const terminalCurrents: number[][] = [];
     devices.forEach((d, i) => {
       const currents = engine.terminalCurrents(i);
+      terminalCurrents.push(currents);
       deviceCurrent[i] = currents[0];
       deviceVoltage[i] = engine.nodeVoltage(d.a) - engine.nodeVoltage(d.b);
       if (d.kind === 'transformer') deviceVbe[i] = engine.nodeVoltage(d.c) - engine.nodeVoltage(d.d);
@@ -475,7 +526,9 @@ export class LiveSimulation {
       if (d.kind === 'opto') deviceVbe[i] = engine.nodeVoltage(d.c) - engine.nodeVoltage(d.e);
       if (d.kind === 'ssr') deviceVbe[i] = engine.nodeVoltage(d.c) - engine.nodeVoltage(d.d);
       const { firstDot } = layout.devices[i];
-      if (d.kind === 'logic' || d.kind === 'display7' || d.kind === 'bridge' || d.kind === 'mcu') currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
+      if (firstDot < 0) {
+        // Inside a block: what it takes reaches the sheet through the pins
+      } else if (d.kind === 'logic' || d.kind === 'display7' || d.kind === 'bridge' || d.kind === 'mcu') currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
       else if (d.kind === 'ctransformer') [dotCurrent[firstDot], dotCurrent[firstDot + 1], dotCurrent[firstDot + 2]] = [currents[0], currents[2], -currents[4]];
       else if (d.kind === 'relay' && currents.length === 5) [dotCurrent[firstDot], dotCurrent[firstDot + 1], dotCurrent[firstDot + 2]] = [currents[0], -currents[3], -currents[4]];
       else if (currents.length === 2) dotCurrent[firstDot] = currents[0];
@@ -486,6 +539,12 @@ export class LiveSimulation {
         const vertex = deviceVertices[i][k];
         if (vertex >= 0) injected[vertex] -= current;
       });
+    });
+
+    layout.blockPins.forEach((pin, k) => {
+      const vertex = this.pinVertices[k];
+      if (vertex < 0) return;
+      for (const [index, terminal] of pin.inside) injected[vertex] -= terminalCurrents[index][terminal];
     });
 
     const edgeCurrent = new Float64Array(layout.graph.edges.length);

@@ -49,7 +49,9 @@ export function nodeLabels({ graph, edgeNode }: LiveLayout): NodeLabel[] {
 export function currentLabels(circuit: Circuit, layout: LiveLayout): CurrentLabel[] {
   const byId = new Map(circuit.elements.map((el) => [el.id, el]));
   return layout.devices.flatMap((device): CurrentLabel[] => {
-    const el = byId.get(device.elementId)!;
+    // The parts inside a block have no drawing of their own
+    const el = byId.get(device.elementId);
+    if (!el) return [];
     const kind = getDevice(el.def)?.spice.kind;
     // It has its own display
     if (kind === 'meter') return [];

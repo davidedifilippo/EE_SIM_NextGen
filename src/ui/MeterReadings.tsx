@@ -21,7 +21,9 @@ export const MeterReadings: React.FC<Props> = ({ circuit, layout, frameRef }) =>
   const meters = useMemo(() => {
     const byId = new Map(circuit.elements.map((el) => [el.id, el]));
     return layout.devices.flatMap((device, index) => {
-      const el = byId.get(device.elementId)!;
+      // The parts inside a block have no drawing of their own
+      const el = byId.get(device.elementId);
+      if (!el) return [];
       const mode = METER_MODES.find((m) => m.value === el.props.mode);
       return getDevice(el.def)?.spice.kind === 'meter' && mode ? [{ el, index, mode }] : [];
     });

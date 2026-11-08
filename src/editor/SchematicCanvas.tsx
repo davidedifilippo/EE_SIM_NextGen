@@ -24,6 +24,8 @@ interface Props {
   onDuplicate: () => void;
   /** With a point of the sheet to land on, or a step from the last copy. Null with nothing to paste. */
   onPaste: ((at?: Pt) => void) | null;
+  /** Turns the selection into a block. */
+  onMakeBlock?: () => void;
   viewRef: React.MutableRefObject<(() => Box) | null>;
   overlay?: React.ReactNode;
   labels?: React.ReactNode;
@@ -134,6 +136,7 @@ export const SchematicCanvas: React.FC<Props> = ({
   onCut,
   onDuplicate,
   onPaste,
+  onMakeBlock,
   viewRef,
   overlay,
   labels,
@@ -913,6 +916,7 @@ export const SchematicCanvas: React.FC<Props> = ({
     ...(onPaste ? [{ label: 'Incolla', action: () => onPaste(sheetPoint ?? undefined) }] : []),
     ...(!sheetPoint && selectedElements.some((el) => canRotate(getDevice(el.def))) ? [{ label: 'Ruota', action: onRotateSelected }] : []),
     ...(!sheetPoint && selectedElements.some((el) => canMirror(getDevice(el.def))) ? [{ label: 'Specchia', action: onMirrorSelected }] : []),
+    ...(!sheetPoint && onMakeBlock && selectedElements.length > 0 ? [{ label: 'Crea blocco', action: onMakeBlock }] : []),
     ...(sheetPoint ? [] : [{ label: 'Elimina', action: onDeleteSelected, isDanger: true }]),
     ...(circuit.elements.length + circuit.wires.length > 0 ? [{ label: 'Seleziona tutto', action: onSelectAll }] : []),
   ];

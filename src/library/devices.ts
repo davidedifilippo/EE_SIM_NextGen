@@ -512,7 +512,7 @@ function gateDevice(gate: GateKind, name: string, body: Prim[], searchTerms: str
 const column = (ids: string[], x: number) => ids.map((id, k) => ({ id, x, y: (k - (ids.length - 1) / 2) * 20 }));
 
 /** A box with inputs on the left and outputs on the right: a truth table, or a decoder built on one. */
-function tableBox(inputs: string[], outputs: string[]): Pick<ComponentDef, 'terminals' | 'symbol'> {
+export function tableBox(inputs: string[], outputs: string[]): Pick<ComponentDef, 'terminals' | 'symbol'> {
   const terminals = [...column(inputs, -40), ...column(outputs, 40)];
   const half = (Math.max(inputs.length, outputs.length) * 20) / 2 + 4;
   return {
@@ -1066,13 +1066,16 @@ const ARDUINO_UNO: ComponentDef = {
 };
 
 /**
- * The pins of the inner schematic of a part made of parts: a flag whose name is the pin, the input
- * pointing in to the right, the output pointing out to the right. Not in the library.
+ * The pins of the inner schematic of a part made of parts, or of a block: a flag whose name is the pin, the
+ * input pointing in to the right, the output pointing out to the right. On the box of a block the first
+ * goes on the left, the second on the right.
  */
 const PORTS: ComponentDef[] = (['in', 'out'] as const).map((direction) => ({
   id: `port_${direction}`,
-  category: 'Logica',
-  name: direction === 'in' ? 'Ingresso del componente' : 'Uscita del componente',
+  category: 'Blocchi',
+  name: direction === 'in' ? 'Piedino a sinistra' : 'Piedino a destra',
+  tagPrefix: 'P',
+  searchTerms: 'blocco piedino bandierina pin',
   terminals: [{ id: 'p', x: 0, y: 0 }],
   symbol: [
     direction === 'in'
@@ -1082,7 +1085,6 @@ const PORTS: ComponentDef[] = (['in', 'out'] as const).map((direction) => ({
   ],
   props: [],
   spice: { kind: 'port', direction },
-  isHidden: true,
 }));
 
 /** A part made of parts: a box with its pins outside, and its inner schematic in library/composites. */
@@ -1246,6 +1248,11 @@ const byId = new Map(DEVICES.map((d) => [d.id, d]));
 
 export function getDevice(id: string): ComponentDef | undefined {
   return byId.get(id);
+}
+
+/** Makes a part known that comes with a circuit rather than with the app, as a block: its id says what it is, so it is never replaced. */
+export function registerDevice(def: ComponentDef) {
+  if (!byId.has(def.id)) byId.set(def.id, def);
 }
 
 export function elementSymbol(def: ComponentDef, element: Element): Prim[] {

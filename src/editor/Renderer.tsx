@@ -215,7 +215,7 @@ const ElementItem: React.FC<{
   const isBesideLabel = elem.rot === 90 || elem.rot === 270 || isTransistor;
   const isBlock = def.spice.kind === 'block';
   // A box with named pins: a subcircuit, a truth table, a decoder, a display
-  const isNamedBox = isBlock || def.spice.kind === 'display7' || def.spice.kind === 'mcu' || def.spice.kind === 'timer' || (def.spice.kind === 'logic' && (def.spice.gate === 'table' || def.spice.gate === 'dff' || def.spice.gate === 'counter' || def.spice.gate === 'tff' || def.spice.gate === 'jkff' || def.spice.gate === 'srff' || def.spice.gate === 'srlatch' || def.spice.gate === 'network'));
+  const isNamedBox = isBlock || def.spice.kind === 'userblock' || def.spice.kind === 'display7' || def.spice.kind === 'mcu' || def.spice.kind === 'timer' || (def.spice.kind === 'logic' && (def.spice.gate === 'table' || def.spice.gate === 'dff' || def.spice.gate === 'counter' || def.spice.gate === 'tff' || def.spice.gate === 'jkff' || def.spice.gate === 'srff' || def.spice.gate === 'srlatch' || def.spice.gate === 'network'));
   const isRegulator = def.spice.kind === 'regulator';
   const isSensor = def.spice.kind === 'regulator' && !!def.spice.sensor;
   // The box is as tall as its pins: its labels go beyond it
@@ -226,7 +226,7 @@ const ElementItem: React.FC<{
   const firstProp = def.props[0];
   // A choice shows its name, as the LED its colour; a logic part shows its level on itself already
   const firstValue = !firstProp ? '' : firstProp.type === 'choice' ? (firstProp.options?.find((o) => o.value === String(elem.props[firstProp.key]))?.label ?? '') : String(elem.props[firstProp.key] ?? '');
-  const value = def.spice.kind === 'vsource' ? sourceLabel(elem.props) : def.spice.kind === 'isource' ? currentLabel(elem.props.value) : def.spice.kind === 'logic' && def.spice.gate === 'network' ? def.name : def.spice.kind === 'timer' ? def.spice.spec.name : def.spice.kind === 'opamp' || def.spice.kind === 'meter' || def.spice.kind === 'logic' || def.spice.kind === 'motor' || isRegulator ? '' : def.spice.kind === 'transformer' ? `${elem.props.ratio}:1` : def.spice.kind === 'ctransformer' ? `${elem.props.primary}/${elem.props.secondary}+${elem.props.secondary} V · ${elem.props.power} VA` : def.spice.kind === 'pot' ? `${firstValue} · ${elem.props.position}%` : def.spice.kind === 'lamp' ? `${elem.props.power} W · ${elem.props.volts} V` : def.spice.kind === 'opto' ? `PC817${elem.props.ctr === 'none' ? '' : elem.props.ctr}` : def.spice.kind === 'ssr' ? ssrPartNumber(elem.props) : firstValue;
+  const value = def.spice.kind === 'vsource' ? sourceLabel(elem.props) : def.spice.kind === 'isource' ? currentLabel(elem.props.value) : (def.spice.kind === 'logic' && def.spice.gate === 'network') || def.spice.kind === 'userblock' ? def.name : def.spice.kind === 'timer' ? def.spice.spec.name : def.spice.kind === 'opamp' || def.spice.kind === 'meter' || def.spice.kind === 'logic' || def.spice.kind === 'motor' || isRegulator ? '' : def.spice.kind === 'transformer' ? `${elem.props.ratio}:1` : def.spice.kind === 'ctransformer' ? `${elem.props.primary}/${elem.props.secondary}+${elem.props.secondary} V · ${elem.props.power} VA` : def.spice.kind === 'pot' ? `${firstValue} · ${elem.props.position}%` : def.spice.kind === 'lamp' ? `${elem.props.power} W · ${elem.props.volts} V` : def.spice.kind === 'opto' ? `PC817${elem.props.ctr === 'none' ? '' : elem.props.ctr}` : def.spice.kind === 'ssr' ? ssrPartNumber(elem.props) : firstValue;
   // Parts whose drawing fills the space the labels usually take: name and value go below them, or,
   // beside a bridge on its side, below its lead
   const labelsBelow: [number, number] | null =
@@ -392,7 +392,7 @@ const ElementItem: React.FC<{
       )}
 
       {/* Labels are counter-rotated so they stay upright and keep their world position */}
-      {def.tagPrefix && (
+      {def.tagPrefix && def.spice.kind !== 'port' && (
         <g transform={`${elem.flip ? 'scale(1, -1) ' : ''}rotate(${-elem.rot})`} pointerEvents="none" fontSize={11}>
           <text y={labelsBelow ? labelsBelow[0] : isBesideLabel ? -4 : def.id === 'multimeter' ? -85 : def.spice.kind === 'meter' ? -33 : isNamedBox ? -blockReach - 4 : isRegulator ? -25 : -24} fontWeight={700} fill="var(--sch-ink)" {...labelProps}>
             {elem.tag}

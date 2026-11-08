@@ -7,7 +7,7 @@ const ALL = 'Tutti';
 const SECTION_KEY = 'ee-sim-nextgen/library-section';
 const PARTS = DEVICES.filter((def) => !def.isHidden);
 /** Sources first: every circuit starts from them, and from ground. */
-const SECTIONS = ['Sorgenti', 'Passivi', 'Semiconduttori', 'Operazionali', 'Regolatori', 'Sensori', 'Motori', 'Logica', 'Arduino', 'Strumenti', 'Altri'];
+const SECTIONS = ['Sorgenti', 'Passivi', 'Semiconduttori', 'Operazionali', 'Regolatori', 'Sensori', 'Motori', 'Logica', 'Arduino', 'Blocchi', 'Strumenti', 'Altri'];
 
 const loadSection = () => {
   try {
@@ -112,10 +112,25 @@ const PartIcon: React.FC<{ def: ComponentDef }> = ({ def }) => {
   );
 };
 
-export const ComponentLibrary: React.FC<{ active: ComponentDef | null; onChoose: (def: ComponentDef) => void }> = ({ active, onChoose }) => {
+interface Props {
+  active: ComponentDef | null;
+  onChoose: (def: ComponentDef) => void;
+  /** The blocks of the personal library and of the open circuit, beside the pin flags. */
+  blocks?: ComponentDef[];
+  /** The blocks of the personal library, which can be taken out of it. */
+  removableBlocks?: Set<string>;
+  onRemoveBlock?: (id: string) => void;
+  /** Reads a saved circuit as a block: null, or what went wrong. */
+  onImportBlock?: (file: File) => Promise<string | null>;
+}
+
+export const ComponentLibrary: React.FC<Props> = ({ active, onChoose, blocks = [], removableBlocks = new Set(), onRemoveBlock, onImportBlock }) => {
   const [section, setSection] = useState(loadSection);
   const [query, setQuery] = useState('');
+  const [importNote, setImportNote] = useState<string | null>(null);
   const sectionsRef = useRef<HTMLDivElement>(null);
+  const blockFileRef = useRef<HTMLInputElement>(null);
+  const parts = useMemo(() => [...PARTS, ...blocks], [blocks]);
 
   // The remembered section may be beyond the edge
   useEffect(() => {
@@ -123,10 +138,12 @@ export const ComponentLibrary: React.FC<{ active: ComponentDef | null; onChoose:
   }, []);
 
   const groups = useMemo(() => {
-    if (query.trim()) return [{ title: null, parts: searchParts(PARTS, query) }];
+    if (query.trim()) return [{ title: null, parts: searchParts(parts, query) }];
     const shown = section === ALL ? SECTIONS : [section];
-    return shown.map((title) => ({ title: section === ALL ? title : null, parts: PARTS.filter((def) => def.category === title) }));
-  }, [section, query]);
+    return shown.map((title) => ({ title: section === ALL ? title : null, parts: parts.filter((def) => def.category === title) }));
+  }, [section, query, parts]);
+
+  const showsBlocks = !query.trim() && (section === ALL || section === 'Blocchi');
 
   return (
     <nav className="palette" aria-label="Componenti">
@@ -154,12 +171,42 @@ export const ComponentLibrary: React.FC<{ active: ComponentDef | null; onChoose:
             {title && <h3>{title}</h3>}
             <div className="palette-grid">
               {parts.map((def) => (
-                <button key={def.id} className={active?.id === def.id ? 'part active' : 'part'} aria-pressed={active?.id === def.id} onClick={() => onChoose(def)}>
-                  <PartIcon def={def} />
-                  <span>{def.name}</span>
-                </button>
+                <div key={def.id} className="part-slot">
+                  <button className={active?.id === def.id ? 'part active' : 'part'} aria-pressed={active?.id === def.id} onClick={() => onChoose(def)}>
+                    <PartIcon def={def} />
+                    <span>{def.name}</span>
+                  </button>
+                  {removableBlocks.has(def.id) && onRemoveBlock && (
+                    <button className="part-remove" aria-label={`Togli ${def.name} dalla libreria`} title="Togli dalla libreria: i circuiti che lo usano lo tengono" onClick={() => onRemoveBlock(def.id)}>
+                      ×
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
+            {showsBlocks && (title === 'Blocchi' || (title === null && section === 'Blocchi')) && onImportBlock && (
+              <div className="palette-blocks">
+                <button onClick={() => blockFileRef.current?.click()}>Importa da file…</button>
+                <p className="hint">
+                  {importNote ??
+                    'Un circuito salvato diventa un blocco: i piedini sono le sue bandierine. Oppure seleziona una parte del circuito e scegli Crea blocco dal menu (tasto destro o dito fermo).'}
+                </p>
+                <input
+                  ref={blockFileRef}
+                  type="file"
+                  accept=".json,application/json"
+                  hidden
+                  aria-label="Importa un blocco"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (!file) return;
+                    const problem = await onImportBlock(file);
+                    setImportNote(problem ?? `Importato "${file.name}": lo trovi qui sopra`);
+                  }}
+                />
+              </div>
+            )}
           </section>
         ))}
         {groups.every(({ parts }) => parts.length === 0) && <p className="hint">Nessun componente</p>}

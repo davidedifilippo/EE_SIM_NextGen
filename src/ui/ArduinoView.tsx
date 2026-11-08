@@ -21,7 +21,9 @@ export const ArduinoView: React.FC<Props> = ({ circuit, layout, frameRef }) => {
   const boards = useMemo(() => {
     const byId = new Map(circuit.elements.map((el) => [el.id, el]));
     return layout.devices.flatMap((device, index) => {
-      const el = byId.get(device.elementId)!;
+      // The parts inside a block have no drawing of their own
+      const el = byId.get(device.elementId);
+      if (!el) return [];
       if (getDevice(el.def)?.spice.kind !== 'mcu') return [];
       const at = (p: { x: number; y: number }) => localToWorld(el.x, el.y, p, el.rot, el.flip);
       return [{ id: el.id, index, led: at(LED_AT), warning: at(WARNING_AT) }];

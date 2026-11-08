@@ -21,7 +21,9 @@ export const OptoView: React.FC<Props> = ({ circuit, layout, frameRef }) => {
   const optos = useMemo(() => {
     const byId = new Map(circuit.elements.map((el) => [el.id, el]));
     return layout.devices.flatMap((device, index) => {
-      const el = byId.get(device.elementId)!;
+      // The parts inside a block have no drawing of their own
+      const el = byId.get(device.elementId);
+      if (!el) return [];
       return getDevice(el.def)?.spice.kind === 'opto' ? [{ id: el.id, index, at: localToWorld(el.x, el.y, WARNING_AT, el.rot, el.flip) }] : [];
     });
   }, [circuit, layout]);

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ComponentDef } from '../model/types';
 import { canRotate, getDevice } from '../library/devices';
 import { EXAMPLES } from '../samples/examples';
@@ -7,6 +7,7 @@ import { ComponentLibrary } from '../ui/ComponentLibrary';
 import { LiveLegend, SourceStats, SPEEDS } from '../ui/LiveControls';
 import { speedLabel } from '../realtime/liveRate';
 import { PropertiesPanel } from '../ui/PropertiesPanel';
+import { BlockDialog } from '../ui/BlockDialog';
 import { MAX_TRACES } from '../ui/scopeTraces';
 import { THEME_CHOICES } from '../ui/theme';
 import { Workbench } from './useWorkbench';
@@ -101,8 +102,19 @@ export const ValuesToggle: React.FC<{ wb: Workbench }> = ({ wb }) => (
   </label>
 );
 
-export const Library: React.FC<{ wb: Workbench; onChosen?: (def: ComponentDef | null) => void }> = ({ wb, onChosen }) => (
+export const Library: React.FC<{ wb: Workbench; onChosen?: (def: ComponentDef | null) => void }> = ({ wb, onChosen }) => {
+  // Those of the library, then those only the circuit has
+  const blocks = useMemo(() => {
+    const ids = [...new Set([...wb.blockLibrary, ...(wb.circuit.blocks ?? [])].map((b) => b.id))];
+    return ids.flatMap((id) => getDevice(id) ?? []);
+  }, [wb.blockLibrary, wb.circuit.blocks]);
+  const removable = useMemo(() => new Set(wb.blockLibrary.map((b) => b.id)), [wb.blockLibrary]);
+  return (
   <ComponentLibrary
+    blocks={blocks}
+    removableBlocks={removable}
+    onRemoveBlock={wb.removeBlock}
+    onImportBlock={wb.importBlockFile}
     active={wb.activeDef}
     onChoose={(def) => {
       const next = wb.activeDef?.id === def.id ? null : def;
@@ -111,7 +123,8 @@ export const Library: React.FC<{ wb: Workbench; onChosen?: (def: ComponentDef | 
       onChosen?.(next);
     }}
   />
-);
+  );
+};
 
 /** The schematic with what is written over it: the hint of an example, notes, the legend of the animation. */
 export const CanvasArea: React.FC<{ wb: Workbench }> = ({ wb }) => (
@@ -141,11 +154,13 @@ export const CanvasArea: React.FC<{ wb: Workbench }> = ({ wb }) => (
       onCut={wb.cutSelected}
       onDuplicate={wb.duplicateSelected}
       onPaste={wb.clipboard ? wb.paste : null}
+      onMakeBlock={wb.startBlockFromSelection}
       viewRef={wb.viewRef}
       overlay={wb.overlay}
       labels={wb.labels}
     />
     {wb.circuit.elements.length > 0 && <LiveLegend ref={wb.legendRef} errors={wb.live.errors} />}
+    {wb.blockDraft && <BlockDialog pins={wb.blockDraft.pins} error={wb.blockDraft.error} onCreate={wb.createBlockFromSelection} onClose={() => wb.setBlockDraft(null)} />}
     <SourceStats circuit={wb.circuit} selectedIds={wb.selectedIds} />
   </div>
 );
@@ -167,5 +182,6 @@ export const Properties: React.FC<{ wb: Workbench }> = ({ wb }) => (
     scopeIds={wb.scopeIds}
     isScopeFull={wb.traces.length >= MAX_TRACES}
     onToggleProbe={wb.toggleProbe}
+    onOpenBlock={wb.openBlockAsCircuit}
   />
 );

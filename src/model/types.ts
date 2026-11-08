@@ -157,6 +157,8 @@ export type SpiceDef =
   | { kind: 'logic'; gate: GateKind; inputs: string[]; outputs: string[]; vddProp: string; stateProp?: string; /** For a truth table: where its rows are kept, or rows that never change. */ tableProp?: string; fixedTable?: string; /** For a part made of parts: the id of its inner schematic. */ network?: string }
   /** A pin of the inner schematic of a part made of parts: its tag is the name of the pin. */
   | { kind: 'port'; direction: 'in' | 'out' }
+  /** A block made from a whole circuit: opened into its parts before either engine sees it. */
+  | { kind: 'userblock'; blockId: string }
   | { kind: 'transformer'; p1: string; p2: string; s1: string; s2: string; ratioProp: string; inductanceProp: string; couplingProp: string };
 
 export interface ComponentDef {
@@ -199,9 +201,24 @@ export interface SpiceModel {
   card: string;
 }
 
+/** A whole circuit used as a part: its pins are the flags in it, the name of each flag is the name of its pin. */
+export interface BlockDef {
+  /** From the content: two versions of a block never take each other's place. */
+  id: string;
+  name: string;
+  circuit: Circuit;
+}
+
 export interface Circuit {
   title: string;
   elements: Element[];
   wires: Wire[];
   models: SpiceModel[];
+  /** The blocks the circuit uses, those inside other blocks too. */
+  blocks?: BlockDef[];
+  /**
+   * Terminals joined as one node with no wire between them: the pin of a block and its flag inside, once
+   * the block is opened; present, even empty, only on a circuit already opened. Never saved.
+   */
+  ties?: [string, string][];
 }

@@ -81,6 +81,13 @@ export function computeConnectivity(circuit: Circuit): Connectivity {
     }
   }
 
+  // A pin of a block and its flag inside: one node, with no wire between them
+  for (const [a, b] of circuit.ties ?? []) {
+    uf.union(a, b);
+    touched.add(a);
+    touched.add(b);
+  }
+
   const netOf = new Map(terminals.map((t) => [t.key, uf.find(t.key)]));
   const unconnected = terminals.filter((t) => !touched.has(t.key)).map((t) => t.key);
   const wireNet = new Map(circuit.wires.map((w) => [w.id, uf.find(`wire:${w.id}`)]));

@@ -1,3 +1,4 @@
+import { flattenBlocks } from '../library/blocks';
 import { Circuit, ModelType } from '../model/types';
 import { getDevice } from '../library/devices';
 import { findModel, isVdmos, modelType } from '../library/models';
@@ -267,7 +268,9 @@ export function parseMosModel(card: string, polarity: 1 | -1): MosParams {
 }
 
 /** Builds the solver's view of the circuit. Unconnected terminals are fine: a drawing in progress must not stop it. */
-export function compileCircuit(circuit: Circuit): CompileResult {
+export function compileCircuit(drawn: Circuit): CompileResult {
+  // Each block opened into its parts: from here on, an ordinary circuit
+  const circuit = flattenBlocks(drawn);
   const errors: string[] = [];
   const { netOf } = computeConnectivity(circuit);
 
@@ -301,7 +304,7 @@ export function compileCircuit(circuit: Circuit): CompileResult {
   for (const el of circuit.elements) {
     const s = getDevice(el.def)?.spice;
     // A pin of an inner schematic stands for a wire: it is no part of its own
-    if (!s || s.kind === 'ground' || s.kind === 'port') continue;
+    if (!s || s.kind === 'ground' || s.kind === 'port' || s.kind === 'userblock') continue;
     const node = (terminal: string) => nodeOfNet(netOf.get(terminalKey(el.id, terminal))!);
     const element = elementIds.length;
     elementIds.push(el.id);

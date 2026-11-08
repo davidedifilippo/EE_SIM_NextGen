@@ -421,6 +421,80 @@ button.close-results {
   overflow-wrap: anywhere;
 }
 
+/* A part of the library, with the × of a personal block in its corner */
+.part-slot {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+
+.part-slot button.part {
+  flex: 1;
+  width: 100%;
+}
+
+.palette button.part-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 22px;
+  min-width: 0;
+  height: 22px;
+  min-height: 0;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 11px;
+}
+
+.palette-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.palette-blocks .hint {
+  margin: 0;
+  font-size: 12px;
+}
+
+.block-pins {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.block-pins th {
+  padding: 0 8px 4px 0;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-align: left;
+}
+
+.block-pins td {
+  padding: 2px 8px 2px 0;
+}
+
+.block-pins select {
+  min-height: 36px;
+}
+
+.share-panel label.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.share-panel label.checkbox input {
+  width: auto;
+  min-height: 0;
+}
+
+.block-dialog .error {
+  color: var(--danger);
+}
+
 .regulator-summary {
   margin: 8px 0 0;
   padding: 0;

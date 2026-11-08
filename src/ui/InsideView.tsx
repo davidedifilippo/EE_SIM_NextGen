@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getDevice } from '../library/devices';
 import { compositeSchematic } from '../library/composites';
+import { knownBlock } from '../library/blocks';
+
+/** The inner schematic of a part made of parts or of a block, or null for any other part. */
+const schematicOf = (id: string) => compositeSchematic(id) ?? knownBlock(id)?.circuit ?? null;
 import { getBounds, Renderer } from '../editor/Renderer';
 import { Element } from '../model/types';
 
@@ -17,7 +21,7 @@ const orList = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).jo
 export const InsideView: React.FC<{ id: string; tag: string; onClose: () => void }> = ({ id, tag, onClose }) => {
   const [path, setPath] = useState<{ id: string; tag: string }[]>([{ id, tag }]);
   const current = path[path.length - 1];
-  const circuit = compositeSchematic(current.id);
+  const circuit = schematicOf(current.id);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -50,9 +54,9 @@ export const InsideView: React.FC<{ id: string; tag: string; onClose: () => void
 
   if (!circuit || !box) return null;
   const openPart = (el: Element) => {
-    if (compositeSchematic(el.def)) setPath((p) => [...p, { id: el.def, tag: el.tag }]);
+    if (schematicOf(el.def)) setPath((p) => [...p, { id: el.def, tag: el.tag }]);
   };
-  const parts = circuit.elements.filter((el) => compositeSchematic(el.def));
+  const parts = circuit.elements.filter((el) => schematicOf(el.def));
 
   return (
     <div className="dialog-backdrop" onPointerDown={onClose}>

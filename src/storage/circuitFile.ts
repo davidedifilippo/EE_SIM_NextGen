@@ -1,9 +1,11 @@
 import { canRotate, getDevice } from '../library/devices';
 import { cleanStoredCard } from '../library/modelImport';
-import { Circuit, Element, Pt, Rotation, SpiceModel, Wire } from '../model/types';
+import { BlockDef, Circuit, Element, Pt, Rotation, SpiceModel, Wire } from '../model/types';
+import { createBlock, isBlockId, registerBlocks } from '../library/blocks';
 
 const FORMAT = 'ee-sim-nextgen';
-const VERSION = 1;
+/** 2 since the blocks; a circuit without blocks is still written as 1, for the versions before them. */
+const VERSION = 2;
 const AUTOSAVE_KEY = 'ee-sim-nextgen/circuit';
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -14,7 +16,8 @@ type Storable = Pick<Storage, 'getItem' | 'setItem'>;
 
 /** Indented for a file someone may open; without spaces for a link, where every character counts. */
 export function serializeCircuit(circuit: Circuit, indent = 2): string {
-  return JSON.stringify({ format: FORMAT, version: VERSION, circuit }, null, indent);
+  const { ties: _, ...saved } = circuit;
+  return JSON.stringify({ format: FORMAT, version: saved.blocks?.length ? VERSION : 1, circuit: saved }, null, indent);
 }
 
 const fail = (): never => {
@@ -32,9 +35,11 @@ function parsePoint(v: unknown): Pt {
   return { x: number(p.x), y: number(p.y) };
 }
 
-function parseElement(v: unknown): Element {
+/** remap gives the id each block of the file has here, worked out again from its content. */
+function parseElement(v: unknown, remap: Map<string, string>): Element {
   const e = record(v);
-  const def = text(e.def);
+  const def = remap.get(text(e.def)) ?? text(e.def);
+  if (isBlockId(def) && ![...remap.values()].includes(def)) fail();
   if (!getDevice(def)) fail();
   const rot = number(e.rot);
   if (rot !== 0 && rot !== 90 && rot !== 180 && rot !== 270) fail();
@@ -72,15 +77,51 @@ export function parseCircuitFile(content: string): Circuit {
   if (number(file.version) > VERSION) throw new Error(NEWER_FILE);
 
   const c = record(file.circuit);
+  const remap = new Map<string, string>();
+  const blocks = c.blocks === undefined ? [] : parseBlocks(list(c.blocks), remap);
+  const circuit: Circuit = { ...parseBody(c, remap), ...(blocks.length > 0 ? { blocks } : {}) };
+  registerBlocks(blocks);
+  return circuit;
+}
+
+function parseBody(c: Record<string, unknown>, remap: Map<string, string>): Circuit {
   const circuit: Circuit = {
     title: text(c.title),
-    elements: list(c.elements).map(parseElement),
+    elements: list(c.elements).map((v) => parseElement(v, remap)),
     wires: list(c.wires).map(parseWire),
     models: list(c.models).map(parseModel),
   };
   const ids = [...circuit.elements, ...circuit.wires].map((item) => item.id);
-  if (new Set(ids).size !== ids.length) fail();
+  if (new Set(ids).size !== ids.length || ids.some((id) => id.includes('/'))) fail();
   return circuit;
+}
+
+/**
+ * The blocks of a file, each read as a circuit of its own, a block inside another before it. The id of each
+ * is worked out again from what it contains: nothing in the file can pass for a block it is not.
+ */
+function parseBlocks(raw: unknown[], remap: Map<string, string>): BlockDef[] {
+  const pending = raw.map((v) => {
+    const b = record(v);
+    const body = record(b.circuit);
+    const uses = list(body.elements).flatMap((e) => {
+      const def = text(record(e).def);
+      return isBlockId(def) ? [def] : [];
+    });
+    return { id: text(b.id), name: text(b.name).trim() || fail(), body, uses };
+  });
+  const blocks: BlockDef[] = [];
+  while (pending.length > 0) {
+    const ready = pending.findIndex((b) => b.uses.every((id) => remap.has(id)));
+    // A block that needs one the file does not have, or blocks inside each other in a ring
+    if (ready < 0) fail();
+    const [b] = pending.splice(ready, 1);
+    const [block] = createBlock(b.name, parseBody(b.body, remap));
+    if (remap.has(b.id)) fail();
+    remap.set(b.id, block.id);
+    blocks.push(block);
+  }
+  return blocks;
 }
 
 /** Storage can be missing or full, as in a private window: the app then simply does not remember. */

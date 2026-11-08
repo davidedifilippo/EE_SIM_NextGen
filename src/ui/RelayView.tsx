@@ -19,7 +19,9 @@ export const RelayView: React.FC<Props> = ({ circuit, layout, frameRef }) => {
   const relays = useMemo(() => {
     const byId = new Map(circuit.elements.map((el) => [el.id, el]));
     return layout.devices.flatMap((device, index) => {
-      const el = byId.get(device.elementId)!;
+      // The parts inside a block have no drawing of their own
+      const el = byId.get(device.elementId);
+      if (!el) return [];
       const spice = getDevice(el.def)?.spice;
       if (spice?.kind !== 'relay') return [];
       const at = (x: number, y: number) => localToWorld(el.x, el.y, { x, y }, el.rot, el.flip);

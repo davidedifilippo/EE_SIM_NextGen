@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Circuit, ComponentDef, Pt, Rotation, SpiceModel } from '../model/types';
+import { BlockDef, Circuit, ComponentDef, Pt, Rotation, SpiceModel } from '../model/types';
+import { blockProblem, createBlock, flattenBlocks, knownBlock, registerBlocks, withUsedBlocks } from '../library/blocks';
+import { ProposedPin, replaceWithBlock, selectionBoundary } from '../library/blockFromSelection';
+import { addToBlockLibrary, loadBlockLibrary, saveBlockLibrary } from '../storage/blockLibrary';
 import { canMirror, canRotate, getDevice, isVoltageSource } from '../library/devices';
 import { circuitForSaving, withLibraryModels } from '../library/models';
 import { Analysis, describeNodes, generateNetlist, sweepCount } from '../netlist/generate';
@@ -53,6 +56,14 @@ const AUTOSAVE_DELAY_MS = 300;
 export function useWorkbench() {
   const [circuit, setCircuit] = useState<Circuit>(() => loadAutosave() ?? halfWaveRectifier({ capacitor: '100u' }));
   const [library, setLibrary] = useState<SpiceModel[]>(() => libraryAtStart(circuit));
+  /** The personal blocks, kept in the browser. */
+  const [blockLibrary, setBlockLibrary] = useState<BlockDef[]>(() => {
+    const blocks = loadBlockLibrary();
+    registerBlocks(blocks);
+    return blocks;
+  });
+  /** The selection about to become a block: the pins proposed, and what went wrong at the last try. */
+  const [blockDraft, setBlockDraft] = useState<{ pins: ProposedPin[]; error: string | null } | null>(null);
   /** The circuit as engines and files need it, with the library models it uses. */
   const resolved = useMemo(() => withLibraryModels(circuit, library), [circuit, library]);
   /** Changes when another circuit is opened, so the canvas fits it in view. */
@@ -107,7 +118,7 @@ export function useWorkbench() {
   const toggleProbe = (probe: ScopeProbe) =>
     setTraces(scopeIds.has(probe.id) ? traces.filter((t) => t.id !== probe.id) : [...traces, { ...probe, slot: nextSlot(traces) }]);
 
-  const signalPeriod = useMemo(() => fastestPeriod(resolved), [resolved]);
+  const signalPeriod = useMemo(() => fastestPeriod(flattenBlocks(resolved)), [resolved]);
   const hasProgram = useMemo(() => circuit.elements.some((el) => getDevice(el.def)?.spice.kind === 'mcu'), [circuit]);
   const speed = speedChoice === 'auto' ? automaticSpeed(signalPeriod, hasProgram) : speedChoice;
   const live = useLiveSimulation(resolved, liveRunning, speed, traces);
@@ -170,7 +181,8 @@ export function useWorkbench() {
         setHistory((h) => [...h, circuit]);
         setRedoStack([]);
       }
-      setCircuit(next);
+      // The circuit carries the blocks it uses, as a file or a link will need them
+      setCircuit(withUsedBlocks(next));
     },
     [circuit],
   );
@@ -245,6 +257,57 @@ export function useWorkbench() {
     },
     [circuit],
   );
+
+  const keepBlocks = (added: BlockDef[]) => {
+    const next = addToBlockLibrary(blockLibrary, added);
+    setBlockLibrary(next);
+    return saveBlockLibrary(next);
+  };
+
+  /** A saved circuit becomes a block of the library, named as its title. Null, or what keeps it from being one. */
+  const importBlockFile = async (file: File): Promise<string | null> => {
+    try {
+      if (file.size > MAX_FILE_BYTES) throw new Error(INVALID_FILE);
+      const schematic = parseCircuitFile(await file.text());
+      const problem = blockProblem(schematic);
+      if (problem) return problem;
+      const name = schematic.title.trim() || file.name.replace(/\.json$/i, '');
+      return keepBlocks(createBlock(name, withLibraryModels(schematic, library))) ? null : 'Il blocco vale fino alla chiusura della pagina: il browser non lascia salvare';
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+  };
+
+  // The circuits that use it keep their own copy
+  const removeBlock = (id: string) => {
+    const next = blockLibrary.filter((b) => b.id !== id);
+    setBlockLibrary(next);
+    saveBlockLibrary(next);
+  };
+
+  const startBlockFromSelection = () => {
+    const boundary = selectionBoundary(resolved, selectedIds);
+    if (boundary) setBlockDraft({ pins: boundary.pins, error: null });
+  };
+
+  const createBlockFromSelection = (name: string, pins: ProposedPin[], saveToLibrary: boolean) => {
+    const result = replaceWithBlock(resolved, selectedIds, name, pins, Date.now());
+    if ('error' in result) {
+      setBlockDraft((draft) => draft && { ...draft, error: result.error });
+      return;
+    }
+    handleChange(result.circuit);
+    const block = result.circuit.elements[result.circuit.elements.length - 1];
+    setSelectedIds(new Set([block.id]));
+    setBlockDraft(null);
+    if (saveToLibrary) keepBlocks(result.blocks);
+  };
+
+  /** The inside of a block as a circuit of its own, to change it and save it; Annulla comes back. */
+  const openBlockAsCircuit = (id: string) => {
+    const block = knownBlock(id);
+    if (block) openCircuit({ ...block.circuit, title: block.name });
+  };
 
   const importModels = (models: SpiceModel[]) => {
     const next = mergeModels(library, models.map(({ name, card }) => ({ name, card })));
@@ -469,7 +532,7 @@ export function useWorkbench() {
     downloadCircuit({ ...forSaving, title });
   };
 
-  return { isSharing, setIsSharing, isSaving, setIsSaving, saveAs, forSaving, openCircuit, newCircuit, fileInputRef, openExample, openFile, undo, redo, history, redoStack, theme, setTheme, liveRunning, setLiveRunning, speed, speedChoice, setSpeedChoice, signalPeriod, showValues, setShowValues, isDc, analysisKind, setAnalysisKind, stop, setStop, step, setStep, sweptId, setDcSource, generators, dcFrom, setDcFrom, dcTo, setDcTo, dcStep, setDcStep, familyId, setDcFamilySource, dcFamilyFrom, setDcFamilyFrom, dcFamilyTo, setDcFamilyTo, dcFamilyStep, setDcFamilyStep, acFrom, setAcFrom, acTo, setAcTo, runSimulation, running, activeDef, setActiveDef, selectedIds, setSelectedIds, exampleHint, setExampleHint, resolved, documentId, circuit, handleChange, deleteSelected, rotateSelected, mirrorSelected, selectAll, copySelected, cutSelected, duplicateSelected, clipboard, paste, viewRef, overlay, labels, legendRef, live, library, importModels, removeModel, scopeIds, traces, setTraces, toggleProbe, traceLabels, errors, setErrors, run, setRun, isStale, closeResults };
+  return { blockLibrary, importBlockFile, removeBlock, blockDraft, setBlockDraft, startBlockFromSelection, createBlockFromSelection, openBlockAsCircuit, isSharing, setIsSharing, isSaving, setIsSaving, saveAs, forSaving, openCircuit, newCircuit, fileInputRef, openExample, openFile, undo, redo, history, redoStack, theme, setTheme, liveRunning, setLiveRunning, speed, speedChoice, setSpeedChoice, signalPeriod, showValues, setShowValues, isDc, analysisKind, setAnalysisKind, stop, setStop, step, setStep, sweptId, setDcSource, generators, dcFrom, setDcFrom, dcTo, setDcTo, dcStep, setDcStep, familyId, setDcFamilySource, dcFamilyFrom, setDcFamilyFrom, dcFamilyTo, setDcFamilyTo, dcFamilyStep, setDcFamilyStep, acFrom, setAcFrom, acTo, setAcTo, runSimulation, running, activeDef, setActiveDef, selectedIds, setSelectedIds, exampleHint, setExampleHint, resolved, documentId, circuit, handleChange, deleteSelected, rotateSelected, mirrorSelected, selectAll, copySelected, cutSelected, duplicateSelected, clipboard, paste, viewRef, overlay, labels, legendRef, live, library, importModels, removeModel, scopeIds, traces, setTraces, toggleProbe, traceLabels, errors, setErrors, run, setRun, isStale, closeResults };
 }
 
 export type Workbench = ReturnType<typeof useWorkbench>;

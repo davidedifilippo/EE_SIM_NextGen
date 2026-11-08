@@ -36,6 +36,8 @@ interface Props {
   scopeIds: Set<string>;
   isScopeFull: boolean;
   onToggleProbe: (probe: ScopeProbe) => void;
+  /** Opens the inside of a block as a circuit of its own. */
+  onOpenBlock?: (id: string) => void;
 }
 
 const OPAMP_LABELS: Record<OpAmpRole, string> = { plus: 'Ingresso +', minus: 'Ingresso −', high: 'Alimentazione +', low: 'Alimentazione −', out: 'Uscita' };
@@ -73,7 +75,7 @@ const SEQUENTIAL_NOTES: Partial<Record<string, string>> = {
   srlatch: 'Senza clock: S = 1 porta Q a 1, R = 1 lo porta a 0, con entrambi a 0 tiene. Con S = R = 1, vietato, Q e Q̄ vanno a 0; tornando a 0 0 resta quello che ha lasciato l\'ultimo ingresso tolto.',
 };
 
-export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onMirrorSelected, onSelectAll, onDeleteSelected, onPaste, layout, frameRef, library, onImportModels, onRemoveModel, scopeIds, isScopeFull, onToggleProbe }) => {
+export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChange, onMirrorSelected, onSelectAll, onDeleteSelected, onPaste, layout, frameRef, library, onImportModels, onRemoveModel, scopeIds, isScopeFull, onToggleProbe, onOpenBlock }) => {
   const [insideOf, setInsideOf] = React.useState<Element | null>(null);
   // Choosing another part, or none, closes it for good: selecting the same part again does not reopen it
   React.useEffect(() => {
@@ -215,6 +217,22 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
             Fatto di: {compositeParts(def.id).map((el) => `${getDevice(el.def)?.name} ${el.tag}`).join(', ')}. Nei due motori si comporta come un'unica parte logica, senza ritardi all'interno.
           </p>
           <button onClick={() => setInsideOf(single)}>Mostra l'interno</button>
+        </>
+      )}
+      {single && def?.spice.kind === 'userblock' && (
+        <>
+          <p className="hint">
+            Piedini: {def.terminals.map((t) => t.id).join(', ')}. Nei due motori il blocco si apre nei suoi componenti, come se fossero disegnati qui; la massa interna è la massa del circuito. Interruttori, pulsanti,
+            cursori e ingressi logici interni restano come nello schema salvato. Le grandezze interne non si vedono dal vivo: misura sui piedini, anche con l'oscilloscopio.
+          </p>
+          <div className="button-row">
+            <button onClick={() => setInsideOf(single)}>Mostra l'interno</button>
+            {onOpenBlock && (
+              <button onClick={() => onOpenBlock(def.id)} title="Apre lo schema interno al posto di questo circuito, per cambiarlo e salvarlo; Annulla torna qui">
+                Apri come circuito
+              </button>
+            )}
+          </div>
         </>
       )}
       {single && def?.spice.kind === 'logic' && SEQUENTIAL_NOTES[def.spice.gate] && <p className="hint">{SEQUENTIAL_NOTES[def.spice.gate]}</p>}

@@ -24,6 +24,10 @@ export const unitOf = (probe: ScopeProbe): ScopeUnit => (probe.kind === 'current
 export function elementProbes(el: Element): ProbeChoice[] {
   const spice = getDevice(el.def)?.spice;
   if (!spice || spice.kind === 'ground' || spice.kind === 'block') return [];
+  // A block: the voltage of each pin, since what is inside has no device of its own
+  if (spice.kind === 'userblock') {
+    return getDevice(el.def)!.terminals.map(({ id: terminal }) => ({ label: terminal, probe: { id: `pin:${el.id}:${terminal}`, kind: 'pin', elementId: el.id, terminal } }));
+  }
   // A logic part with several outputs: each output on its own, as on a logic analyser
   if (spice.kind === 'logic' && spice.outputs.length > 1) {
     return spice.outputs.map((terminal) => ({
