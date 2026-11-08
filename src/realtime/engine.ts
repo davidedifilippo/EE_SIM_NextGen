@@ -5,6 +5,7 @@ import { REGULATOR_GAIN, REGULATOR_LEAK, RegulatorRegion, regulatorPoint, regula
 import { BjtParams, CompiledCircuit, CompiledDevice, DiodeParams, MosParams } from './compile';
 import { luFactor, luSolve } from './linear';
 import { nextRelayState } from './relay';
+import { nextStepRelay, StepRelayStatus, stepRelayWarnings } from './stepRelay';
 import { nextControl, nextTriac, SSR_PEAK_TAU, SSR_RMS_TAU, SsrStatus, ssrWarnings, TRIAC_OFF } from './ssr';
 import { OPTO_DARK, saturation } from './opto';
 import { filamentRate, filamentResistance, LAMP_AMBIENT, steadyTemperature } from './lamp';
@@ -238,6 +239,11 @@ export class RealtimeEngine {
   /** 1 for a 555 whose output is high: as a relay, it moves only between steps. */
   private readonly timerHigh: Uint8Array;
   /** Per solid state relay: control active and triac on, which move only between steps; voltage and current of the triac at the last accepted point; the readings behind its warnings. */
+  /** Per step relay: the envelope of the coil current, the armature, the sequence, and the readings behind the warnings. */
+  private readonly stepEnvelope: Float64Array;
+  private readonly stepPulled: Uint8Array;
+  private readonly stepIndex: Uint8Array;
+  private readonly stepReadings: Float64Array;
   private readonly ssrControl: Uint8Array;
   private readonly ssrOn: Uint8Array;
   private readonly ssrLast: Float64Array;
@@ -290,6 +296,10 @@ export class RealtimeEngine {
     this.lampTemp = new Float64Array(devices.length).fill(LAMP_AMBIENT);
     this.lampR = Float64Array.from(devices, (d) => (d.kind === 'lamp' ? filamentResistance(d.params, LAMP_AMBIENT) : 0));
     this.timerHigh = new Uint8Array(devices.length);
+    this.stepEnvelope = new Float64Array(devices.length);
+    this.stepPulled = new Uint8Array(devices.length);
+    this.stepIndex = new Uint8Array(devices.length);
+    this.stepReadings = new Float64Array(devices.length * 3);
     this.ssrControl = new Uint8Array(devices.length);
     this.ssrOn = new Uint8Array(devices.length);
     this.ssrLast = new Float64Array(devices.length * 2);
@@ -432,6 +442,18 @@ export class RealtimeEngine {
           this.addG(d.b, -1, TRANSFORMER_LEAK_CONDUCTANCE);
           this.addG(d.e, -1, TRANSFORMER_LEAK_CONDUCTANCE);
           break;
+        case 'steprelay': {
+          // The resistance of the coil, then its inductance as a branch with the losses of the iron across it;
+          // each contact as the sequence has it
+          this.addG(d.a, d.m, 1 / d.spec.coilResistance);
+          this.addG(d.m, d.b, 1 / d.spec.coilLoss);
+          this.addBranchColumns(d.m, d.b, d.branch);
+          base[d.branch * n + d.branch] = h > 0 ? (-2 * d.spec.coilInductance) / h : 0;
+          const [to2, to4] = d.spec.sequences[this.stepIndex[i]];
+          this.addG(d.a, d.c2, 1 / (to2 ? CONTACT_CLOSED : CONTACT_OPEN));
+          if (d.c4 !== null) this.addG(d.a, d.c4, 1 / (to4 ? CONTACT_CLOSED : CONTACT_OPEN));
+          break;
+        }
         case 'ssr':
           // The input as its impedance; the triac as it stands; the snubber; each side tied to ground as an isolated winding is
           this.addG(d.a, d.b, 1 / d.spec.inputResistance);
@@ -495,7 +517,7 @@ export class RealtimeEngine {
   private branchStart(): number {
     let first = this.n;
     for (const d of this.compiled.devices) {
-      if ((d.kind === 'inductor' || d.kind === 'vsource' || d.kind === 'opamp' || d.kind === 'transformer' || d.kind === 'motor' || d.kind === 'relay' || d.kind === 'mcu') && d.branch < first) first = d.branch;
+      if ((d.kind === 'inductor' || d.kind === 'vsource' || d.kind === 'opamp' || d.kind === 'transformer' || d.kind === 'motor' || d.kind === 'relay' || d.kind === 'steprelay' || d.kind === 'mcu') && d.branch < first) first = d.branch;
       if (d.kind === 'ctransformer' && d.branches[0] < first) first = d.branches[0];
     }
     return first;
@@ -543,6 +565,7 @@ export class RealtimeEngine {
           }
           break;
         case 'relay':
+        case 'steprelay':
           rhs[d.branch] = h > 0 ? ((-2 * d.spec.coilInductance) / h) * this.iPrev[i] - this.vPrev[i] : 0;
           break;
         case 'motor':
@@ -1029,6 +1052,9 @@ export class RealtimeEngine {
         const v = this.voltage(d.s) - this.voltage(d.d);
         this.iPrev[i] = h > 0 ? ((2 * d.spec.snubberC) / h) * (v - this.vPrev[i]) - this.iPrev[i] : 0;
         this.vPrev[i] = v;
+      } else if (d.kind === 'steprelay') {
+        this.vPrev[i] = h > 0 ? this.voltage(d.m) - this.voltage(d.b) : 0;
+        this.iPrev[i] = this.x[d.branch];
       } else if (d.kind === 'relay') {
         // The inductance of the coil alone, as on the motor
         const current = this.x[d.branch];
@@ -1200,6 +1226,52 @@ export class RealtimeEngine {
     };
   }
 
+  /**
+   * Follows the coil of each step relay over h: the envelope of its current, the armature, and on each pull
+   * the next sequence, except at the operating point, where a coil already fed only holds the armature. True
+   * if a contact moved: the matrix changes.
+   */
+  private updateStepRelays(h: number, canStep: boolean): boolean {
+    let hasChanged = false;
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind !== 'steprelay') return;
+      const coil = (this.voltage(d.a) - this.voltage(d.m)) / d.spec.coilResistance;
+      const next = nextStepRelay(d.spec, { envelope: this.stepEnvelope[i], isPulled: this.stepPulled[i] === 1, step: this.stepIndex[i] }, coil, h);
+      this.stepEnvelope[i] = next.envelope;
+      this.stepPulled[i] = next.isPulled ? 1 : 0;
+      // The readings behind the warnings: the mean square of the coil voltage, the peak of the contact current and its mean square
+      const readings = this.stepReadings.subarray(3 * i, 3 * i + 3);
+      const [peak, rms] = [Math.exp(-h / 0.5), Math.exp(-h / 1)];
+      const contact = Math.max(...this.terminalCurrents(i).slice(2).map(Math.abs));
+      const coilVoltage = this.voltage(d.a) - this.voltage(d.b);
+      // Over a few periods: a spike as the button opens passes unseen, a supply too high does not
+      const coilKeep = Math.exp(-h / 0.2);
+      readings[0] = readings[0] * coilKeep + (1 - coilKeep) * coilVoltage * coilVoltage;
+      readings[1] = Math.max(contact, readings[1] * peak);
+      readings[2] = readings[2] * rms + (1 - rms) * contact * contact;
+      if (!canStep || next.step === this.stepIndex[i]) return;
+      this.stepIndex[i] = next.step;
+      hasChanged = true;
+    });
+    if (hasChanged) this.stampedStep = null;
+    return hasChanged;
+  }
+
+  /** A step relay: its sequence and contacts, and what is beyond its ratings. */
+  stepRelayStatus(index: number): StepRelayStatus | null {
+    const d = this.compiled.devices[index];
+    if (d?.kind !== 'steprelay') return null;
+    const [coilSquare, contactPeak, meanSquare] = this.stepReadings.subarray(3 * index, 3 * index + 3);
+    const step = this.stepIndex[index];
+    return {
+      step,
+      count: d.spec.sequences.length,
+      isPulled: this.stepPulled[index] === 1,
+      contacts: d.spec.sequences[step],
+      warnings: stepRelayWarnings(d.spec, Math.sqrt(coilSquare), contactPeak, Math.sqrt(meanSquare)),
+    };
+  }
+
   /** Moves the flip-flop of each 555 with the voltages of the accepted point. True if one moved: the matrix changes. */
   private updateTimers(): boolean {
     let hasChanged = false;
@@ -1304,6 +1376,10 @@ export class RealtimeEngine {
     this.regulatorState.fill(REGULATOR_ACTIVE);
     this.relayClosed.fill(0);
     this.timerHigh.fill(0);
+    this.stepEnvelope.fill(0);
+    this.stepPulled.fill(0);
+    this.stepIndex.fill(0);
+    this.stepReadings.fill(0);
     this.ssrControl.fill(0);
     this.ssrOn.fill(0);
     this.ssrLast.fill(0);
@@ -1336,6 +1412,7 @@ export class RealtimeEngine {
     // A relay with its coil already fed starts pulled in; what its contact feeds may move another.
     // A 555 starts as its pins say: with an empty capacitor on TRIG, high
     // A solid state relay with its input already fed starts on, where its triac may turn on
+    this.updateStepRelays(0, false);
     for (let round = 0; round < LOGIC_SETTLE_ROUNDS && (this.updateRelays() || this.updateTimers() || this.updateSsrs(0)); round++) {
       if (!this.solve(this.time, 0, 1)) throw new SolverError('Punto di lavoro non trovato');
     }
@@ -1382,6 +1459,10 @@ export class RealtimeEngine {
     this.logicState.set(previous.logicState);
     this.relayClosed.set(previous.relayClosed);
     this.timerHigh.set(previous.timerHigh);
+    this.stepEnvelope.set(previous.stepEnvelope);
+    this.stepPulled.set(previous.stepPulled);
+    this.stepIndex.set(previous.stepIndex);
+    this.stepReadings.set(previous.stepReadings);
     this.ssrControl.set(previous.ssrControl);
     this.ssrOn.set(previous.ssrOn);
     this.ssrLast.set(previous.ssrLast);
@@ -1424,6 +1505,7 @@ export class RealtimeEngine {
       this.updateRelays();
       this.updateTimers();
       this.updateSsrs(h);
+      this.updateStepRelays(h, true);
       this.updateLamps(h);
       this.updateMcuInputs();
       this.updateLogic(this.time + h);
@@ -1466,6 +1548,8 @@ export class RealtimeEngine {
       case 'motor':
       case 'relay':
         return this.x[d.branch];
+      case 'steprelay':
+        return (this.voltage(d.a) - this.voltage(d.m)) / d.spec.coilResistance;
       case 'diode': {
         const v = this.voltage(d.junction) - this.voltage(d.b);
         return diodeOperatingPoint(v, d.params).i + GMIN * v;
@@ -1566,6 +1650,15 @@ export class RealtimeEngine {
       // Into anode, out of cathode; into collector, out of emitter
       const { led, collector } = this.optoCurrents(d);
       return [led, -led, collector, -collector];
+    }
+    if (d.kind === 'steprelay') {
+      // Into A1 the coil and the contacts; out of A2 the coil, out of 2 and 4 their contacts
+      const [to2, to4] = d.spec.sequences[this.stepIndex[index]];
+      const coil = (this.voltage(d.a) - this.voltage(d.m)) / d.spec.coilResistance;
+      const i2 = (this.voltage(d.a) - this.voltage(d.c2)) / (to2 ? CONTACT_CLOSED : CONTACT_OPEN);
+      if (d.c4 === null) return [coil + i2, -coil, -i2];
+      const i4 = (this.voltage(d.a) - this.voltage(d.c4)) / (to4 ? CONTACT_CLOSED : CONTACT_OPEN);
+      return [coil + i2 + i4, -coil, -i2, -i4];
     }
     if (d.kind === 'ssr') {
       // Into the input and out of it; into 1 through the triac and the snubber, out of 2

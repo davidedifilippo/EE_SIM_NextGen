@@ -96,6 +96,7 @@ export const LiveReadout: React.FC<{
   /** Set for an optocoupler: where its dots start, the LED then the output. */
   optoFirstDot?: number | null;
   ssrFirstDot?: number | null;
+  stepFirstDot?: number | null;
   /** Set for a relay: where its dots start, the coil first, then each contact; and whether it is a changeover. */
   relayFirstDot?: number | null;
   isChangeover?: boolean;
@@ -104,7 +105,7 @@ export const LiveReadout: React.FC<{
   /** A temperature sensor: no heat to show. */
   isSensor?: boolean;
   frameRef: React.MutableRefObject<LiveFrame | null>;
-}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor = false, isPot = false, isLamp = false, boardFirstDot = null, timerFirstDot = null, optoFirstDot = null, ssrFirstDot = null, relayFirstDot = null, isChangeover = false, frameRef }) => {
+}> = ({ deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor = false, isPot = false, isLamp = false, boardFirstDot = null, timerFirstDot = null, optoFirstDot = null, ssrFirstDot = null, stepFirstDot = null, relayFirstDot = null, isChangeover = false, frameRef }) => {
   const [rows, setRows] = React.useState<[string, string][] | null>(null);
 
   React.useEffect(() => {
@@ -117,8 +118,18 @@ export const LiveReadout: React.FC<{
       const relay = frame.relays[deviceIndex];
       const timer = frame.timers[deviceIndex];
       const ssr = frame.ssrs[deviceIndex];
+      const step = frame.stepRelays[deviceIndex];
       setRows(
-        ssr && ssrFirstDot !== null
+        step && stepFirstDot !== null
+          ? [
+              ['Bobina', volts(frame.deviceVoltage[deviceIndex])],
+              ['I bobina', amps(frame.deviceCurrent[deviceIndex])],
+              ['Sequenza', `${step.step + 1} di ${step.count}`],
+              ['Contatto 2', step.contacts[0] ? 'Chiuso' : 'Aperto'],
+              ...(step.count > 2 ? [['Contatto 4', step.contacts[1] ? 'Chiuso' : 'Aperto'] as [string, string]] : []),
+              ['I contatto 2', amps(frame.dotCurrent[stepFirstDot + 1])],
+            ]
+          : ssr && ssrFirstDot !== null
           ? [
               ['V ingresso', volts(frame.deviceVoltage[deviceIndex])],
               ['I ingresso', amps(frame.deviceCurrent[deviceIndex])],
@@ -216,7 +227,7 @@ export const LiveReadout: React.FC<{
     refresh();
     const timer = setInterval(refresh, 200);
     return () => clearInterval(timer);
-  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor, isPot, isLamp, boardFirstDot, timerFirstDot, optoFirstDot, ssrFirstDot, relayFirstDot, isChangeover, frameRef]);
+  }, [deviceIndex, sign, transistorFirstDot, isMos, windingsFirstDot, regulatorFirstDot, isSensor, isPot, isLamp, boardFirstDot, timerFirstDot, optoFirstDot, ssrFirstDot, stepFirstDot, relayFirstDot, isChangeover, frameRef]);
 
   if (!rows) return null;
   return (

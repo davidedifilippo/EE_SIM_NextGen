@@ -17,6 +17,7 @@ import { parseIntelHex, programKey } from './intelHex';
 import { sketchHex } from '../samples/arduino/sketches';
 import { RelaySpec } from './relay';
 import { SsrSpec, ssrSpecOf } from './ssr';
+import { StepRelaySpec, stepRelaySpec } from './stepRelay';
 import { TimerSpec } from './timer555';
 import { segmentColor } from './display7';
 import { ctTransformerParams } from './ctTransformer';
@@ -122,6 +123,11 @@ export type CompiledDevice =
    * as the engine decides between steps; the snubber from c to the inner node s, then its capacitor to d.
    */
   | { kind: 'ssr'; element: number; a: NodeIndex; b: NodeIndex; c: NodeIndex; d: NodeIndex; s: NodeIndex; spec: SsrSpec }
+  /**
+   * A step relay: the coil from a (A1) to b (A2), its resistance to the inner node m, then the inductance as a
+   * branch with the losses across it; its contacts from a to c2 and c4.
+   */
+  | { kind: 'steprelay'; element: number; a: NodeIndex; b: NodeIndex; m: NodeIndex; c2: NodeIndex; c4: NodeIndex | null; branch: number; spec: StepRelaySpec }
   /** A lamp: its filament as a resistance, which the engine moves between steps with the heat it takes. */
   | { kind: 'lamp'; element: number; a: NodeIndex; b: NodeIndex; params: LampParams }
   /** A potentiometer: g1 from the end a to the wiper w, g2 from the wiper to the end b. */
@@ -442,6 +448,13 @@ export function compileCircuit(drawn: Circuit): CompileResult {
         pending.push({ element, needsBranch: false, build: () => ({ kind: 'lamp', element, a, b, params }) });
         break;
       }
+      case 'steprelay': {
+        const [a, b, c2] = [node(s.common), node(s.coil2), node(s.c2)];
+        const c4 = s.c4 ? node(s.c4) : null;
+        const spec = stepRelaySpec(s.version, el.props[s.coilProp]);
+        pending.push({ element, needsBranch: true, build: (branch, nextNode) => ({ kind: 'steprelay', element, a, b, m: nextNode(), c2, c4, branch, spec }) });
+        break;
+      }
       case 'relay': {
         const [a, b, c, d] = [node(s.coil1), node(s.coil2), node(s.c1), node(s.c2)];
         const nc = s.nc ? node(s.nc) : null;
@@ -606,7 +619,7 @@ export function compileCircuit(drawn: Circuit): CompileResult {
 
   const signature = JSON.stringify([
     branch,
-    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'motor' ? d.e : d.kind === 'pot' ? d.w : d.kind === 'relay' ? [d.c, d.d, d.nc ?? -2] : d.kind === 'opto' ? [d.junction, d.c, d.e] : d.kind === 'ssr' ? [d.c, d.d, d.s] : d.kind === 'timer' ? [d.trig, d.reset, d.ctrl, d.thr, d.dis, d.vcc, d.lower] : d.kind === 'mcu' ? [...d.pins, d.programKey] : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.outputs, ...d.inputs] : d.kind === 'switch' ? d.ways : d.kind === 'display7' ? d.segments : d.kind === 'bridge' ? [d.ac1, d.ac2, ...d.junctions] : d.kind === 'ctransformer' ? [...d.starts, ...d.ends, ...d.inner] : 0]),
+    devices.map((d) => [d.kind, elementIds[d.element], d.a, d.b, d.kind === 'diode' ? d.junction : 0, d.kind === 'bjt' ? [d.base, d.cp, d.bp, d.ep] : d.kind === 'mos' ? [d.base, d.dp, d.sp, d.bodyNode] : d.kind === 'regulator' ? d.base : d.kind === 'motor' ? d.e : d.kind === 'pot' ? d.w : d.kind === 'relay' ? [d.c, d.d, d.nc ?? -2] : d.kind === 'opto' ? [d.junction, d.c, d.e] : d.kind === 'ssr' ? [d.c, d.d, d.s] : d.kind === 'steprelay' ? [d.m, d.c2, d.c4 ?? -2] : d.kind === 'timer' ? [d.trig, d.reset, d.ctrl, d.thr, d.dis, d.vcc, d.lower] : d.kind === 'mcu' ? [...d.pins, d.programKey] : d.kind === 'opamp' ? [d.plus, d.minus] : d.kind === 'transformer' ? [d.c, d.d, d.ap, d.cp] : d.kind === 'logic' ? [d.gate, ...d.outputs, ...d.inputs] : d.kind === 'switch' ? d.ways : d.kind === 'display7' ? d.segments : d.kind === 'bridge' ? [d.ac1, d.ac2, ...d.junctions] : d.kind === 'ctransformer' ? [...d.starts, ...d.ends, ...d.inner] : 0]),
   ]);
   return { ok: true, compiled: { size: branch, devices, netIndex, elementIds, signature } };
 }

@@ -618,6 +618,31 @@ const ssrExample = (): Circuit => ({
   models: [],
 });
 
+/**
+ * A lamp lit from three points, as in a corridor: three push buttons in parallel from A2 to the neutral, the
+ * phase on A1/1/3 of a Finder 27.01, the lamp from 2 to the neutral. Each press turns it on or off.
+ */
+const stepRelayExample = (): Circuit => ({
+  title: 'Relè passo passo: lampada da tre punti',
+  elements: [
+    part('v1', 'vsource', 0, 40, 90, 'V1', sine('325', '50')),
+    ground(0, 80),
+    part('k1', 'finder27_01', 200, 40, 0, 'K1'),
+    part('s1', 'pushno', 60, 160, 90, 'S1'),
+    part('s2', 'pushno', 120, 160, 90, 'S2'),
+    part('s3', 'pushno', 180, 160, 90, 'S3'),
+    part('lp1', 'lamp', 260, 160, 90, 'LP1', { power: '60', volts: '230' }),
+  ],
+  wires: [
+    wire('wf', [0, 0], [180, 0]),
+    wire('wa2', [180, 80], [180, 120]),
+    wire('wtop', [60, 120], [180, 120]),
+    wire('w2', [220, 80], [260, 80], [260, 120]),
+    wire('wn', [0, 80], [0, 200], [260, 200]),
+  ],
+  models: [],
+});
+
 /** What Nuovo opens: an empty sheet, but with the ground that every circuit needs. */
 export const emptyCircuit = (): Circuit => ({ title: 'Circuito', elements: [ground(0, 0)], wires: [], models: [] });
 
@@ -641,6 +666,7 @@ export const EXAMPLES: Example[] = [
   { id: 'motor', title: 'Motoriduttore IG22', hint: 'Chiudi S1: all’avvio la corrente fa uno spunto, poi scende a circa 0,2 A e il motore gira a 789 giri/min. Alza il carico di M1: la velocità scende e la corrente sale', build: gearMotor },
   { id: 'relay', title: 'Relè che comanda un motore', hint: 'Chiudi S1: la bobina di K1 si eccita, il contatto 13–14 si chiude e il motore da 12 V parte. Riapri S1: D1 porta la corrente della bobina e il contatto si riapre', build: relayMotor },
   { id: 'ssr', title: 'SSR AQ-G accende una lampada a 230 V', hint: 'Chiudi S1: il triac di U1 accende la lampada da 60 W. Prova zero-cross e random nelle proprietà di U1 e guarda all’oscilloscopio la corrente della lampada: con lo zero-cross parte dallo zero della sinusoide, con il random subito. Da spento passa circa 1 mA nello snubber', build: ssrExample },
+  { id: 'steprelay', title: 'Relè passo passo: lampada da tre punti', hint: 'Tieni premuto un attimo uno dei tre pulsanti: la lampada si accende. Premi di nuovo un pulsante qualsiasi e si spegne. Nelle proprietà di K1 prova anche le versioni 27.05 e 27.06, con due contatti', build: stepRelayExample },
   { id: 'arduino_blink', title: 'Arduino: Blink', hint: 'Il programma Blink accende e spegne il LED L della scheda e il LED su D12 ogni secondo, in tempo reale. Nelle proprietà di A1 si cambia programma o se ne carica uno .hex', build: arduinoBlink },
   { id: 'arduino_pot', title: 'Arduino: potenziometro e LED', hint: 'Sposta il cursore di P1: Arduino legge A0 e regola con il PWM la luminosità del LED su D9. I valori compaiono nel Monitor seriale', build: arduinoPot },
   { id: 'arduino_lm35', title: 'Arduino: termometro LM35', hint: 'Cambia la temperatura di U1: Arduino legge A0 e scrive i gradi nel Monitor seriale ogni mezzo secondo', build: arduinoThermometer },

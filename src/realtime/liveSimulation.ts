@@ -7,6 +7,7 @@ import { CompiledCircuit, compileCircuit } from './compile';
 import { METER_MODES, MeterWindow, readingWindow, slowestPeriod } from './meter';
 import { RegulatorRegion } from './regulator';
 import { SsrStatus } from './ssr';
+import { StepRelayStatus } from './stepRelay';
 import { RealtimeEngine, SolverError } from './engine';
 import { buildWireGraph, solveWireCurrents, WireGraph } from './wireGraph';
 import { flattenBlocks, isInsideBlock } from '../library/blocks';
@@ -77,6 +78,8 @@ export interface LiveFrame {
   optos: (string[] | null)[];
   /** Each solid state relay: whether its control is active and its triac on, and what is beyond its ratings. */
   ssrs: (SsrStatus | null)[];
+  /** Each step relay: its sequence, its contacts, what is beyond its ratings. */
+  stepRelays: (StepRelayStatus | null)[];
   /** Each relay: whether its contact is closed. */
   relays: (boolean | null)[];
   /** For each logic part: the level of each output, then of each input. */
@@ -137,6 +140,8 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
       return [s.anode, s.cathode, s.collector, s.emitter];
     case 'ssr':
       return [s.plus, s.minus, s.out1, s.out2];
+    case 'steprelay':
+      return s.c4 ? [s.common, s.coil2, s.c2, s.c4] : [s.common, s.coil2, s.c2];
     case 'relay':
       return s.nc ? [s.coil1, s.coil2, s.c1, s.c2, s.nc] : [s.coil1, s.coil2, s.c1, s.c2];
     case 'mcu':
@@ -202,6 +207,8 @@ export function buildLiveLayout(circuit: Circuit, compiled: CompiledCircuit): Li
     if (isPerLead) points.forEach((p) => dots.push({ a: p, b: { x: el.x, y: el.y } }));
     // One run per winding: the primary, and each half of the secondary to the centre tap
     else if (def.spice.kind === 'ctransformer') dots.push({ a: points[0], b: points[1] }, { a: points[2], b: points[3] }, { a: points[3], b: points[4] });
+    // A step relay: through the coil, then from A1 to each contact
+    else if (def.spice.kind === 'steprelay') dots.push({ a: points[0], b: points[1] }, ...points.slice(2).map((p) => ({ a: points[0], b: p })));
     // A changeover relay: through the coil, then from the common to each of its two ways
     else if (def.spice.kind === 'relay' && points.length === 5) dots.push({ a: points[0], b: points[1] }, { a: points[2], b: points[3] }, { a: points[2], b: points[4] });
     else if (points.length === 2) dots.push({ a: points[0], b: points[1] });
@@ -329,10 +336,12 @@ export class LiveSimulation {
           if (device.kind === 'relay') return () => engine.nodeVoltage(device.c) - engine.nodeVoltage(device.d);
           if (device.kind === 'opto') return () => engine.nodeVoltage(device.c) - engine.nodeVoltage(device.e);
           if (device.kind === 'ssr') return () => engine.nodeVoltage(device.c) - engine.nodeVoltage(device.d);
+          if (device.kind === 'steprelay') return () => engine.nodeVoltage(device.a) - engine.nodeVoltage(device.c2);
           return device.kind === 'bjt' || device.kind === 'mos' ? () => engine.nodeVoltage(device.base) - engine.nodeVoltage(device.b) : () => NaN;
         case 'ib':
           if (device.kind === 'regulator') return () => -engine.terminalCurrents(index)[1];
           if (device.kind === 'transformer' || device.kind === 'relay' || device.kind === 'opto' || device.kind === 'ssr') return () => engine.terminalCurrents(index)[2];
+          if (device.kind === 'steprelay') return () => -engine.terminalCurrents(index)[2];
           return device.kind === 'bjt' ? () => engine.terminalCurrents(index)[1] : () => NaN;
       }
     });
@@ -525,10 +534,13 @@ export class LiveSimulation {
       if (d.kind === 'timer') deviceVbe[i] = engine.nodeVoltage(d.vcc) - engine.nodeVoltage(d.b);
       if (d.kind === 'opto') deviceVbe[i] = engine.nodeVoltage(d.c) - engine.nodeVoltage(d.e);
       if (d.kind === 'ssr') deviceVbe[i] = engine.nodeVoltage(d.c) - engine.nodeVoltage(d.d);
+      if (d.kind === 'steprelay') deviceVbe[i] = engine.nodeVoltage(d.a) - engine.nodeVoltage(d.c2);
       const { firstDot } = layout.devices[i];
       if (firstDot < 0) {
         // Inside a block: what it takes reaches the sheet through the pins
       } else if (d.kind === 'logic' || d.kind === 'display7' || d.kind === 'bridge' || d.kind === 'mcu') currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
+      // From A1 through the coil, and to each contact: what leaves by A2, 2 and 4
+      else if (d.kind === 'steprelay') currents.slice(1).forEach((current, k) => (dotCurrent[firstDot + k] = -current));
       else if (d.kind === 'ctransformer') [dotCurrent[firstDot], dotCurrent[firstDot + 1], dotCurrent[firstDot + 2]] = [currents[0], currents[2], -currents[4]];
       else if (d.kind === 'relay' && currents.length === 5) [dotCurrent[firstDot], dotCurrent[firstDot + 1], dotCurrent[firstDot + 2]] = [currents[0], -currents[3], -currents[4]];
       else if (currents.length === 2) dotCurrent[firstDot] = currents[0];
@@ -565,6 +577,7 @@ export class LiveSimulation {
     const timers = devices.map((_, i) => engine.timerStatus(i));
     const optos = devices.map((_, i) => engine.optoStatus(i));
     const ssrs = devices.map((_, i) => engine.ssrStatus(i));
+    const stepRelays = devices.map((_, i) => engine.stepRelayStatus(i));
     const glowMean = new Float64Array(devices.length).fill(NaN);
     for (const i of this.leds) glowMean[i] = this.ledSteps > 0 ? this.ledSum[i] / this.ledSteps : engine.deviceCurrent(i);
     for (const i of this.lamps) glowMean[i] = this.ledSteps > 0 ? this.ledSum[i] / this.ledSteps : this.lampPower(i);
@@ -572,6 +585,6 @@ export class LiveSimulation {
     for (const i of this.lamps) lampRms[i] = Number.isNaN(this.lampSquares[i]) ? Math.abs(this.lampVoltage(i)) : Math.sqrt(this.lampSquares[i]);
     this.ledSum.fill(0);
     this.ledSteps = 0;
-    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, relays, mcus, timers, optos, ssrs, glowMean, lampRms, logic, scope: this.takeSamples() };
+    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, relays, mcus, timers, optos, ssrs, stepRelays, glowMean, lampRms, logic, scope: this.takeSamples() };
   }
 }
