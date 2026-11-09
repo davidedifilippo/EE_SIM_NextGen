@@ -6,7 +6,7 @@ import { terminalKey } from '../netlist/connectivity';
 import { generateNetlist } from '../netlist/generate';
 import { compileCircuit } from './compile';
 import { RealtimeEngine } from './engine';
-import { LiveSimulation } from './liveSimulation';
+import { buildLiveLayout, LiveSimulation } from './liveSimulation';
 import { stepRelaySpec } from './stepRelay';
 import { EXAMPLES } from '../samples/examples';
 
@@ -204,5 +204,24 @@ describe('the example', () => {
     expect(press('s1')).toBeGreaterThan(0.2);
     expect(press('s3')).toBeLessThan(0.002);
     expect(press('s2')).toBeGreaterThan(0.2);
+  });
+});
+
+describe('the animation', () => {
+  it('runs the current of a contact along the rail and down the blade, never across', () => {
+    const c = lampFromButton();
+    const compiled = compileCircuit(c);
+    if (!compiled.ok) throw new Error(compiled.errors.join());
+    const layout = buildLiveLayout(c, compiled.compiled);
+    const device = layout.devices[compiled.compiled.elementIds.indexOf('k1')];
+    const contact = layout.dots[device.firstDot + 1];
+    // K1 at (200, 40): A1 (180, 0), the rail at y 10, the contact to 2 at x 220
+    const path = [contact.a, ...(contact.via ?? []), contact.b];
+    expect(path).toEqual([
+      { x: 180, y: 0 },
+      { x: 180, y: 10 },
+      { x: 220, y: 10 },
+      { x: 220, y: 80 },
+    ]);
   });
 });

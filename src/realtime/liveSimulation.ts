@@ -1,6 +1,6 @@
 import { MotorState } from './motor';
 import { Circuit, Element, Pt, SpiceDef } from '../model/types';
-import { getDevice } from '../library/devices';
+import { getDevice, STEP_RAIL } from '../library/devices';
 import { computeConnectivity, terminalKey } from '../netlist/connectivity';
 import { localToWorld, ptKey } from '../utils/geometry';
 import { CompiledCircuit, compileCircuit } from './compile';
@@ -31,6 +31,8 @@ export interface LiveBlockPin {
 export interface DeviceDots {
   a: Pt;
   b: Pt;
+  /** The corners between a and b, where the path follows the drawing instead of going straight. */
+  via?: Pt[];
 }
 
 /** What the animation draws. Main thread and worker build it from the same circuit, so indices match. */
@@ -207,8 +209,11 @@ export function buildLiveLayout(circuit: Circuit, compiled: CompiledCircuit): Li
     if (isPerLead) points.forEach((p) => dots.push({ a: p, b: { x: el.x, y: el.y } }));
     // One run per winding: the primary, and each half of the secondary to the centre tap
     else if (def.spice.kind === 'ctransformer') dots.push({ a: points[0], b: points[1] }, { a: points[2], b: points[3] }, { a: points[3], b: points[4] });
-    // A step relay: through the coil, then from A1 to each contact
-    else if (def.spice.kind === 'steprelay') dots.push({ a: points[0], b: points[1] }, ...points.slice(2).map((p) => ({ a: points[0], b: p })));
+    // A step relay: through the coil, then from A1 along the rail at the top and down each contact
+    else if (def.spice.kind === 'steprelay') {
+      const local = (x: number, y: number) => localToWorld(el.x, el.y, { x, y }, el.rot, el.flip);
+      dots.push({ a: points[0], b: points[1] }, ...def.terminals.slice(2).map((t, k) => ({ a: points[0], b: points[2 + k], via: [local(STEP_RAIL.x, STEP_RAIL.y), local(t.x, STEP_RAIL.y)] })));
+    }
     // A changeover relay: through the coil, then from the common to each of its two ways
     else if (def.spice.kind === 'relay' && points.length === 5) dots.push({ a: points[0], b: points[1] }, { a: points[2], b: points[3] }, { a: points[2], b: points[4] });
     else if (points.length === 2) dots.push({ a: points[0], b: points[1] });

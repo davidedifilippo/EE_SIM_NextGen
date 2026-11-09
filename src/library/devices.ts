@@ -1012,6 +1012,9 @@ export function stepBlade(x: number): { rest: Segment; pulled: Segment; contacts
   return { rest: { x1: x, y1: 14, x2: x - 12, y2: -12 }, pulled: { x1: x, y1: 14, x2: x, y2: -14 }, contacts: [[x, -14], [x, 14]] };
 }
 
+/** Where A1 meets the rail that feeds the contacts of a step relay. */
+export const STEP_RAIL = { x: -20, y: -30 };
+
 /**
  * A step relay of the Finder series 27, as the IEC draws an impulse relay: the coil on the left with the mark
  * of the steps, A1 above and A2 below; A1/1/3 feeds the contacts as well, along the rail at the top; the
@@ -1040,8 +1043,8 @@ function stepRelayDevice(version: StepVersion): ComponentDef {
       // The mark of the steps inside the coil
       { t: 'path', d: 'M -26 6 H -22 V 0 H -18 V -6 H -14', w: 1.2 },
       // A1 feeds the common of the contacts
-      { t: 'path', d: `M -20 -30 H ${hasTwo ? 40 : 20}` },
-      ...blades.map((b): Prim => ({ t: 'line', x1: b.contacts[0][0], y1: -30, x2: b.contacts[0][0], y2: -14 })),
+      { t: 'path', d: `M ${STEP_RAIL.x} ${STEP_RAIL.y} H ${hasTwo ? 40 : 20}` },
+      ...blades.map((b): Prim => ({ t: 'line', x1: b.contacts[0][0], y1: STEP_RAIL.y, x2: b.contacts[0][0], y2: -14 })),
       ...blades.map((b): Prim => ({ t: 'line', x1: b.contacts[1][0], y1: 14, x2: b.contacts[1][0], y2: 40 })),
       { t: 'path', d: `M -10 0 L -6 0 M -2 0 L 2 0 M 6 0 L 10 0${hasTwo ? ' M 14 0 L 18 0 M 22 0 L 25 0' : ''}` },
       ...blades.map((b): Prim => ({ t: 'line', ...b.rest, w: 2 })),
