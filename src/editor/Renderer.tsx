@@ -8,6 +8,7 @@ import { parseSpiceValue } from '../netlist/values';
 import { formatEngineering } from '../ui/chartMath';
 import { Box, dist, isPointOnSegment, localToWorld } from '../utils/geometry';
 import { ssrPartNumber } from '../realtime/ssr';
+import { closedWay, nextSp3tPosition } from '../realtime/switches';
 
 type Press = React.PointerEvent;
 
@@ -296,15 +297,15 @@ const ElementItem: React.FC<{
       )}
 
       {/* The lever of a toggle or a changeover flips at a press; the rest of the part moves it */}
-      {def.spice.kind === 'switch' && (def.spice.switchKind === 'toggle' || def.spice.switchKind === 'spdt') && (
+      {def.spice.kind === 'switch' && (def.spice.switchKind === 'toggle' || def.spice.switchKind === 'spdt' || def.spice.switchKind === 'sp3t') && (
         <rect
           role="switch"
-          aria-checked={def.spice.switchKind === 'toggle' ? elem.props.closed === '1' : elem.props.position === '2'}
-          aria-label={`${elem.tag}: ${def.spice.switchKind === 'toggle' ? (elem.props.closed === '1' ? 'chiuso' : 'aperto') : `verso ${elem.props.position === '2' ? '2' : '1'}`}`}
+          aria-checked={def.spice.switchKind === 'toggle' ? elem.props.closed === '1' : def.spice.switchKind === 'sp3t' ? elem.props.position !== '2' && elem.props.position !== '4' : elem.props.position === '2'}
+          aria-label={`${elem.tag}: ${def.spice.switchKind === 'toggle' ? (elem.props.closed === '1' ? 'chiuso' : 'aperto') : `verso ${closedWay(def.spice.switchKind, elem.props) + 1}`}`}
           x={-14}
-          y={def.spice.switchKind === 'spdt' ? -24 : -20}
+          y={def.spice.switchKind === 'toggle' ? -20 : -24}
           width={30}
-          height={def.spice.switchKind === 'spdt' ? 48 : 24}
+          height={def.spice.switchKind === 'toggle' ? 24 : 48}
           fill="transparent"
           pointerEvents="all"
           style={{ cursor: 'pointer' }}
@@ -313,6 +314,7 @@ const ElementItem: React.FC<{
             if (e.button !== 0) return;
             if (def.spice.kind !== 'switch') return;
             if (def.spice.switchKind === 'toggle') onSetProp('closed', elem.props.closed === '1' ? '0' : '1');
+            else if (def.spice.switchKind === 'sp3t') onSetProp('position', nextSp3tPosition(String(elem.props.position)));
             else onSetProp('position', elem.props.position === '2' ? '1' : '2');
           }}
         />

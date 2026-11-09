@@ -791,6 +791,20 @@ const SWITCH_LEADS: Prim[] = [
 function switchSymbol(kind: SwitchKind, props: Element['props']): Prim[] {
   const way = closedWay(kind, props);
   const isPressed = String(props.pressed ?? '0') === '1';
+  if (kind === 'sp3t') {
+    const end = [-20, 0, 20][way] ?? 0;
+    return [
+      { t: 'line', x1: -40, y1: 0, x2: -16, y2: 0 },
+      { t: 'line', x1: 16, y1: -20, x2: 40, y2: -20 },
+      { t: 'line', x1: 16, y1: 0, x2: 40, y2: 0 },
+      { t: 'line', x1: 16, y1: 20, x2: 40, y2: 20 },
+      { t: 'line', x1: -16, y1: 0, x2: 14, y2: end, w: 2 },
+      contact(-16, 0),
+      contact(16, -20),
+      contact(16, 0),
+      contact(16, 20),
+    ];
+  }
   if (kind === 'spdt') {
     const end = way === 1 ? 20 : -20;
     return [
@@ -822,13 +836,21 @@ const SWITCH_SEARCH = 'interruttore pulsante deviatore switch contatto';
 
 function switchDevice(switchKind: SwitchKind, id: string, name: string, extra: string, props: ComponentDef['props']): ComponentDef {
   const isChangeover = switchKind === 'spdt';
+  const isThreeWay = switchKind === 'sp3t';
   return {
     id,
     category: 'Passivi',
     name,
     tagPrefix: 'S',
     searchTerms: `${SWITCH_SEARCH} ${extra}`,
-    terminals: isChangeover
+    terminals: isThreeWay
+      ? [
+          { id: 'c', x: -40, y: 0 },
+          { id: '1', x: 40, y: -20 },
+          { id: '2', x: 40, y: 0 },
+          { id: '3', x: 40, y: 20 },
+        ]
+      : isChangeover
       ? [
           { id: 'c', x: -40, y: 0 },
           { id: '1', x: 40, y: -20 },
@@ -837,7 +859,7 @@ function switchDevice(switchKind: SwitchKind, id: string, name: string, extra: s
       : twoPin('a', 'b'),
     symbol: switchSymbol(switchKind, {}),
     props,
-    spice: { kind: 'switch', switchKind, common: isChangeover ? 'c' : 'a', ways: isChangeover ? ['1', '2'] : ['b'] },
+    spice: { kind: 'switch', switchKind, common: isChangeover || isThreeWay ? 'c' : 'a', ways: isThreeWay ? ['1', '2', '3'] : isChangeover ? ['1', '2'] : ['b'] },
   };
 }
 
@@ -849,6 +871,21 @@ const SWITCHES: ComponentDef[] = [
   switchDevice('pushnc', 'pushnc', 'Pulsante NC', 'normalmente chiuso push button', []),
   switchDevice('spdt', 'spdt', 'Deviatore', 'spdt due vie scambio', [
     { key: 'position', label: 'Posizione', type: 'choice', default: '1', options: [{ value: '1', label: 'Verso 1' }, { value: '2', label: 'Verso 2' }] },
+  ]),
+  // A click moves it on along 1, 2, 3, 2, 1: the middle one is where it rests, between the other two
+  switchDevice('sp3t', 'sp3t', 'Deviatore a tre posizioni', 'sp3t tre vie posizione centrale riposo selettore', [
+    {
+      key: 'position',
+      label: 'Posizione',
+      type: 'choice',
+      default: '2',
+      options: [
+        { value: '1', label: 'Verso 1' },
+        { value: '2', label: 'Centro, poi 3' },
+        { value: '3', label: 'Verso 3' },
+        { value: '4', label: 'Centro, poi 1' },
+      ],
+    },
   ]),
 ];
 
