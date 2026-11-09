@@ -73,6 +73,8 @@ export interface LiveFrame {
    */
   glowMean: Float64Array;
   /** The RMS voltage of each lamp over the last two periods or so; NaN for the other parts. */
+  /** For each lamp, its light as a share of the rated one, from its filament; NaN for the other parts. */
+  lampLight: Float64Array;
   lampRms: Float64Array;
   /** Each 555: whether its output is high, and what is beyond its limits. */
   timers: ({ isHigh: boolean; warnings: string[] } | null)[];
@@ -586,10 +588,12 @@ export class LiveSimulation {
     const glowMean = new Float64Array(devices.length).fill(NaN);
     for (const i of this.leds) glowMean[i] = this.ledSteps > 0 ? this.ledSum[i] / this.ledSteps : engine.deviceCurrent(i);
     for (const i of this.lamps) glowMean[i] = this.ledSteps > 0 ? this.ledSum[i] / this.ledSteps : this.lampPower(i);
+    const lampLight = new Float64Array(devices.length).fill(NaN);
+    for (const i of this.lamps) lampLight[i] = engine.lampLight(i);
     const lampRms = new Float64Array(devices.length).fill(NaN);
     for (const i of this.lamps) lampRms[i] = Number.isNaN(this.lampSquares[i]) ? Math.abs(this.lampVoltage(i)) : Math.sqrt(this.lampSquares[i]);
     this.ledSum.fill(0);
     this.ledSteps = 0;
-    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, relays, mcus, timers, optos, ssrs, stepRelays, glowMean, lampRms, logic, scope: this.takeSamples() };
+    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, relays, mcus, timers, optos, ssrs, stepRelays, glowMean, lampLight, lampRms, logic, scope: this.takeSamples() };
   }
 }

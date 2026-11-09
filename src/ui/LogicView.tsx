@@ -137,7 +137,7 @@ export const LampGlow: React.FC<Props> = ({ circuit, layout, frameRef }) => {
       const def = getDevice(el.def);
       if (def?.spice.kind !== 'lamp') return [];
       const rating = lampRating(el, def.spice);
-      return rating ? [{ el, index, rated: rating.power, volts: rating.volts }] : [];
+      return rating ? [{ el, index, volts: rating.volts }] : [];
     });
   }, [circuit, layout]);
 
@@ -149,9 +149,9 @@ export const LampGlow: React.FC<Props> = ({ circuit, layout, frameRef }) => {
     const refresh = () => {
       const frame = frameRef.current;
       if (!frame) return;
-      lamps.forEach(({ index, rated, volts }, i) => {
-        const power = frame.glowMean[index];
-        glows[i]?.setAttribute('opacity', String(0.85 * lampBrightness(power, rated)));
+      lamps.forEach(({ index, volts }, i) => {
+        // By the filament, which holds its heat between the peaks of an alternating current
+        glows[i]?.setAttribute('opacity', String(0.85 * lampBrightness(frame.lampLight[index] ?? 0)));
         // By the voltage, RMS on alternating current: the inrush of a cold filament is no fault of the supply
         if (warnings[i]) warnings[i].textContent = frame.lampRms[index] > LAMP_OVERVOLTAGE * volts ? 'Oltre la tensione nominale' : '';
       });

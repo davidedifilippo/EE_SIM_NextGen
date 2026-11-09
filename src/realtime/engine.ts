@@ -8,7 +8,7 @@ import { nextRelayState } from './relay';
 import { nextStepRelay, StepRelayStatus, stepRelayWarnings } from './stepRelay';
 import { nextControl, nextTriac, SSR_PEAK_TAU, SSR_RMS_TAU, SsrStatus, ssrWarnings, TRIAC_OFF } from './ssr';
 import { OPTO_DARK, saturation } from './opto';
-import { filamentRate, filamentResistance, LAMP_AMBIENT, steadyTemperature } from './lamp';
+import { filamentLight, filamentRate, filamentResistance, LAMP_AMBIENT, steadyTemperature } from './lamp';
 import { nextTimerState, supplyResistance, TIMER_INPUT_RESISTANCE, TIMER_OFF_RESISTANCE, TIMER_RESET_PULLUP, timerSupply } from './timer555';
 import { ArduinoUno, LED_PIN, PIN_MAX_CURRENT, PinMode, SUPPLY_MAX_CURRENT, UNO_PINS, UNO_SUPPLY_RESISTANCE, UNO_VCC } from './arduino';
 import { CONTACT_CLOSED, CONTACT_OPEN } from './switches';
@@ -1164,6 +1164,11 @@ export class RealtimeEngine {
       for (let k = 0; k < pieces; k++) this.lampTemp[i] = Math.max(LAMP_AMBIENT, this.lampTemp[i] + (h / pieces) * filamentRate(d.params, power, this.lampTemp[i]));
       this.setLamp(i, filamentResistance(d.params, this.lampTemp[i]));
     });
+  }
+
+  /** The light of a lamp now, as a share of its rated one, from the temperature of its filament. */
+  lampLight(i: number): number {
+    return filamentLight(this.lampTemp[i]);
   }
 
   private setLamp(i: number, r: number) {
