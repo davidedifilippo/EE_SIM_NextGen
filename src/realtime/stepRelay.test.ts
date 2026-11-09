@@ -207,6 +207,26 @@ describe('the example', () => {
   });
 });
 
+describe('the lamp of the example', () => {
+  it('reads no overvoltage when a button is pressed at the peak of the supply', () => {
+    const c = EXAMPLES.find((e) => e.id === 'steprelay')!.build();
+    const sim = new LiveSimulation();
+    expect(sim.load(c)).toEqual({ ok: true });
+    const lamp = lampIndex(c);
+    const pressed = (id: string, on: boolean): Circuit => ({ ...c, elements: c.elements.map((el) => (el.id === id ? { ...el, props: { ...el.props, pressed: on ? '1' : '0' } } : el)) });
+    // Lit and settled
+    sim.load(pressed('s1', true));
+    sim.advance(3000, 1e-4, 1e6);
+    sim.load(pressed('s1', false));
+    sim.advance(3000, 1e-4, 1e6);
+    // Up to the peak of 325 V across the lamp, then a press of another button
+    while (Math.abs(sim.frame()!.deviceVoltage[lamp]) < 320) sim.advance(1, 2e-5, 1e6);
+    expect(sim.load(pressed('s2', true))).toEqual({ ok: true });
+    sim.advance(1, 2e-5, 1e6);
+    expect(sim.frame()!.lampRms[lamp]).toBeLessThan(240);
+  });
+});
+
 describe('the animation', () => {
   it('runs the current of a contact along the rail and down the blade, never across', () => {
     const c = lampFromButton();

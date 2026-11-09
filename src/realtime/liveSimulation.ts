@@ -434,7 +434,10 @@ export class LiveSimulation {
     this.leds = compiled.elementIds.flatMap((id, i) => (defOf(id) === 'led' ? [i] : []));
     this.lamps = compiled.elementIds.flatMap((id, i) => (defOf(id) === 'lamp' ? [i] : []));
     this.ledSum = new Float64Array(compiled.devices.length);
-    this.lampSquares = new Float64Array(compiled.devices.length).fill(NaN);
+    // Pressing a button loads the circuit again: each lamp keeps the mean it had, as a fresh start from the
+    // voltage of that instant would read the peak of an alternating one as its RMS
+    const squares = new Map(previous?.compiled.elementIds.map((id, i) => [id, this.lampSquares[i]]) ?? []);
+    this.lampSquares = Float64Array.from(compiled.elementIds, (id) => squares.get(id) ?? NaN);
     this.ledSteps = 0;
     this.resolveProbes();
     this.resolveMeters();
