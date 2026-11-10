@@ -307,3 +307,20 @@
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+
+/* A window opened from the bar or from a panel is inside what has grown already: it must not grow twice */
+.mobile-bar .dialog-backdrop,
+.mobile-tabs .dialog-backdrop,
+.bottom-sheet .dialog-backdrop {
+  zoom: 1;
+}
+
+/* The heights of the full layout are shares of the screen, which a window drawn larger would overshoot:
+   here they are shares of the backdrop, so the window stays on the screen and scrolls inside */
+.mobile-app .about-panel {
+  max-height: 100%;
+}
+
+.mobile-app .inside-drawing {
+  max-height: calc(60dvh / var(--control-scale, 1));
+}
