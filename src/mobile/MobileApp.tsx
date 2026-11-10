@@ -10,6 +10,7 @@ import { SavePanel } from '../ui/SavePanel';
 import { CanvasArea, CircuitFileInput, EditButtons, Library, Properties } from '../workbench/parts';
 import { Workbench } from '../workbench/useWorkbench';
 import { LONG_PRESS_MS } from '../editor/SchematicCanvas';
+import { useControlScale } from '../ui/layoutChoice';
 import { BottomSheet } from './BottomSheet';
 import { MobileMenu } from './MobileMenu';
 import './mobile.css';
@@ -33,6 +34,7 @@ export const MobileApp: React.FC<{ wb: Workbench; onFullLayout: () => void }> = 
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [landscape, setLandscape] = useState(isLandscape);
+  const controls = useControlScale();
   const toggle = (next: Sheet) => setSheet((open) => (open === next ? null : next));
 
   useEffect(() => {
@@ -82,10 +84,11 @@ export const MobileApp: React.FC<{ wb: Workbench; onFullLayout: () => void }> = 
   const hasResults = wb.run !== null || wb.errors.length > 0 || wb.traces.length > 0 || hasArduino;
 
   return (
-    <div className="mobile-app">
+    // The controls grow by this where the page is laid out wider than the screen; the schematic has its own zoom
+    <div className="mobile-app" style={{ '--control-scale': controls.scale } as React.CSSProperties}>
       {wb.isSharing && <SharePanel circuit={wb.forSaving} onClose={() => wb.setIsSharing(false)} />}
       {wb.isSaving && <SavePanel circuit={wb.circuit} onSave={wb.saveAs} onClose={() => wb.setIsSaving(false)} />}
-      {isMenuOpen && <MobileMenu wb={wb} onFullLayout={onFullLayout} onClose={() => setIsMenuOpen(false)} />}
+      {isMenuOpen && <MobileMenu wb={wb} controlSize={controls.size} onControlSize={controls.setSize} onFullLayout={onFullLayout} onClose={() => setIsMenuOpen(false)} />}
       <CircuitFileInput wb={wb} />
       <header className="mobile-bar">
         <LogoButton />
