@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { DEVICES, elementSymbol } from '../library/devices';
 import { getBounds, PrimitiveItem } from '../editor/Renderer';
-import { ComponentDef } from '../model/types';
+import { ComponentDef, Prim } from '../model/types';
 
 const ALL = 'Tutti';
 const SECTION_KEY = 'ee-sim-nextgen/library-section';
@@ -95,16 +95,41 @@ const SectionsBar: React.FC<{ target: React.RefObject<HTMLElement> }> = ({ targe
   );
 };
 
+const ICON_MARGIN = 4;
+
+/**
+ * What the card of a part must show: its terminals and its drawing, which on a box with many pins goes
+ * beyond the first and the last of them. Paths are left out: none goes beyond the rest of its part.
+ */
+export function iconBox(def: ComponentDef, symbol: Prim[]): { x: number; y: number; w: number; h: number } {
+  const body = getBounds(def);
+  const xs = [-24, 24, body.x, body.x + body.w, ...def.terminals.map((t) => t.x)];
+  const ys = [-24, 24, body.y, body.y + body.h, ...def.terminals.map((t) => t.y)];
+  for (const prim of symbol) {
+    if (prim.t === 'rect') {
+      xs.push(prim.x, prim.x + prim.w);
+      ys.push(prim.y, prim.y + prim.h);
+    } else if (prim.t === 'line') {
+      xs.push(prim.x1, prim.x2);
+      ys.push(prim.y1, prim.y2);
+    } else if (prim.t === 'circle') {
+      xs.push(prim.cx - prim.r, prim.cx + prim.r);
+      ys.push(prim.cy - prim.r, prim.cy + prim.r);
+    }
+  }
+  const [minX, minY] = [Math.min(...xs) - ICON_MARGIN, Math.min(...ys) - ICON_MARGIN];
+  return { x: minX, y: minY, w: Math.max(...xs) + ICON_MARGIN - minX, h: Math.max(...ys) + ICON_MARGIN - minY };
+}
+
+/** The symbol of a part as it comes out of the library, with its values as they start. */
+export const defaultSymbol = (def: ComponentDef) => elementSymbol(def, { id: '', def: def.id, x: 0, y: 0, rot: 0, tag: '', props: Object.fromEntries(def.props.map((p) => [p.key, p.default])) });
+
 /** The drawing of a part, fitted to its card. */
 const PartIcon: React.FC<{ def: ComponentDef }> = ({ def }) => {
-  const xs = def.terminals.map((t) => t.x);
-  const ys = def.terminals.map((t) => t.y);
-  const body = getBounds(def);
-  const [minX, maxX] = [Math.min(-24, body.x, ...xs), Math.max(24, body.x + body.w, ...xs)];
-  const [minY, maxY] = [Math.min(-24, body.y, ...ys), Math.max(24, body.y + body.h, ...ys)];
-  const symbol = elementSymbol(def, { id: '', def: def.id, x: 0, y: 0, rot: 0, tag: '', props: Object.fromEntries(def.props.map((p) => [p.key, p.default])) });
+  const symbol = defaultSymbol(def);
+  const box = iconBox(def, symbol);
   return (
-    <svg viewBox={`${minX - 4} ${minY - 4} ${maxX - minX + 8} ${maxY - minY + 8}`} aria-hidden="true">
+    <svg viewBox={`${box.x} ${box.y} ${box.w} ${box.h}`} aria-hidden="true">
       {symbol.map((prim, k) => (
         <PrimitiveItem key={k} prim={prim} />
       ))}
