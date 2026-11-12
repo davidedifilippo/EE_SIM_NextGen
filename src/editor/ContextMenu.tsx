@@ -45,10 +45,12 @@ export const ContextMenu: React.FC<Props> = ({ at, items, byFinger = false, onCl
   // Stays on the screen near the edges: under the point there may be no room for it
   useLayoutEffect(() => {
     const { width, height } = menuRef.current!.getBoundingClientRect();
-    const offset = byFinger ? FINGER_OFFSET : 0;
+    // On a phone layout the menu may be drawn larger: its place is then written in its own, larger pixels
+    const scale = Number(getComputedStyle(menuRef.current!).zoom) || 1;
+    const offset = (byFinger ? FINGER_OFFSET : 0) * scale;
     setPosition({
-      x: Math.max(SCREEN_MARGIN, Math.min(at.x + offset, window.innerWidth - width - SCREEN_MARGIN)),
-      y: Math.max(SCREEN_MARGIN, Math.min(at.y + offset, window.innerHeight - height - SCREEN_MARGIN)),
+      x: Math.max(SCREEN_MARGIN, Math.min(at.x + offset, window.innerWidth - width - SCREEN_MARGIN)) / scale,
+      y: Math.max(SCREEN_MARGIN, Math.min(at.y + offset, window.innerHeight - height - SCREEN_MARGIN)) / scale,
     });
   }, [at, byFinger]);
 

@@ -15,6 +15,7 @@ import { ctrOf, ledParams, OPTO_DARK, PC817, saturationExpression } from '../rea
 import { filamentExpression, lampParams, lampRating, radiatedExpression } from '../realtime/lamp';
 import { relayThresholds } from '../realtime/relay';
 import { ssrSpecOf, TRIAC_OFF } from '../realtime/ssr';
+import { STEP_HOLD_TAU, stepRelaySpec } from '../realtime/stepRelay';
 import { supplyResistance, TIMER_INPUT_RESISTANCE, TIMER_OFF_RESISTANCE, TIMER_RESET_PULLUP } from '../realtime/timer555';
 import { SEGMENT_LEAK, segmentColor, segmentExpression } from '../realtime/display7';
 import { ctTransformerParams } from '../realtime/ctTransformer';
@@ -157,6 +158,7 @@ export function generateNetlist(drawn: Circuit, analysis: Analysis, kicked: Set<
   const lines: string[] = [];
   let needsLatchModel = false;
   let hasSsr = false;
+  let hasStepRelay = false;
   /** One switch model for each kind of relay in the circuit. */
   const relayModels = new Map<string, string>();
   /** The switches of the output stages, once for each kind of 555. */
@@ -449,6 +451,33 @@ export function generateNetlist(drawn: Circuit, analysis: Analysis, kicked: Set<
         lines.push(`${name}_A ${node(s.a)} ${wiper} ${halves[0]}`, `${name}_B ${wiper} ${node(s.b)} ${halves[1]}`);
         break;
       }
+      case 'steprelay': {
+        const name = uniqueName('X', el.tag);
+        if (!name) break;
+        const spec = stepRelaySpec(s.version, el.props[s.coilProp]);
+        const [a, b, c2] = [node(s.common), node(s.coil2), node(s.c2)];
+        // The coil as R, then L with the losses of the iron across it, its current read by a source of 0 V
+        lines.push(`VS${name} ${a} xi${name} 0`, `RK${name} xi${name} xk${name} ${spec.coilResistance}`, `LK${name} xk${name} ${b} ${spec.coilInductance}`, `RP${name} xk${name} ${b} ${spec.coilLoss}`);
+        // The envelope of the current on a capacitor of 1 F: it follows the peaks at once and fades with the
+        // time the armature holds, as in the real-time engine
+        lines.push(`BE${name} 0 xe${name} I=${STEP_ENVELOPE_RATE}*max(abs(i(VS${name}))-v(xe${name}),0)-v(xe${name})/${STEP_HOLD_TAU}`, `CE${name} xe${name} 0 1`, `RE${name} xe${name} 0 1e12`);
+        // The armature, pulled in and let go with hysteresis, as a node at 1 or 0
+        const pull = `STEP_PULL_${spec.volts}`;
+        relayModels.set(pull, `.model ${pull} SW(VT=${(spec.pickup + spec.dropout) / 2} VH=${(spec.pickup - spec.dropout) / 2} RON=1 ROFF=1e12)`);
+        lines.push(`VA${name} xv${name} 0 1`, `SA${name} xv${name} xa${name} xe${name} 0 ${pull}`, `RA${name} xa${name} 0 1e6`);
+        // The sequence as a counter clocked by the armature, with the latch of the logic parts
+        const counter = sequentialSpec('counter', spec.sequences.length)!;
+        lines.push(...latchLines(name, counter, [`v(xa${name})`, '0'], STEP_LOGIC_VDD));
+        const bits = latchLevels(name, counter);
+        const isState = (k: number) => bits.map((bit, j) => ((k >> (bits.length - 1 - j)) & 1 ? bit : `(1-${bit})`)).join('*');
+        const closedIn = (contact: 0 | 1) => spec.sequences.flatMap((pair, k) => (pair[contact] ? [isState(k)] : [])).join('+') || '0';
+        relayModels.set('STEP_CONTACT', `.model STEP_CONTACT SW(VT=0.5 VH=0.1 RON=${CONTACT_CLOSED} ROFF=${CONTACT_OPEN})`);
+        lines.push(`BK2${name} xk2${name} 0 V=${closedIn(0)}`, `SK2${name} ${a} ${c2} xk2${name} 0 STEP_CONTACT`);
+        if (s.c4) lines.push(`BK4${name} xk4${name} 0 V=${closedIn(1)}`, `SK4${name} ${a} ${node(s.c4)} xk4${name} 0 STEP_CONTACT`);
+        needsLatchModel = true;
+        hasStepRelay = true;
+        break;
+      }
       case 'relay': {
         const name = uniqueName('X', el.tag);
         if (!name) break;
@@ -733,7 +762,7 @@ export function generateNetlist(drawn: Circuit, analysis: Analysis, kicked: Set<
   if (needsLatchModel) lines.push(LATCH_SWITCH_MODEL, LATCH_FORCE_MODEL);
   lines.push(...relayModels.values(), ...[...timerModels.values()].flat());
   // The memory of a 555 is much faster than the step: the trapezoidal rule rings on it, Gear damps it
-  const options = (hasTimer || hasSsr) && analysis.type === 'tran' ? ['.options method=gear'] : [];
+  const options = (hasTimer || hasSsr || hasStepRelay) && analysis.type === 'tran' ? ['.options method=gear'] : [];
   const text = [spiceTitle(circuit.title), ...lines, ...modelCards.map((m) => m.card), ...options, command, '.end', ''].join('\n');
   return { text, errors, nodeOf };
 }
@@ -758,6 +787,10 @@ const LATCH_LEAK = 1e12;
 /** How sharp the window of a zero-cross relay is for ngspice, in volts, and its holding current, in amperes. */
 const SSR_WINDOW_EDGE = 0.5;
 const SSR_HOLD_EDGE = 0.002;
+/** How fast the envelope of a step relay climbs to a new peak of its coil current, per second: at once, to the step. */
+const STEP_ENVELOPE_RATE = 1e5;
+/** The logic levels of the counter of a step relay, inside it only. */
+const STEP_LOGIC_VDD = 5;
 
 /**
  * A latch with no clock, as the SR: one capacitor per state bit, which the switch joins to the next

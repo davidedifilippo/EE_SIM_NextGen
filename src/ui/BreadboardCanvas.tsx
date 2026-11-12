@@ -87,7 +87,8 @@ export const BreadboardCanvas: React.FC<Props> = ({ circuit, onChange, selectedI
       if (!frame) return;
       glows.forEach(({ device, rated }, k) => {
         const mean = frame.glowMean[device];
-        const level = rated !== null ? lampBrightness(mean, rated) : ledBrightness(Number.isNaN(mean) ? frame.deviceCurrent[device] : mean);
+        // A lamp by its filament, as on the schematic
+        const level = rated !== null ? lampBrightness(frame.lampLight[device] ?? 0) : ledBrightness(Number.isNaN(mean) ? frame.deviceCurrent[device] : mean);
         glowRefs.current[k]?.setAttribute('opacity', String(0.85 * level));
       });
     };

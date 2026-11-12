@@ -10,6 +10,7 @@ import { UNO_PINS } from '../realtime/unoPins';
 import { NE555, TLC555 } from '../realtime/timerSpecs';
 import { CTR_CLASSES } from '../realtime/opto';
 import { CONTROL_OPTIONS, CURRENT_OPTIONS, TYPE_OPTIONS } from '../realtime/ssr';
+import { COIL_OPTIONS, StepVersion, VERSION_OPTIONS } from '../realtime/stepRelay';
 
 
 /** One part for each number of pins, as terminals belong to the kind of part: half on the left, the rest on the right. */
@@ -790,6 +791,20 @@ const SWITCH_LEADS: Prim[] = [
 function switchSymbol(kind: SwitchKind, props: Element['props']): Prim[] {
   const way = closedWay(kind, props);
   const isPressed = String(props.pressed ?? '0') === '1';
+  if (kind === 'sp3t') {
+    const end = [-20, 0, 20][way] ?? 0;
+    return [
+      { t: 'line', x1: -40, y1: 0, x2: -16, y2: 0 },
+      { t: 'line', x1: 16, y1: -20, x2: 40, y2: -20 },
+      { t: 'line', x1: 16, y1: 0, x2: 40, y2: 0 },
+      { t: 'line', x1: 16, y1: 20, x2: 40, y2: 20 },
+      { t: 'line', x1: -16, y1: 0, x2: 14, y2: end, w: 2 },
+      contact(-16, 0),
+      contact(16, -20),
+      contact(16, 0),
+      contact(16, 20),
+    ];
+  }
   if (kind === 'spdt') {
     const end = way === 1 ? 20 : -20;
     return [
@@ -821,13 +836,21 @@ const SWITCH_SEARCH = 'interruttore pulsante deviatore switch contatto';
 
 function switchDevice(switchKind: SwitchKind, id: string, name: string, extra: string, props: ComponentDef['props']): ComponentDef {
   const isChangeover = switchKind === 'spdt';
+  const isThreeWay = switchKind === 'sp3t';
   return {
     id,
     category: 'Passivi',
     name,
     tagPrefix: 'S',
     searchTerms: `${SWITCH_SEARCH} ${extra}`,
-    terminals: isChangeover
+    terminals: isThreeWay
+      ? [
+          { id: 'c', x: -40, y: 0 },
+          { id: '1', x: 40, y: -20 },
+          { id: '2', x: 40, y: 0 },
+          { id: '3', x: 40, y: 20 },
+        ]
+      : isChangeover
       ? [
           { id: 'c', x: -40, y: 0 },
           { id: '1', x: 40, y: -20 },
@@ -836,7 +859,7 @@ function switchDevice(switchKind: SwitchKind, id: string, name: string, extra: s
       : twoPin('a', 'b'),
     symbol: switchSymbol(switchKind, {}),
     props,
-    spice: { kind: 'switch', switchKind, common: isChangeover ? 'c' : 'a', ways: isChangeover ? ['1', '2'] : ['b'] },
+    spice: { kind: 'switch', switchKind, common: isChangeover || isThreeWay ? 'c' : 'a', ways: isThreeWay ? ['1', '2', '3'] : isChangeover ? ['1', '2'] : ['b'] },
   };
 }
 
@@ -848,6 +871,21 @@ const SWITCHES: ComponentDef[] = [
   switchDevice('pushnc', 'pushnc', 'Pulsante NC', 'normalmente chiuso push button', []),
   switchDevice('spdt', 'spdt', 'Deviatore', 'spdt due vie scambio', [
     { key: 'position', label: 'Posizione', type: 'choice', default: '1', options: [{ value: '1', label: 'Verso 1' }, { value: '2', label: 'Verso 2' }] },
+  ]),
+  // A click moves it on along 1, 2, 3, 2, 1: the middle one is where it rests, between the other two
+  switchDevice('sp3t', 'sp3t', 'Deviatore a tre posizioni', 'sp3t tre vie posizione centrale riposo selettore', [
+    {
+      key: 'position',
+      label: 'Posizione',
+      type: 'choice',
+      default: '2',
+      options: [
+        { value: '1', label: 'Verso 1' },
+        { value: '2', label: 'Centro, poi 3' },
+        { value: '3', label: 'Verso 3' },
+        { value: '4', label: 'Centro, poi 1' },
+      ],
+    },
   ]),
 ];
 
@@ -965,6 +1003,62 @@ const SSR_AQG: ComponentDef = {
   ],
   spice: { kind: 'ssr', plus: '3', minus: '4', out1: '1', out2: '2', currentProp: 'current', typeProp: 'type', controlProp: 'control' },
 };
+
+/**
+ * The contact blades of a step relay, normally open: at rest leaning away, pulled straight up to the contact
+ * on the common rail. x is where each one is, 20 for the contact to 2 and 40 for that to 4.
+ */
+export function stepBlade(x: number): { rest: Segment; pulled: Segment; contacts: [number, number][] } {
+  return { rest: { x1: x, y1: 14, x2: x - 12, y2: -12 }, pulled: { x1: x, y1: 14, x2: x, y2: -14 }, contacts: [[x, -14], [x, 14]] };
+}
+
+/** Where A1 meets the rail that feeds the contacts of a step relay. */
+export const STEP_RAIL = { x: -20, y: -30 };
+
+/**
+ * A step relay of the Finder series 27, as the IEC draws an impulse relay: the coil on the left with the mark
+ * of the steps, A1 above and A2 below; A1/1/3 feeds the contacts as well, along the rail at the top; the
+ * contact to 2 and, on the versions with two, to 4, below.
+ */
+function stepRelayDevice(version: StepVersion): ComponentDef {
+  const option = VERSION_OPTIONS.find((o) => o.value === version)!;
+  const hasTwo = version !== '27.01';
+  const blades = hasTwo ? [stepBlade(20), stepBlade(40)] : [stepBlade(20)];
+  return {
+    id: option.def,
+    category: 'Passivi',
+    name: `Relè passo passo Finder ${version}`,
+    tagPrefix: 'K',
+    searchTerms: 'relè rele passo passo impulsi finder serie 27 bistabile lampada più punti pulsanti impianto civile',
+    terminals: [
+      { id: 'A1', x: -20, y: -40 },
+      { id: 'A2', x: -20, y: 40 },
+      { id: '2', x: 20, y: 40 },
+      ...(hasTwo ? [{ id: '4', x: 40, y: 40 }] : []),
+    ],
+    symbol: [
+      { t: 'line', x1: -20, y1: -40, x2: -20, y2: -12 },
+      { t: 'line', x1: -20, y1: 12, x2: -20, y2: 40 },
+      { t: 'rect', x: -30, y: -12, w: 20, h: 24, fill: 'var(--sch-part)' },
+      // The mark of the steps inside the coil
+      { t: 'path', d: 'M -26 6 H -22 V 0 H -18 V -6 H -14', w: 1.2 },
+      // A1 feeds the common of the contacts
+      { t: 'path', d: `M ${STEP_RAIL.x} ${STEP_RAIL.y} H ${hasTwo ? 40 : 20}` },
+      ...blades.map((b): Prim => ({ t: 'line', x1: b.contacts[0][0], y1: STEP_RAIL.y, x2: b.contacts[0][0], y2: -14 })),
+      ...blades.map((b): Prim => ({ t: 'line', x1: b.contacts[1][0], y1: 14, x2: b.contacts[1][0], y2: 40 })),
+      { t: 'path', d: `M -10 0 L -6 0 M -2 0 L 2 0 M 6 0 L 10 0${hasTwo ? ' M 14 0 L 18 0 M 22 0 L 25 0' : ''}` },
+      ...blades.map((b): Prim => ({ t: 'line', ...b.rest, w: 2 })),
+      ...blades.flatMap((b) => b.contacts.map(([x, y]) => contact(x, y))),
+    ],
+    props: [
+      { key: 'coil', label: 'Bobina', type: 'choice', default: '230', options: COIL_OPTIONS },
+      { key: 'version', label: 'Versione', type: 'choice', default: version, options: VERSION_OPTIONS.map(({ value, label }) => ({ value, label })) },
+    ],
+    spice: { kind: 'steprelay', common: 'A1', coil2: 'A2', c2: '2', ...(hasTwo ? { c4: '4' } : {}), version, coilProp: 'coil' },
+  };
+}
+
+const STEP_RELAYS = (['27.01', '27.05', '27.06'] as const).map(stepRelayDevice);
 
 /** A segment of a drawing. */
 type Segment = { x1: number; y1: number; x2: number; y2: number };
@@ -1241,7 +1335,7 @@ const SENSORS = [
   sensorDevice('TMP36', { offset: 0.5, slope: 0.01, tempProp: 'temp', iMax: 10e-3, dropout: 1, vMin: 2.7, vMax: 5.5, vAbsMax: 7 }, 50e-6, [-40, 125]),
 ];
 
-DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, LAMP, OPTO, ...RELAYS, SSR_AQG, ARDUINO_UNO, ...PORTS, ...COMPOSITES, ...TIMERS);
+DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, LAMP, OPTO, ...RELAYS, ...STEP_RELAYS, SSR_AQG, ARDUINO_UNO, ...PORTS, ...COMPOSITES, ...TIMERS);
 for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));

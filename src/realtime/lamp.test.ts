@@ -36,8 +36,31 @@ describe('the lamp', () => {
     // About 70% of the current, 3.5 W, where a fixed resistance would take half the current and 2.5 W
     expect(power / 24 / (10 / 48)).toBeGreaterThan(0.65);
     expect(power / 24 / (10 / 48)).toBeLessThan(0.75);
-    expect(lampBrightness(power, 10)).toBeGreaterThan(0.4);
-    expect(lampBrightness(power, 10)).toBeLessThan(0.6);
+    // Settled, it gives back as light what it takes
+    const light = Math.max(...Array.from(frame.lampLight).filter((x) => !Number.isNaN(x)));
+    expect(light).toBeCloseTo(power / 10, 2);
+    expect(lampBrightness(light)).toBeGreaterThan(0.4);
+    expect(lampBrightness(light)).toBeLessThan(0.6);
+  });
+
+  it('on 50 Hz its light holds between the peaks, while the power it takes goes from nothing to twice its rating', () => {
+    const sine: Part = { def: 'vsource', tag: 'V1', nets: ['p', '0'], props: { shape: 'sin', amplitude: '325', offset: '0', frequency: '50', phase: '0', duty: '50', spec: '' } };
+    const sim = new LiveSimulation();
+    expect(sim.load(circuitFromNets('t', [sine, lamp('60', '230')]))).toEqual({ ok: true });
+    sim.advance(5000, 1e-4, 1e6);
+    sim.frame();
+    const lights: number[] = [];
+    const powers: number[] = [];
+    // A frame each 0.4 ms, as the animation slowed to 20 ms/s takes them
+    for (let k = 0; k < 100; k++) {
+      sim.advance(4, 1e-4, 1e6);
+      const frame = sim.frame()!;
+      lights.push(Math.max(...Array.from(frame.lampLight).filter((x) => !Number.isNaN(x))));
+      powers.push(Math.max(...Array.from(frame.glowMean).filter((x) => !Number.isNaN(x))));
+    }
+    expect(Math.max(...powers) - Math.min(...powers)).toBeGreaterThan(60);
+    expect(Math.min(...lights)).toBeGreaterThan(0.9);
+    expect(Math.max(...lights) / Math.min(...lights)).toBeLessThan(1.1);
   });
 
   it('at switch-on the cold filament takes about twelve times the current, then warms up, in both engines', async () => {

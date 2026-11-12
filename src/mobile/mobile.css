@@ -182,7 +182,8 @@
   border-radius: 50%;
 }
 
-.mobile-menu-backdrop {
+/* index.css loads after this file: the backdrop of the dialogs must be outweighed */
+.mobile-app .mobile-menu-backdrop {
   align-items: flex-start;
   justify-content: flex-end;
   padding: 52px 8px 8px;
@@ -266,4 +267,60 @@
   margin: 0;
   font-size: 16px;
   color: var(--text-muted);
+}
+
+/* Where the page is laid out wider than the screen, as on a phone asked for the desktop version of the
+   site, everything but the schematic grows back to the size of a finger. The schematic has its own zoom,
+   and its sums on the position of a finger stay as they are */
+.mobile-bar,
+.mobile-tabs,
+.bottom-sheet,
+.mobile-app .dialog-backdrop,
+.mobile-app .context-menu,
+.mobile-canvas .example-hint,
+.mobile-canvas .live-note,
+.mobile-canvas .live-legend,
+.mobile-canvas .source-stats {
+  zoom: var(--control-scale, 1);
+}
+
+.mobile-menu .control-size {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 42px;
+}
+
+.mobile-menu .control-size span {
+  margin-right: auto;
+}
+
+.mobile-menu .control-size button {
+  min-width: 42px;
+  min-height: 38px;
+  padding: 0;
+  font-size: 18px;
+}
+
+.mobile-menu .control-size output {
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A window opened from the bar or from a panel is inside what has grown already: it must not grow twice */
+.mobile-bar .dialog-backdrop,
+.mobile-tabs .dialog-backdrop,
+.bottom-sheet .dialog-backdrop {
+  zoom: 1;
+}
+
+/* The heights of the full layout are shares of the screen, which a window drawn larger would overshoot:
+   here they are shares of the backdrop, so the window stays on the screen and scrolls inside */
+.mobile-app .about-panel {
+  max-height: 100%;
+}
+
+.mobile-app .inside-drawing {
+  max-height: calc(60dvh / var(--control-scale, 1));
 }

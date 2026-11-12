@@ -4,7 +4,7 @@ import { terminalKey } from '../netlist/connectivity';
 import { generateNetlist } from '../netlist/generate';
 import { compileCircuit } from './compile';
 import { RealtimeEngine } from './engine';
-import { closedWay, CONTACT_CLOSED, CONTACT_OPEN, contactResistances } from './switches';
+import { closedWay, CONTACT_CLOSED, CONTACT_OPEN, contactResistances, nextSp3tPosition } from './switches';
 import { circuitFromNets, Part } from './testCircuits';
 import { Circuit } from '../model/types';
 
@@ -26,6 +26,18 @@ describe('contacts', () => {
     expect(closedWay('spdt', {})).toBe(0);
     expect(contactResistances('spdt', { position: '1' })).toEqual([CONTACT_CLOSED, CONTACT_OPEN]);
     expect(contactResistances('spdt', { position: '2' })).toEqual([CONTACT_OPEN, CONTACT_CLOSED]);
+  });
+
+  it('three-way changeover: at rest in the middle, and each click goes 1, 2, 3, 2, 1 through it', () => {
+    expect(closedWay('sp3t', {})).toBe(1);
+    let position = '2';
+    const ways = [];
+    for (let k = 0; k < 8; k++) {
+      position = nextSp3tPosition(position);
+      ways.push(closedWay('sp3t', { position }) + 1);
+    }
+    expect(ways).toEqual([3, 2, 1, 2, 3, 2, 1, 2]);
+    expect(contactResistances('sp3t', { position: '4' })).toEqual([CONTACT_OPEN, CONTACT_CLOSED, CONTACT_OPEN]);
   });
 });
 
@@ -71,6 +83,30 @@ const changeover = (position: string): Circuit => ({
   models: [],
 });
 
+/** The common on a load, and the ways on 5 V, the middle of a divider of two 1k, and ground. Drawn by hand as well. */
+const threeWay = (position: string): Circuit => ({
+  title: 't',
+  elements: [
+    { id: 'v1', def: 'dcsupply', x: 120, y: -60, rot: 270, tag: 'V1', props: { shape: 'dc', amplitude: '5', rint: '0' } },
+    { id: 's1', def: 'sp3t', x: 0, y: 0, rot: 0, tag: 'S1', props: { position } },
+    { id: 'r1', def: 'resistor', x: 240, y: 20, rot: 90, tag: 'R1', props: { value: '1k' } },
+    { id: 'r2', def: 'resistor', x: 240, y: 100, rot: 90, tag: 'R2', props: { value: '1k' } },
+    { id: 'rl', def: 'resistor', x: -80, y: 40, rot: 90, tag: 'RL', props: { value: '1meg' } },
+    { id: 'g1', def: 'ground', x: 240, y: 180, rot: 0, tag: '', props: {} },
+    { id: 'g2', def: 'ground', x: -80, y: 120, rot: 0, tag: '', props: {} },
+  ],
+  wires: [
+    { id: 'w1', pts: [{ x: 40, y: -20 }, { x: 120, y: -20 }, { x: 240, y: -20 }] },
+    { id: 'w2', pts: [{ x: 40, y: 0 }, { x: 80, y: 0 }, { x: 80, y: 60 }, { x: 240, y: 60 }] },
+    { id: 'w3', pts: [{ x: 40, y: 20 }, { x: 60, y: 20 }, { x: 60, y: 180 }, { x: 240, y: 180 }] },
+    { id: 'w4', pts: [{ x: 240, y: 140 }, { x: 240, y: 180 }] },
+    { id: 'w5', pts: [{ x: 120, y: -100 }, { x: 280, y: -100 }, { x: 280, y: 180 }, { x: 240, y: 180 }] },
+    { id: 'w6', pts: [{ x: -40, y: 0 }, { x: -80, y: 0 }] },
+    { id: 'w7', pts: [{ x: -80, y: 80 }, { x: -80, y: 120 }] },
+  ],
+  models: [],
+});
+
 describe('contacts in both engines', () => {
   it.each([
     ['0', 0],
@@ -89,6 +125,17 @@ describe('contacts in both engines', () => {
     const { real, ng } = await both(changeover(position), 'rl', 'a');
     expect(real).toBeCloseTo(expected, 3);
     expect(ng).toBeCloseTo(expected, 3);
+  });
+
+  it.each([
+    ['1', 5],
+    ['2', 2.5],
+    ['3', 0],
+    ['4', 2.5],
+  ] as const)('a three-way changeover in %s picks 5, 2.5 or 0 V from a divider', async (position, expected) => {
+    const { real, ng } = await both(threeWay(position), 'rl', 'a');
+    expect(real).toBeCloseTo(expected, 2);
+    expect(ng).toBeCloseTo(expected, 2);
   });
 
   it('a push button closes the circuit only while pressed', async () => {

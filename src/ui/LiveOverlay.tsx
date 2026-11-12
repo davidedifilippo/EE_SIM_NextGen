@@ -32,7 +32,7 @@ export const LiveOverlay: React.FC<Props> = ({ layout, frameRef, onScale }) => {
     const root = rootRef.current;
     if (!root) return;
     const edgeDots = [...root.querySelectorAll<SVGLineElement>('[data-live="edge-dots"]')];
-    const deviceDots = [...root.querySelectorAll<SVGLineElement>('[data-live="device-dots"]')];
+    const deviceDots = [...root.querySelectorAll<SVGGeometryElement>('[data-live="device-dots"]')];
     const edgeOffset = new Float64Array(edgeDots.length);
     const deviceOffset = new Float64Array(deviceDots.length);
     let maxV = MIN_VOLTAGE_SCALE;
@@ -41,7 +41,7 @@ export const LiveOverlay: React.FC<Props> = ({ layout, frameRef, onScale }) => {
     let lastTime = NaN;
     let handle = 0;
 
-    const moveDots = (dots: SVGLineElement[], offsets: Float64Array, currents: Float64Array, dt: number) => {
+    const moveDots = (dots: SVGGeometryElement[], offsets: Float64Array, currents: Float64Array, dt: number) => {
       dots.forEach((line, i) => {
         const fraction = (currents[i] ?? 0) / maxI;
         offsets[i] = (offsets[i] - fraction * MAX_DOT_SPEED * dt) % DOT_SPACING;
@@ -87,9 +87,14 @@ export const LiveOverlay: React.FC<Props> = ({ layout, frameRef, onScale }) => {
 
   return (
     <g ref={rootRef} pointerEvents="none" data-testid="live-overlay">
-      {layout.dots.map((d, i) => (
-        <line key={i} data-live="device-dots" x1={d.a.x} y1={d.a.y} x2={d.b.x} y2={d.b.y} stroke={DOT_COLOR} strokeWidth={4.5} strokeLinecap="round" style={dotStyle} />
-      ))}
+      {layout.dots.map((d, i) =>
+        // Through the corners of the drawing where it has them, straight otherwise
+        d.via ? (
+          <polyline key={i} data-live="device-dots" points={[d.a, ...d.via, d.b].map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke={DOT_COLOR} strokeWidth={4.5} strokeLinecap="round" style={dotStyle} />
+        ) : (
+          <line key={i} data-live="device-dots" x1={d.a.x} y1={d.a.y} x2={d.b.x} y2={d.b.y} stroke={DOT_COLOR} strokeWidth={4.5} strokeLinecap="round" style={dotStyle} />
+        ),
+      )}
       {layout.graph.edges.map((e, i) => (
         <line key={i} data-live="edge-dots" x1={e.a.x} y1={e.a.y} x2={e.b.x} y2={e.b.y} stroke={DOT_COLOR} strokeWidth={4.5} strokeLinecap="round" style={dotStyle} />
       ))}

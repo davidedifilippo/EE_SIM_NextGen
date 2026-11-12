@@ -1,12 +1,13 @@
 import { MotorState } from './motor';
 import { Circuit, Element, Pt, SpiceDef } from '../model/types';
-import { getDevice } from '../library/devices';
+import { getDevice, STEP_RAIL } from '../library/devices';
 import { computeConnectivity, terminalKey } from '../netlist/connectivity';
 import { localToWorld, ptKey } from '../utils/geometry';
 import { CompiledCircuit, compileCircuit } from './compile';
 import { METER_MODES, MeterWindow, readingWindow, slowestPeriod } from './meter';
 import { RegulatorRegion } from './regulator';
 import { SsrStatus } from './ssr';
+import { StepRelayStatus } from './stepRelay';
 import { RealtimeEngine, SolverError } from './engine';
 import { buildWireGraph, solveWireCurrents, WireGraph } from './wireGraph';
 import { flattenBlocks, isInsideBlock } from '../library/blocks';
@@ -30,6 +31,8 @@ export interface LiveBlockPin {
 export interface DeviceDots {
   a: Pt;
   b: Pt;
+  /** The corners between a and b, where the path follows the drawing instead of going straight. */
+  via?: Pt[];
 }
 
 /** What the animation draws. Main thread and worker build it from the same circuit, so indices match. */
@@ -70,6 +73,8 @@ export interface LiveFrame {
    */
   glowMean: Float64Array;
   /** The RMS voltage of each lamp over the last two periods or so; NaN for the other parts. */
+  /** For each lamp, its light as a share of the rated one, from its filament; NaN for the other parts. */
+  lampLight: Float64Array;
   lampRms: Float64Array;
   /** Each 555: whether its output is high, and what is beyond its limits. */
   timers: ({ isHigh: boolean; warnings: string[] } | null)[];
@@ -77,6 +82,8 @@ export interface LiveFrame {
   optos: (string[] | null)[];
   /** Each solid state relay: whether its control is active and its triac on, and what is beyond its ratings. */
   ssrs: (SsrStatus | null)[];
+  /** Each step relay: its sequence, its contacts, what is beyond its ratings. */
+  stepRelays: (StepRelayStatus | null)[];
   /** Each relay: whether its contact is closed. */
   relays: (boolean | null)[];
   /** For each logic part: the level of each output, then of each input. */
@@ -137,6 +144,8 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
       return [s.anode, s.cathode, s.collector, s.emitter];
     case 'ssr':
       return [s.plus, s.minus, s.out1, s.out2];
+    case 'steprelay':
+      return s.c4 ? [s.common, s.coil2, s.c2, s.c4] : [s.common, s.coil2, s.c2];
     case 'relay':
       return s.nc ? [s.coil1, s.coil2, s.c1, s.c2, s.nc] : [s.coil1, s.coil2, s.c1, s.c2];
     case 'mcu':
@@ -202,6 +211,11 @@ export function buildLiveLayout(circuit: Circuit, compiled: CompiledCircuit): Li
     if (isPerLead) points.forEach((p) => dots.push({ a: p, b: { x: el.x, y: el.y } }));
     // One run per winding: the primary, and each half of the secondary to the centre tap
     else if (def.spice.kind === 'ctransformer') dots.push({ a: points[0], b: points[1] }, { a: points[2], b: points[3] }, { a: points[3], b: points[4] });
+    // A step relay: through the coil, then from A1 along the rail at the top and down each contact
+    else if (def.spice.kind === 'steprelay') {
+      const local = (x: number, y: number) => localToWorld(el.x, el.y, { x, y }, el.rot, el.flip);
+      dots.push({ a: points[0], b: points[1] }, ...def.terminals.slice(2).map((t, k) => ({ a: points[0], b: points[2 + k], via: [local(STEP_RAIL.x, STEP_RAIL.y), local(t.x, STEP_RAIL.y)] })));
+    }
     // A changeover relay: through the coil, then from the common to each of its two ways
     else if (def.spice.kind === 'relay' && points.length === 5) dots.push({ a: points[0], b: points[1] }, { a: points[2], b: points[3] }, { a: points[2], b: points[4] });
     else if (points.length === 2) dots.push({ a: points[0], b: points[1] });
@@ -329,10 +343,12 @@ export class LiveSimulation {
           if (device.kind === 'relay') return () => engine.nodeVoltage(device.c) - engine.nodeVoltage(device.d);
           if (device.kind === 'opto') return () => engine.nodeVoltage(device.c) - engine.nodeVoltage(device.e);
           if (device.kind === 'ssr') return () => engine.nodeVoltage(device.c) - engine.nodeVoltage(device.d);
+          if (device.kind === 'steprelay') return () => engine.nodeVoltage(device.a) - engine.nodeVoltage(device.c2);
           return device.kind === 'bjt' || device.kind === 'mos' ? () => engine.nodeVoltage(device.base) - engine.nodeVoltage(device.b) : () => NaN;
         case 'ib':
           if (device.kind === 'regulator') return () => -engine.terminalCurrents(index)[1];
           if (device.kind === 'transformer' || device.kind === 'relay' || device.kind === 'opto' || device.kind === 'ssr') return () => engine.terminalCurrents(index)[2];
+          if (device.kind === 'steprelay') return () => -engine.terminalCurrents(index)[2];
           return device.kind === 'bjt' ? () => engine.terminalCurrents(index)[1] : () => NaN;
       }
     });
@@ -418,7 +434,10 @@ export class LiveSimulation {
     this.leds = compiled.elementIds.flatMap((id, i) => (defOf(id) === 'led' ? [i] : []));
     this.lamps = compiled.elementIds.flatMap((id, i) => (defOf(id) === 'lamp' ? [i] : []));
     this.ledSum = new Float64Array(compiled.devices.length);
-    this.lampSquares = new Float64Array(compiled.devices.length).fill(NaN);
+    // Pressing a button loads the circuit again: each lamp keeps the mean it had, as a fresh start from the
+    // voltage of that instant would read the peak of an alternating one as its RMS
+    const squares = new Map(previous?.compiled.elementIds.map((id, i) => [id, this.lampSquares[i]]) ?? []);
+    this.lampSquares = Float64Array.from(compiled.elementIds, (id) => squares.get(id) ?? NaN);
     this.ledSteps = 0;
     this.resolveProbes();
     this.resolveMeters();
@@ -525,10 +544,13 @@ export class LiveSimulation {
       if (d.kind === 'timer') deviceVbe[i] = engine.nodeVoltage(d.vcc) - engine.nodeVoltage(d.b);
       if (d.kind === 'opto') deviceVbe[i] = engine.nodeVoltage(d.c) - engine.nodeVoltage(d.e);
       if (d.kind === 'ssr') deviceVbe[i] = engine.nodeVoltage(d.c) - engine.nodeVoltage(d.d);
+      if (d.kind === 'steprelay') deviceVbe[i] = engine.nodeVoltage(d.a) - engine.nodeVoltage(d.c2);
       const { firstDot } = layout.devices[i];
       if (firstDot < 0) {
         // Inside a block: what it takes reaches the sheet through the pins
       } else if (d.kind === 'logic' || d.kind === 'display7' || d.kind === 'bridge' || d.kind === 'mcu') currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
+      // From A1 through the coil, and to each contact: what leaves by A2, 2 and 4
+      else if (d.kind === 'steprelay') currents.slice(1).forEach((current, k) => (dotCurrent[firstDot + k] = -current));
       else if (d.kind === 'ctransformer') [dotCurrent[firstDot], dotCurrent[firstDot + 1], dotCurrent[firstDot + 2]] = [currents[0], currents[2], -currents[4]];
       else if (d.kind === 'relay' && currents.length === 5) [dotCurrent[firstDot], dotCurrent[firstDot + 1], dotCurrent[firstDot + 2]] = [currents[0], -currents[3], -currents[4]];
       else if (currents.length === 2) dotCurrent[firstDot] = currents[0];
@@ -565,13 +587,16 @@ export class LiveSimulation {
     const timers = devices.map((_, i) => engine.timerStatus(i));
     const optos = devices.map((_, i) => engine.optoStatus(i));
     const ssrs = devices.map((_, i) => engine.ssrStatus(i));
+    const stepRelays = devices.map((_, i) => engine.stepRelayStatus(i));
     const glowMean = new Float64Array(devices.length).fill(NaN);
     for (const i of this.leds) glowMean[i] = this.ledSteps > 0 ? this.ledSum[i] / this.ledSteps : engine.deviceCurrent(i);
     for (const i of this.lamps) glowMean[i] = this.ledSteps > 0 ? this.ledSum[i] / this.ledSteps : this.lampPower(i);
+    const lampLight = new Float64Array(devices.length).fill(NaN);
+    for (const i of this.lamps) lampLight[i] = engine.lampLight(i);
     const lampRms = new Float64Array(devices.length).fill(NaN);
     for (const i of this.lamps) lampRms[i] = Number.isNaN(this.lampSquares[i]) ? Math.abs(this.lampVoltage(i)) : Math.sqrt(this.lampSquares[i]);
     this.ledSum.fill(0);
     this.ledSteps = 0;
-    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, relays, mcus, timers, optos, ssrs, glowMean, lampRms, logic, scope: this.takeSamples() };
+    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, relays, mcus, timers, optos, ssrs, stepRelays, glowMean, lampLight, lampRms, logic, scope: this.takeSamples() };
   }
 }

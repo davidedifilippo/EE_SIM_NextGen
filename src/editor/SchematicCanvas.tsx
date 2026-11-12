@@ -180,7 +180,9 @@ export const SchematicCanvas: React.FC<Props> = ({
       const margin = 90;
       const [minX, maxX] = [Math.min(...pts.map((p) => p.x)) - margin, Math.max(...pts.map((p) => p.x)) + margin];
       const [minY, maxY] = [Math.min(...pts.map((p) => p.y)) - margin, Math.max(...pts.map((p) => p.y)) + margin];
-      const fit = Math.max(MIN_ZOOM, Math.min(1, el.clientWidth / (maxX - minX), el.clientHeight / (maxY - minY)));
+      // No larger than life, which on a phone layout drawn larger is as large as its controls
+      const life = Number(getComputedStyle(el).getPropertyValue('--control-scale')) || 1;
+      const fit = Math.max(MIN_ZOOM, Math.min(life, el.clientWidth / (maxX - minX), el.clientHeight / (maxY - minY)));
       setZoom(fit);
       setPan({
         x: (el.clientWidth - (maxX - minX) * fit) / 2 - minX * fit,

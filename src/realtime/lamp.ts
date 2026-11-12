@@ -58,8 +58,15 @@ export function steadyTemperature(p: LampParams, volts: number): number {
 export const filamentExpression = (p: LampParams, t: string) => `(${p.hot}*pow(max(${t},${LAMP_AMBIENT}),${RESISTANCE_EXPONENT}))`;
 export const radiatedExpression = (t: string) => `(pow(max(${t},0),4)-${Math.pow(LAMP_AMBIENT, 4)})/${1 - Math.pow(LAMP_AMBIENT, 4)}`;
 
-/** How bright it looks, from the power it takes against its rating: the eye sees more than the share of power at low light. */
-export const lampBrightness = (power: number, rated: number) => Math.min(1, Math.pow(Math.max(power, 0) / rated, 0.6));
+/**
+ * The light of a filament, as a share of what it gives at its rated power: what it radiates at its
+ * temperature. It follows the filament, not the current, so on alternating current it barely moves between
+ * the peaks, as with a real lamp.
+ */
+export const filamentLight = (t: number) => Math.max(0, radiated(t));
+
+/** How bright it looks, from its light as a share of the rated one: the eye sees more than that share at low light. */
+export const lampBrightness = (light: number) => Math.min(1, Math.pow(Math.max(light, 0), 0.6));
 
 /** Over 110% of its rated voltage a real lamp would soon burn out. */
 export const LAMP_OVERVOLTAGE = 1.1;
