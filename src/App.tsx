@@ -6,6 +6,7 @@ import { ScopePanel } from './ui/ScopePanel';
 import { SerialMonitor } from './ui/SerialMonitor';
 import { AnalysisControls } from './ui/AnalysisControls';
 import { ResultsView } from './ui/ResultsView';
+import { HAS_BREADBOARD } from './edition';
 import { CanvasArea, CircuitFileInput, EditButtons, ExamplesSelect, Library, Properties, SpeedSelect, ThemeSelect, ValuesToggle, ViewSwitch } from './workbench/parts';
 import { Workbench } from './workbench/useWorkbench';
 
@@ -29,7 +30,7 @@ export const App: React.FC<{ wb: Workbench; onPhoneLayout: () => void }> = ({ wb
         <CircuitFileInput wb={wb} />
       </div>
       <div className="button-row">
-        <ViewSwitch wb={wb} />
+        {HAS_BREADBOARD && <ViewSwitch wb={wb} />}
         <EditButtons wb={wb} />
         <ThemeSelect wb={wb} />
         <button className="layout-switch" onClick={onPhoneLayout} title="L'interfaccia pensata per gli schermi piccoli">

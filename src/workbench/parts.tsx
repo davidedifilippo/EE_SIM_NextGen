@@ -1,4 +1,5 @@
-import React, { useMemo } from 'react';
+import React, { lazy, Suspense, useMemo } from 'react';
+import { HAS_BREADBOARD } from '../edition';
 import { ComponentDef } from '../model/types';
 import { canRotate, getDevice } from '../library/devices';
 import { EXAMPLES } from '../samples/examples';
@@ -8,10 +9,12 @@ import { LiveLegend, SourceStats, SPEEDS } from '../ui/LiveControls';
 import { speedLabel } from '../realtime/liveRate';
 import { PropertiesPanel } from '../ui/PropertiesPanel';
 import { BlockDialog } from '../ui/BlockDialog';
-import { BreadboardCanvas } from '../ui/BreadboardCanvas';
 import { MAX_TRACES } from '../ui/scopeTraces';
 import { THEME_CHOICES } from '../ui/theme';
 import { Workbench } from './useWorkbench';
+
+/** Fetched when the view is first opened, and only in the edition that has it. */
+const BreadboardCanvas = HAS_BREADBOARD ? lazy(() => import('../ui/BreadboardCanvas').then((m) => ({ default: m.BreadboardCanvas }))) : null;
 
 /** Undo, redo and rotate, side by side under the thumb: the same three on every screen. */
 export const EditButtons: React.FC<{ wb: Workbench }> = ({ wb }) => {
@@ -139,7 +142,8 @@ export const CanvasArea: React.FC<{ wb: Workbench }> = ({ wb }) => (
       </p>
     )}
     {wb.resolved.elements.some((el) => (el.def === 'opamp' || getDevice(el.def)?.spice.kind === 'regulator') && el.props.model) && <p className="live-note">Animazione con il comportamento semplice: i modelli importati valgono per l'Analisi precisa</p>}
-    {wb.view === 'breadboard' ? (
+    {BreadboardCanvas && wb.view === 'breadboard' ? (
+      <Suspense fallback={null}>
       <BreadboardCanvas
         key={`bb${wb.documentId}`}
         circuit={wb.circuit}
@@ -153,6 +157,7 @@ export const CanvasArea: React.FC<{ wb: Workbench }> = ({ wb }) => (
         layout={wb.live.layout}
         frameRef={wb.live.frameRef}
       />
+      </Suspense>
     ) : (
     <SchematicCanvas
       key={wb.documentId}

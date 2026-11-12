@@ -13,6 +13,7 @@ import { TimerNote } from './TimerView';
 import { LampNote } from './LampNote';
 import { SsrNote } from './SsrNote';
 import { changeJumper, JUMPER_COLORS } from '../breadboard/edit';
+import { HAS_BREADBOARD } from '../edition';
 import { VERSION_OPTIONS } from '../realtime/stepRelay';
 import { StepRelayNote } from './StepRelayNote';
 import { compositeParts } from '../library/composites';
@@ -95,7 +96,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
   }
 
   // A jumper of the breadboard: its colour, or out
-  const jumper = selectedIds.size === 1 ? circuit.breadboard?.wires.find((w) => selectedIds.has(w.id)) : undefined;
+  const jumper = HAS_BREADBOARD && selectedIds.size === 1 ? circuit.breadboard?.wires.find((w) => selectedIds.has(w.id)) : undefined;
   if (jumper) {
     return (
       <div className="properties">

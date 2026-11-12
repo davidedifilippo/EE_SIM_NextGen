@@ -4,6 +4,8 @@ Simulatore di circuiti elettronici open source, nel browser, con l'immediatezza 
 
 **Apri l'app:** https://davidedifilippo.github.io/EE_SIM_NextGen/
 
+**Edizione con breadboard, in sviluppo:** https://davidedifilippo.github.io/EE_SIM_NextGen/breadboard/ (lo stesso simulatore, con in più la vista dei componenti montati sulla breadboard)
+
 Funziona su computer, tablet e telefono, anche con il dito. Non serve installare nulla e il circuito non lascia mai il dispositivo: si salva nel browser e, se vuoi, in un file.
 
 ## Cosa sa fare
@@ -70,6 +72,16 @@ Compila la versione da pubblicare nella cartella `dist`:
 
 ```bash
 npm run build
+```
+
+L'edizione con breadboard si avvia e si compila a parte, dallo stesso codice (la compilazione va in `dist/breadboard`, dopo quella principale):
+
+```bash
+npm run dev:breadboard
+```
+
+```bash
+npm run build:breadboard
 ```
 
 A ogni push su `main`, GitHub Actions esegue test e build e pubblica il sito. Se un test fallisce, il sito resta alla versione precedente.

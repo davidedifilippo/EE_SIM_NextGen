@@ -4,6 +4,7 @@ import { blockProblem, createBlock, flattenBlocks, knownBlock, registerBlocks, w
 import { ProposedPin, replaceWithBlock, selectionBoundary } from '../library/blockFromSelection';
 import { addToBlockLibrary, loadBlockLibrary, saveBlockLibrary } from '../storage/blockLibrary';
 import { removeFromBoard, turnOnBoard } from '../breadboard/edit';
+import { HAS_BREADBOARD } from '../edition';
 import { canMirror, canRotate, getDevice, isVoltageSource } from '../library/devices';
 import { circuitForSaving, withLibraryModels } from '../library/models';
 import { Analysis, describeNodes, generateNetlist, sweepCount } from '../netlist/generate';
@@ -66,7 +67,8 @@ export function useWorkbench() {
   });
   /** The selection about to become a block: the pins proposed, and what went wrong at the last try. */
   /** Which drawing of the circuit is on screen: the schematic, or the parts mounted on the breadboard. */
-  const [view, setView] = useState<'schematic' | 'breadboard'>('schematic');
+  const [chosenView, setView] = useState<'schematic' | 'breadboard'>('schematic');
+  const view = HAS_BREADBOARD ? chosenView : 'schematic';
   const [blockDraft, setBlockDraft] = useState<{ pins: ProposedPin[]; error: string | null } | null>(null);
   /** The circuit as engines and files need it, with the library models it uses. */
   const resolved = useMemo(() => withLibraryModels(circuit, library), [circuit, library]);
@@ -373,7 +375,7 @@ export function useWorkbench() {
 
   const deleteSelected = useCallback(() => {
     // On the breadboard a part only comes out of it, back to the tray: it stays in the schematic
-    if (view === 'breadboard') {
+    if (HAS_BREADBOARD && view === 'breadboard') {
       handleChange(removeFromBoard(circuit, selectedIds));
       setSelectedIds(new Set());
       return;
@@ -396,7 +398,7 @@ export function useWorkbench() {
   }, [circuit, selectedIds, handleChange]);
 
   const rotateSelected = useCallback(() => {
-    if (view === 'breadboard') {
+    if (HAS_BREADBOARD && view === 'breadboard') {
       handleChange(turnOnBoard(circuit, selectedIds));
       return;
     }
