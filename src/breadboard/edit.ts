@@ -28,8 +28,12 @@ export function movedPlace(place: BreadboardPlace, by: Pt): BreadboardPlace {
   return { ...place, ...move(place), ...(place.legs ? { legs: [move(place.legs[0]), move(place.legs[1])] as [Pt, Pt] } : {}) };
 }
 
-/** A quarter turn clockwise: a part with two leads turns its second lead around the first. */
-export function turnedPlace(place: BreadboardPlace): BreadboardPlace {
+/**
+ * A quarter turn clockwise: a part with two leads turns its second lead around the first. An instrument with
+ * a display, as the bench supply, stays upright.
+ */
+export function turnedPlace(place: BreadboardPlace, canTurn = true): BreadboardPlace {
+  if (!canTurn) return place;
   if (place.legs) {
     const [a, b] = place.legs;
     return { ...place, legs: [a, { x: a.x - (b.y - a.y), y: a.y + (b.x - a.x) }] };
@@ -43,7 +47,7 @@ export const updateElements = (circuit: Circuit, ids: Set<string>, change: (el: 
 });
 
 /** The selected parts turned on the breadboard. */
-export const turnOnBoard = (circuit: Circuit, ids: Set<string>): Circuit => updateElements(circuit, ids, (el) => (el.bb ? { ...el, bb: turnedPlace(el.bb) } : el));
+export const turnOnBoard = (circuit: Circuit, ids: Set<string>): Circuit => updateElements(circuit, ids, (el) => (el.bb ? { ...el, bb: turnedPlace(el.bb, footprintOf(el)?.art !== 'benchsupply') } : el));
 
 /** Out of the breadboard: the selected jumpers go, the selected parts back to the tray, still in the schematic. */
 export function removeFromBoard(circuit: Circuit, ids: Set<string>): Circuit {

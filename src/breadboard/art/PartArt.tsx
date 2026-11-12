@@ -3,7 +3,8 @@ import { getDevice } from '../../library/devices';
 import { Element, Pt } from '../../model/types';
 import { LED_COLORS } from '../../ui/LogicView';
 import { resistorBands } from '../colorCode';
-import { Footprint } from '../footprints';
+import { Footprint, SUPPLY_SOCKETS } from '../footprints';
+import { parseSpiceValue } from '../../netlist/values';
 
 /**
  * The parts as they look on the bench, seen from above, in the units of the breadboard (10 is one pitch).
@@ -164,6 +165,112 @@ const Lamp = () => (
   </>
 );
 
+/** The scale of the drawing of the bench supply, made on a sheet of 640 by 400, to the units of the breadboard. */
+const SUPPLY_SCALE = 0.298;
+/** Where its red socket is on that sheet: the place of the part on the breadboard. */
+const SUPPLY_ORIGIN = { x: 225, y: 291 };
+/** The black socket, two pitches to the right whatever the scale. */
+const SUPPLY_NEG_X = SUPPLY_ORIGIN.x + (SUPPLY_SOCKETS * 10) / SUPPLY_SCALE;
+const SUPPLY_FONT = 'Arial, sans-serif';
+const SUPPLY_DIGITS = "'Courier New', ui-monospace, monospace";
+
+/** The gradients of the bench supply, once for the whole view. */
+export const BenchSupplyDefs = () => (
+  <defs>
+    <linearGradient id="bench-case" x2="0" y2="1">
+      <stop stopColor="#f7f8fa" />
+      <stop offset="1" stopColor="#c8cdd3" />
+    </linearGradient>
+    <linearGradient id="bench-face" x2="0" y2="1">
+      <stop stopColor="#eef1f4" />
+      <stop offset="1" stopColor="#dce1e6" />
+    </linearGradient>
+    <linearGradient id="bench-screen" x2="0" y2="1">
+      <stop stopColor="#142827" />
+      <stop offset="1" stopColor="#071312" />
+    </linearGradient>
+  </defs>
+);
+
+/** What the display of a bench supply shows: volts with two decimals up to 100, amperes with three up to 10. */
+export const supplyVolts = (v: number) => (Math.abs(v) < 99.995 ? v.toFixed(2) : v.toFixed(1));
+export const supplyAmps = (i: number) => (Math.abs(i) < 9.9995 ? i.toFixed(3) : i.toFixed(2));
+
+function Socket({ x, fill, core, sign }: { x: number; fill: string; core: string; sign: string }) {
+  return (
+    <>
+      {/* A press on a socket starts a jumper from it, and does not move the instrument */}
+      <g data-socket="">
+        <circle cx={x} cy={291} r={18} fill={fill} stroke="#f8f8f8" strokeWidth={4} />
+        <circle cx={x} cy={291} r={8} fill={core} />
+      </g>
+      <text x={x} y={325} textAnchor="middle" fontFamily={SUPPLY_FONT} fontSize={11} fontWeight={700} fill="#66717b">
+        {sign}
+      </text>
+    </>
+  );
+}
+
+/**
+ * A small bench supply, from the drawing of the author: the case, the display of voltage and current, the
+ * knobs and the two sockets, the red one at the place of the part. The canvas writes the display as the
+ * animation runs, by the id of the part.
+ */
+function BenchSupply({ id, volts }: { id: string; volts: number | null }) {
+  return (
+    <g transform={`scale(${SUPPLY_SCALE}) translate(${-SUPPLY_ORIGIN.x} ${-SUPPLY_ORIGIN.y})`}>
+      {/* A flat shadow on the bench */}
+      <ellipse cx={320} cy={346} rx={226} ry={14} fill="#243244" opacity={0.16} />
+      <path d="M102 72 Q102 54 122 54 H518 Q538 54 538 74 V317 Q538 333 520 338 H120 Q102 333 102 317Z" fill="url(#bench-case)" stroke="#9ca4ad" strokeWidth={3} />
+      <path d="M116 73 Q116 67 124 67 H516 Q524 67 524 75 V308 H116Z" fill="url(#bench-face)" stroke="#ffffff" strokeOpacity={0.8} strokeWidth={2} />
+      <g fill="#aab1b8" opacity={0.8}>
+        <rect x={390} y={79} width={82} height={4} rx={2} />
+        <rect x={390} y={87} width={82} height={4} rx={2} />
+        <rect x={390} y={95} width={82} height={4} rx={2} />
+      </g>
+      <text x={142} y={108} fontFamily={SUPPLY_FONT} fontSize={20} fontWeight={700} letterSpacing={2} fill="#414b55">
+        DC POWER SUPPLY
+      </text>
+      {/* The display, set into the face */}
+      <rect x={140} y={136} width={360} height={111} rx={11} fill="#222a2d" stroke="#8b9298" strokeWidth={3} />
+      <rect x={150} y={145} width={340} height={92} rx={6} fill="url(#bench-screen)" />
+      <line x1={320} y1={154} x2={320} y2={228} stroke="#34403e" strokeWidth={2} />
+      <text x={170} y={167} fontFamily={SUPPLY_FONT} fontSize={10} fontWeight={700} letterSpacing={2} fill="#94aaa1">
+        VOLTAGE
+      </text>
+      <text x={341} y={167} fontFamily={SUPPLY_FONT} fontSize={10} fontWeight={700} letterSpacing={2} fill="#94aaa1">
+        CURRENT
+      </text>
+      <text x={166} y={215} fontFamily={SUPPLY_DIGITS} fontSize={38} fontWeight={700} fill="#80f3a1">
+        <tspan data-supply-volts={id}>{volts === null ? '--.--' : supplyVolts(volts)}</tspan>
+        <tspan fontSize={19}> V</tspan>
+      </text>
+      <text x={337} y={215} fontFamily={SUPPLY_DIGITS} fontSize={38} fontWeight={700} fill="#ffc66e">
+        <tspan data-supply-amps={id}>{supplyAmps(0)}</tspan>
+        <tspan fontSize={19}> A</tspan>
+      </text>
+      <circle data-supply-lamp={id} cx={159} cy={259} r={5} fill="#7b858e" />
+      <text x={172} y={263} fontFamily={SUPPLY_FONT} fontSize={10} fontWeight={700} letterSpacing={1} fill="#5c6670">
+        OUTPUT ON
+      </text>
+      {/* The knobs: for show, the voltage is set in the properties */}
+      {[457, 505].map((x) => (
+        <g key={x}>
+          <circle cx={x} cy={273} r={18} fill="#68727b" stroke="#f7f8f9" strokeWidth={3} />
+          <circle cx={x} cy={273} r={12} fill="#353e46" />
+          <path d={`M${x} 263v8`} stroke="#e9edf0" strokeWidth={2.5} strokeLinecap="round" />
+        </g>
+      ))}
+      <Socket x={SUPPLY_ORIGIN.x} fill="#b52f39" core="#73232a" sign="+" />
+      <Socket x={SUPPLY_NEG_X} fill="#39424b" core="#1c2329" sign="−" />
+      <path d="M129 335h42l-5 8h-32zm338 0h42l-5 8h-32z" fill="#69727a" />
+    </g>
+  );
+}
+
+/** The colours of the lamp beside OUTPUT ON, with the animation running and stopped. */
+export const SUPPLY_LAMP = { on: '#36c878', off: '#7b858e' };
+
 /** Any other part: a box along its pins, with its name. */
 function Generic({ count, name }: { count: number; name: string }) {
   const width = Math.max(1, count - 1) * 10 + 8;
@@ -249,6 +356,9 @@ export const PartArt: React.FC<Props> = ({ el, footprint, pins, isSelected }) =>
       break;
     case 'lamp':
       body = turned(<Lamp />);
+      break;
+    case 'benchsupply':
+      body = turned(<BenchSupply id={el.id} volts={parseSpiceValue(String(el.props.amplitude ?? ''))} />);
       break;
     default:
       body = turned(<Generic count={pins.length} name={el.tag || def.name} />);

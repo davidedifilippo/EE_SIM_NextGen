@@ -24,6 +24,7 @@ export type Art =
   | 'toggle'
   | 'slide'
   | 'lamp'
+  | 'benchsupply'
   | 'generic';
 
 export interface FootprintPin {
@@ -66,6 +67,9 @@ const TRANSISTOR_PINS: Record<string, { pins: string[]; art: Art }> = {
 };
 const TERMINAL_OF: Record<string, string> = { E: 'emitter', B: 'base', C: 'collector', S: 'source', G: 'gate', D: 'drain' };
 
+/** Pitches between the two sockets of the bench supply. */
+export const SUPPLY_SOCKETS = 2;
+
 /** A capacitor from 1 µF up is an electrolytic, below a ceramic disc. */
 export function isElectrolytic(value: string | number | undefined): boolean {
   const farad = parseSpiceValue(String(value ?? ''));
@@ -101,6 +105,9 @@ export function footprintOf(el: Element): Footprint | null {
       return { art: 'toggle', hasLeads: false, pins: [pin('a', 0, 0, '1'), pin('b', 2, 0, '2')] };
     case 'spdt':
       return { art: 'slide', hasLeads: false, pins: [pin('1', 0, 0, '1'), pin('c', 1, 0, 'C'), pin('2', 2, 0, '2')] };
+    case 'dcsupply':
+      // A bench supply beside the breadboard: jumpers go from its two sockets to the rails
+      return { art: 'benchsupply', hasLeads: false, pins: [pin('pos', 0, 0, '+'), pin('neg', SUPPLY_SOCKETS, 0, '−')] };
     case 'lamp':
       return { art: 'lamp', hasLeads: false, pins: [pin('a', 0, 0, '1'), pin('b', 2, 0, '2')] };
   }

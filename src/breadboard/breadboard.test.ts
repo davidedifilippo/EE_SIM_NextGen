@@ -5,7 +5,10 @@ import { HOLES, holeAt } from './board';
 import { resistorBands } from './colorCode';
 import { compareWithSchematic, comparisonSummary } from './compare';
 import { footprintOf, isElectrolytic, pinPoints } from './footprints';
-import { removeFromBoard, turnedPlace } from './edit';
+import { removeFromBoard, turnedPlace, turnOnBoard } from './edit';
+import { supplyAmps, supplyVolts } from './art/PartArt';
+import { compileCircuit } from '../realtime/compile';
+import { LiveSimulation } from '../realtime/liveSimulation';
 import { parseCircuitFile, serializeCircuit } from '../storage/circuitFile';
 
 const part = (id: string, def: string, x: number, y: number, rot: Rotation, tag: string, props: Record<string, string> = {}): Element => ({
@@ -81,7 +84,8 @@ describe('the breadboard', () => {
 const divider = (): Circuit => ({
   title: 't',
   elements: [
-    part('v1', 'dcsupply', 0, 40, 90, 'V1', { amplitude: '10' }),
+    // A battery, which goes into the holes: the DC supply stands beside the breadboard
+    part('v1', 'battery', 0, 40, 90, 'V1', { amplitude: '10' }),
     part('g', 'ground', 0, 80, 0, ''),
     part('r1', 'resistor', 160, 0, 0, 'R1', { value: '1k' }),
     part('r2', 'resistor', 240, 40, 90, 'R2', { value: '1k' }),
@@ -159,5 +163,70 @@ describe('the breadboard in files and edits', () => {
     expect(back.elements.find((el) => el.id === 'r1')!.bb).toBeUndefined();
     expect(back.elements.find((el) => el.id === 'r1')).toBeDefined();
     expect(back.breadboard!.wires).toEqual([]);
+  });
+});
+
+/**
+ * A supply of 12 V with 1 Ω inside, on a resistor of 11 Ω. On the breadboard the supply stands below it, its
+ * sockets at (100, 250) and (120, 250); the resistor between a11 and a15; a jumper from each socket.
+ */
+function supplied(jumpers: [[number, number], [number, number]][]): Circuit {
+  return {
+    title: 't',
+    elements: [
+      { ...part('v1', 'dcsupply', 0, 40, 90, 'V1', { amplitude: '12', rint: '1' }), bb: { x: 100, y: 250, rot: 0 } },
+      { ...part('r1', 'resistor', 80, 40, 90, 'R1', { value: '11' }), bb: { x: 100, y: 0, rot: 0, legs: [{ x: 100, y: 0 }, { x: 140, y: 0 }] } },
+      part('g', 'ground', 0, 80, 0, ''),
+    ],
+    wires: [wire('w1', [0, 0], [80, 0]), wire('w2', [0, 80], [80, 80])],
+    models: [],
+    breadboard: { wires: jumpers.map(([a, b], k) => ({ id: `j${k}`, a: { x: a[0], y: a[1] }, b: { x: b[0], y: b[1] }, color: '#dc2626' })) },
+  };
+}
+const PLUS: [[number, number], [number, number]] = [[100, 250], [100, 10]];
+const MINUS: [[number, number], [number, number]] = [[120, 250], [140, 10]];
+
+describe('the bench supply on the breadboard', () => {
+  it('stands for the DC supply, with a red and a black socket two pitches apart; a battery stays a box', () => {
+    const footprint = footprintOf(part('v1', 'dcsupply', 0, 0, 0, 'V1'))!;
+    expect(footprint.art).toBe('benchsupply');
+    expect(footprint.pins.map((p) => [p.terminal, p.label, p.at.x])).toEqual([['pos', '+', 0], ['neg', '−', 20]]);
+    expect(footprintOf(part('b1', 'battery', 0, 0, 0, 'B1'))!.art).toBe('generic');
+  });
+
+  it('feeds the breadboard through two jumpers from its sockets, beside it', () => {
+    const c = supplied([PLUS, MINUS]);
+    // Its sockets are on no hole: only the jumpers join them to the strips
+    expect(pinPoints(c.elements[0]).map((p) => holeAt(p.at))).toEqual([null, null]);
+    const comparison = compareWithSchematic(c);
+    expect(comparison.missing).toEqual([]);
+    expect(comparison.shorts).toEqual([]);
+  });
+
+  it('is found not joined when a jumper is missing', () => {
+    expect(compareWithSchematic(supplied([PLUS])).missing).toHaveLength(1);
+  });
+
+  it('does not turn: its display would lie on its side', () => {
+    const c = supplied([PLUS, MINUS]);
+    const turned = turnOnBoard(c, new Set(['v1', 'r1']));
+    expect(turned.elements[0].bb).toEqual(c.elements[0].bb);
+    expect(turned.elements[1].bb).not.toEqual(c.elements[1].bb);
+  });
+
+  it('shows the voltage at its sockets and the current it gives', () => {
+    const c = supplied([PLUS, MINUS]);
+    const compiled = compileCircuit(c);
+    if (!compiled.ok) throw new Error(compiled.errors.join());
+    const supply = compiled.compiled.elementIds.indexOf('v1');
+    const sim = new LiveSimulation();
+    expect(sim.load(c)).toEqual({ ok: true });
+    sim.advance(10, 1e-4, 1e6);
+    const frame = sim.frame()!;
+    // 12 V behind 1 Ω on 11 Ω: 11 V at the sockets, 1 A out of the red one
+    expect(supplyVolts(frame.deviceVoltage[supply])).toBe('11.00');
+    expect(supplyAmps(-frame.deviceCurrent[supply])).toBe('1.000');
+    expect(supplyVolts(230)).toBe('230.0');
+    expect(supplyAmps(12.5)).toBe('12.50');
   });
 });

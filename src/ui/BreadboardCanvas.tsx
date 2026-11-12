@@ -3,7 +3,7 @@ import { BOARD_BOX, COLUMNS, GROOVE_Y, HOLES, holeAt, PITCH, RAILS, ROW_LABELS, 
 import { compareWithSchematic, comparisonSummary, isMounted } from '../breadboard/compare';
 import { addJumper, changeJumper, jumpersOf, movedPlace, placeAt, updateElements } from '../breadboard/edit';
 import { footprintOf, pinPoints } from '../breadboard/footprints';
-import { glowSpot, PartArt } from '../breadboard/art/PartArt';
+import { BenchSupplyDefs, glowSpot, PartArt, SUPPLY_LAMP, supplyAmps, supplyVolts } from '../breadboard/art/PartArt';
 import { usePanZoom } from '../editor/usePanZoom';
 import { createElement, getDevice } from '../library/devices';
 import { Circuit, ComponentDef, Pt } from '../model/types';
@@ -81,10 +81,30 @@ export const BreadboardCanvas: React.FC<Props> = ({ circuit, onChange, selectedI
       return [{ ...spot, device, rated }];
     });
   }, [mounted, pinsOf, layout]);
+  // The displays of the bench supplies: what they give now, and whether the animation is running
+  const supplies = useMemo(() => {
+    if (!layout) return [];
+    const index = new Map(layout.devices.map((d, k) => [d.elementId, k]));
+    return mounted.flatMap((el) => {
+      const device = index.get(el.id);
+      return footprintOf(el)?.art === 'benchsupply' && device !== undefined ? [{ id: el.id, device }] : [];
+    });
+  }, [mounted, layout]);
+  const lastTime = useRef(NaN);
   useEffect(() => {
     const refresh = () => {
       const frame = frameRef.current;
       if (!frame) return;
+      const root = containerRef.current;
+      const isRunning = frame.time !== lastTime.current;
+      lastTime.current = frame.time;
+      supplies.forEach(({ id, device }) => {
+        const [volts, amps, lamp] = ['volts', 'amps', 'lamp'].map((what) => root?.querySelector(`[data-supply-${what}="${id}"]`));
+        if (volts) volts.textContent = supplyVolts(frame.deviceVoltage[device]);
+        // Positive when it gives current to the circuit, as the display of a real one
+        if (amps) amps.textContent = supplyAmps(-frame.deviceCurrent[device] || 0);
+        lamp?.setAttribute('fill', isRunning ? SUPPLY_LAMP.on : SUPPLY_LAMP.off);
+      });
       glows.forEach(({ device, rated }, k) => {
         const mean = frame.glowMean[device];
         // A lamp by its filament, as on the schematic
@@ -95,7 +115,7 @@ export const BreadboardCanvas: React.FC<Props> = ({ circuit, onChange, selectedI
     refresh();
     const timer = setInterval(refresh, REFRESH_MS);
     return () => clearInterval(timer);
-  }, [glows, frameRef]);
+  }, [glows, supplies, frameRef]);
 
   // R turns, Delete takes out of the breadboard, as in the schematic
   useEffect(() => {
@@ -145,7 +165,12 @@ export const BreadboardCanvas: React.FC<Props> = ({ circuit, onChange, selectedI
     }
 
     const data = target?.dataset ?? {};
-    if (data.leg) {
+    // The socket of an instrument: a jumper starts from the pin under it
+    const socketPins = (e.target as SVGElement).closest('[data-socket]') && data.part ? pinsOf.get(data.part) : undefined;
+    if (socketPins?.length) {
+      const nearest = socketPins.reduce((best, p) => (Math.hypot(p.at.x - world.x, p.at.y - world.y) < Math.hypot(best.at.x - world.x, best.at.y - world.y) ? p : best));
+      setDrag({ kind: 'newJumper', from: nearest.at });
+    } else if (data.leg) {
       const [id, leg] = data.leg.split('|');
       setDrag({ kind: 'leg', id, leg: Number(leg) as 0 | 1 });
     } else if (data.jumperEnd) {
@@ -256,6 +281,7 @@ export const BreadboardCanvas: React.FC<Props> = ({ circuit, onChange, selectedI
         >
           <svg width="100%" height="100%" aria-label="Breadboard">
             <g transform={`translate(${view.pan.x}, ${view.pan.y}) scale(${view.zoom})`}>
+              <BenchSupplyDefs />
               <Board />
               {mounted.map((el) => (
                 <PartArt key={el.id} el={el} footprint={footprintOf(el)!} pins={pinsOf.get(el.id)!} isSelected={selectedIds.has(el.id)} />
