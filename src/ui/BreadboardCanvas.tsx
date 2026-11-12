@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BOARD_BOX, COLUMNS, GROOVE_Y, HOLES, holeAt, PITCH, RAILS, ROW_LABELS, snapToPitch } from '../breadboard/board';
 import { compareWithSchematic, comparisonSummary, isMounted } from '../breadboard/compare';
-import { addJumper, changeJumper, jumpersOf, movedPlace, placeAt, updateElements } from '../breadboard/edit';
+import { pressOnBoard, addJumper, changeJumper, jumpersOf, movedPlace, placeAt, updateElements } from '../breadboard/edit';
 import { footprintOf, pinPoints } from '../breadboard/footprints';
 import { BenchSupplyDefs, glowSpot, PartArt, SUPPLY_LAMP, supplyAmps, supplyVolts } from '../breadboard/art/PartArt';
 import { usePanZoom } from '../editor/usePanZoom';
@@ -221,6 +221,9 @@ export const BreadboardCanvas: React.FC<Props> = ({ circuit, onChange, selectedI
       const id = `jumper_${Date.now()}`;
       onChange(addJumper(circuit, drag.from, pointer, id));
       onSelectIds(new Set([id]));
+    } else if (drag?.kind === 'part' && !drag.moved && pressOnBoard(circuit, drag.id)) {
+      // A press without a drag on a switch moves its lever, here and in the schematic
+      onChange(pressOnBoard(circuit, drag.id)!);
     } else if (draft && drag && drag.kind !== 'pan' && drag.kind !== 'newJumper') {
       onChange(draft);
     }

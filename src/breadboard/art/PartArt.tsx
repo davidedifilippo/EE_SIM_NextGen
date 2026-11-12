@@ -144,10 +144,15 @@ const Tactile = ({ isPressed }: { isPressed: boolean }) => (
   </>
 );
 
+/** A slide switch: the knob goes to the right to close it, and the side it leaves says ON in green or OFF in red. */
 const Toggle = ({ isOn }: { isOn: boolean }) => (
   <>
     <rect x={-4} y={-12} width={28} height={14} rx={2} fill="#334155" />
-    <rect x={isOn ? 10 : 2} y={-9} width={8} height={8} rx={1} fill="#f8fafc" />
+    <rect x={-2} y={-10} width={24} height={10} rx={1.2} fill={isOn ? '#16a34a' : '#dc2626'} />
+    <text {...LABEL} x={isOn ? 4.5 : 15.5} y={-3.2} fontSize={4.6} fontWeight={700} fill="#ffffff">
+      {isOn ? 'ON' : 'OFF'}
+    </text>
+    <rect x={isOn ? 11 : -1} y={-9.5} width={10} height={9} rx={1} fill="#f8fafc" stroke="#94a3b8" strokeWidth={0.4} />
   </>
 );
 

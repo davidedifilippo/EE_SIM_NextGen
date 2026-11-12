@@ -5,7 +5,7 @@ import { HOLES, holeAt } from './board';
 import { resistorBands } from './colorCode';
 import { compareWithSchematic, comparisonSummary } from './compare';
 import { footprintOf, isElectrolytic, pinPoints } from './footprints';
-import { removeFromBoard, turnedPlace, turnOnBoard } from './edit';
+import { pressOnBoard, removeFromBoard, turnedPlace, turnOnBoard } from './edit';
 import { supplyAmps, supplyVolts } from './art/PartArt';
 import { compileCircuit } from '../realtime/compile';
 import { LiveSimulation } from '../realtime/liveSimulation';
@@ -228,5 +228,24 @@ describe('the bench supply on the breadboard', () => {
     expect(supplyAmps(-frame.deviceCurrent[supply])).toBe('1.000');
     expect(supplyVolts(230)).toBe('230.0');
     expect(supplyAmps(12.5)).toBe('12.50');
+  });
+});
+
+describe('the switches on the breadboard', () => {
+  it('a press closes and opens a switch, the same part as in the schematic', () => {
+    const c: Circuit = { title: 't', elements: [{ ...part('s1', 'switch', 0, 0, 0, 'S1'), bb: { x: 0, y: 0, rot: 0 } }], wires: [], models: [] };
+    const closed = pressOnBoard(c, 's1')!;
+    expect(closed.elements[0].props.closed).toBe('1');
+    expect(pressOnBoard(closed, 's1')!.elements[0].props.closed).toBe('0');
+    // Where it is mounted does not change
+    expect(closed.elements[0].bb).toEqual(c.elements[0].bb);
+  });
+
+  it('a press sends a changeover to its other way, and does nothing to a part with no lever', () => {
+    const c: Circuit = { title: 't', elements: [{ ...part('s1', 'spdt', 0, 0, 0, 'S1'), bb: { x: 0, y: 0, rot: 0 } }, { ...part('r1', 'resistor', 0, 0, 0, 'R1'), bb: { x: 0, y: 20, rot: 0 } }], wires: [], models: [] };
+    const second = pressOnBoard(c, 's1')!;
+    expect(second.elements[0].props.position).toBe('2');
+    expect(pressOnBoard(second, 's1')!.elements[0].props.position).toBe('1');
+    expect(pressOnBoard(c, 'r1')).toBeNull();
   });
 });

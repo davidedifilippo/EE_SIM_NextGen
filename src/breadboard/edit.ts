@@ -58,6 +58,18 @@ export function removeFromBoard(circuit: Circuit, ids: Set<string>): Circuit {
   return withJumpers(next, jumpersOf(circuit).filter((w) => !ids.has(w.id)));
 }
 
+/**
+ * A press on a part that has a lever: a switch closes or opens, a changeover goes to its other way. It is
+ * the same part as in the schematic, so its lever moves there too. Null for a part with nothing to press.
+ */
+export function pressOnBoard(circuit: Circuit, id: string): Circuit | null {
+  const el = circuit.elements.find((e) => e.id === id);
+  const art = el && footprintOf(el)?.art;
+  if (art === 'toggle') return updateElements(circuit, new Set([id]), (e) => ({ ...e, props: { ...e.props, closed: e.props.closed === '1' ? '0' : '1' } }));
+  if (art === 'slide') return updateElements(circuit, new Set([id]), (e) => ({ ...e, props: { ...e.props, position: e.props.position === '2' ? '1' : '2' } }));
+  return null;
+}
+
 export function addJumper(circuit: Circuit, a: Pt, b: Pt, id: string): Circuit {
   const wires = jumpersOf(circuit);
   return withJumpers(circuit, [...wires, { id, a, b, color: JUMPER_COLORS[wires.length % JUMPER_COLORS.length].value }]);
