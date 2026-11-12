@@ -197,9 +197,12 @@ export const BenchSupplyDefs = () => (
   </defs>
 );
 
-/** What the display of a bench supply shows: volts with two decimals up to 100, amperes with three up to 10. */
-export const supplyVolts = (v: number) => (Math.abs(v) < 99.995 ? v.toFixed(2) : v.toFixed(1));
-export const supplyAmps = (i: number) => (Math.abs(i) < 9.9995 ? i.toFixed(3) : i.toFixed(2));
+/**
+ * What the display of a bench supply shows: volts with two decimals up to 100, amperes with three up to 10;
+ * dashes while there is no reading, as for a supply just added that the animation has not met yet.
+ */
+export const supplyVolts = (v: number | undefined) => (v === undefined || !Number.isFinite(v) ? '--.--' : Math.abs(v) < 99.995 ? v.toFixed(2) : v.toFixed(1));
+export const supplyAmps = (i: number | undefined) => (i === undefined || !Number.isFinite(i) ? '-.---' : Math.abs(i) < 9.9995 ? i.toFixed(3) : i.toFixed(2));
 
 function Socket({ x, fill, core, sign }: { x: number; fill: string; core: string; sign: string }) {
   return (

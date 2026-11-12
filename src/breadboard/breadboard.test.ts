@@ -229,6 +229,12 @@ describe('the bench supply on the breadboard', () => {
     expect(supplyVolts(230)).toBe('230.0');
     expect(supplyAmps(12.5)).toBe('12.50');
   });
+
+  it('shows dashes for a supply the animation has not met yet, as one just added', () => {
+    expect(supplyVolts(undefined)).toBe('--.--');
+    expect(supplyAmps(undefined)).toBe('-.---');
+    expect(supplyAmps(NaN)).toBe('-.---');
+  });
 });
 
 describe('the switches on the breadboard', () => {

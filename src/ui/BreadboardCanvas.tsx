@@ -27,6 +27,8 @@ interface Props {
 
 type Drag = { kind: 'part'; id: string; start: Pt; moved: boolean } | { kind: 'leg'; id: string; leg: 0 | 1 } | { kind: 'jumperEnd'; id: string; end: 'a' | 'b' } | { kind: 'newJumper'; from: Pt } | { kind: 'pan' };
 
+/** How long the line stays once everything is joined as in the schematic. */
+const OK_SHOWN_MS = 4000;
 const REFRESH_MS = 100;
 /** How near a hole a press must be to start a jumper from it, in units of the breadboard. */
 const HOLE_REACH = 4;
@@ -94,7 +96,8 @@ export const BreadboardCanvas: React.FC<Props> = ({ circuit, onChange, selectedI
   useEffect(() => {
     const refresh = () => {
       const frame = frameRef.current;
-      if (!frame) return;
+      // A part just added is in the layout before any frame knows it: that frame is of another circuit
+      if (!frame || frame.deviceVoltage.length !== layout?.devices.length) return;
       const root = containerRef.current;
       const isRunning = frame.time !== lastTime.current;
       lastTime.current = frame.time;
@@ -102,7 +105,7 @@ export const BreadboardCanvas: React.FC<Props> = ({ circuit, onChange, selectedI
         const [volts, amps, lamp] = ['volts', 'amps', 'lamp'].map((what) => root?.querySelector(`[data-supply-${what}="${id}"]`));
         if (volts) volts.textContent = supplyVolts(frame.deviceVoltage[device]);
         // Positive when it gives current to the circuit, as the display of a real one
-        if (amps) amps.textContent = supplyAmps(-frame.deviceCurrent[device] || 0);
+        if (amps) amps.textContent = supplyAmps(-frame.deviceCurrent[device] + 0);
         lamp?.setAttribute('fill', isRunning ? SUPPLY_LAMP.on : SUPPLY_LAMP.off);
       });
       glows.forEach(({ device, rated }, k) => {
@@ -115,7 +118,7 @@ export const BreadboardCanvas: React.FC<Props> = ({ circuit, onChange, selectedI
     refresh();
     const timer = setInterval(refresh, REFRESH_MS);
     return () => clearInterval(timer);
-  }, [glows, supplies, frameRef]);
+  }, [glows, supplies, frameRef, layout]);
 
   // R turns, Delete takes out of the breadboard, as in the schematic
   useEffect(() => {
@@ -231,6 +234,15 @@ export const BreadboardCanvas: React.FC<Props> = ({ circuit, onChange, selectedI
     setDraft(null);
   };
 
+  // Once everything is joined the line says so, then leaves the breadboard clear; it comes back with anything amiss
+  const [isOkGone, setIsOkGone] = useState(false);
+  useEffect(() => {
+    setIsOkGone(false);
+    if (!comparison.isComplete) return;
+    const timer = setTimeout(() => setIsOkGone(true), OK_SHOWN_MS);
+    return () => clearTimeout(timer);
+  }, [comparison.isComplete]);
+
   const jumpers = jumpersOf(shown);
   const selectedLeads = mounted.filter((el) => selectedIds.has(el.id) && el.bb?.legs);
   const pickedEl = picked ? circuit.elements.find((el) => el.id === picked) : null;
@@ -249,6 +261,7 @@ export const BreadboardCanvas: React.FC<Props> = ({ circuit, onChange, selectedI
         </aside>
       )}
       <div className="breadboard-stage">
+        {!(comparison.isComplete && isOkGone) && (
         <div className={`breadboard-summary${comparison.isComplete ? ' ok' : ''}`}>
           <button className="link" onClick={() => setShowDetails((s) => !s)} aria-expanded={showDetails}>
             {comparisonSummary(comparison)}
@@ -269,6 +282,7 @@ export const BreadboardCanvas: React.FC<Props> = ({ circuit, onChange, selectedI
             </ul>
           )}
         </div>
+        )}
         <div
           ref={containerRef}
           className="breadboard-canvas"
