@@ -7,9 +7,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:breadboard": "VITE_EDITION=breadboard vite",
     "build": "tsc --noEmit && vite build",
-    "build:breadboard": "VITE_EDITION=breadboard vite build --outDir dist/breadboard",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

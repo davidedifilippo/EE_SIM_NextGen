@@ -1,14 +1,15 @@
 import { canRotate, getDevice } from '../library/devices';
 import { cleanStoredCard } from '../library/modelImport';
-import { BlockDef, Breadboard, BreadboardPlace, Circuit, Element, Pt, Rotation, SpiceModel, Wire } from '../model/types';
+import { BlockDef, Circuit, Element, Pt, Rotation, SpiceModel, Wire } from '../model/types';
 import { createBlock, isBlockId, registerBlocks } from '../library/blocks';
 
 const FORMAT = 'ee-sim-nextgen';
 /**
- * 2 since the blocks, 3 since the breadboard; a circuit without either is still written as the version before
- * them, for the apps that came before.
+ * 2 since the blocks; a circuit without them is still written as 1, for the versions before them. 3 was
+ * written for a while by the edition with the breadboard: it opens as well, without the breadboard.
  */
-const VERSION = 3;
+const VERSION = 2;
+const LAST_READ = 3;
 const AUTOSAVE_KEY = 'ee-sim-nextgen/circuit';
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -20,8 +21,7 @@ type Storable = Pick<Storage, 'getItem' | 'setItem'>;
 /** Indented for a file someone may open; without spaces for a link, where every character counts. */
 export function serializeCircuit(circuit: Circuit, indent = 2): string {
   const { ties: _, ...saved } = circuit;
-  const hasBreadboard = saved.breadboard !== undefined || saved.elements.some((el) => el.bb);
-  return JSON.stringify({ format: FORMAT, version: hasBreadboard ? 3 : saved.blocks?.length ? 2 : 1, circuit: saved }, null, indent);
+  return JSON.stringify({ format: FORMAT, version: saved.blocks?.length ? VERSION : 1, circuit: saved }, null, indent);
 }
 
 const fail = (): never => {
@@ -60,33 +60,6 @@ function parseElement(v: unknown, remap: Map<string, string>): Element {
     ...(e.flip === true ? { flip: true } : {}),
     tag: text(e.tag),
     props,
-    ...(e.bb === undefined ? {} : { bb: parsePlace(e.bb) }),
-  };
-}
-
-function parseRotation(v: unknown): Rotation {
-  const rot = number(v);
-  return rot === 0 || rot === 90 || rot === 180 || rot === 270 ? rot : fail();
-}
-
-/** Where a part is mounted on the breadboard. */
-function parsePlace(v: unknown): BreadboardPlace {
-  const p = record(v);
-  const legs = p.legs === undefined ? undefined : list(p.legs).map(parsePoint);
-  if (legs && legs.length !== 2) fail();
-  return { x: number(p.x), y: number(p.y), rot: parseRotation(p.rot), ...(legs ? { legs: legs as [Pt, Pt] } : {}) };
-}
-
-/** The jumpers of the breadboard; a colour is a colour and nothing else, since the page draws it. */
-function parseBreadboard(v: unknown): Breadboard {
-  const b = record(v);
-  return {
-    wires: list(b.wires).map((w) => {
-      const r = record(w);
-      const color = text(r.color);
-      if (!/^#[0-9a-fA-F]{6}$/.test(color)) fail();
-      return { id: text(r.id), a: parsePoint(r.a), b: parsePoint(r.b), color };
-    }),
   };
 }
 
@@ -114,12 +87,12 @@ export function parseCircuitFile(content: string): Circuit {
   }
   const file = record(data);
   if (file.format !== FORMAT) fail();
-  if (number(file.version) > VERSION) throw new Error(NEWER_FILE);
+  if (number(file.version) > LAST_READ) throw new Error(NEWER_FILE);
 
   const c = record(file.circuit);
   const remap = new Map<string, string>();
   const blocks = c.blocks === undefined ? [] : parseBlocks(list(c.blocks), remap);
-  const circuit: Circuit = { ...parseBody(c, remap), ...(blocks.length > 0 ? { blocks } : {}), ...(c.breadboard === undefined ? {} : { breadboard: parseBreadboard(c.breadboard) }) };
+  const circuit: Circuit = { ...parseBody(c, remap), ...(blocks.length > 0 ? { blocks } : {}) };
   registerBlocks(blocks);
   return circuit;
 }

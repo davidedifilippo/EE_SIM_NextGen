@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { HAS_BREADBOARD } from '../edition';
 import { Logo } from './Logo';
 
 const REPOSITORY = 'https://github.com/davidedifilippo/EE_SIM_NextGen';
@@ -70,17 +69,6 @@ export const AboutPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             <strong>Editor:</strong> copia e incolla, menu contestuale, selezione ad area, annulla e ripeti, fili che seguono i componenti spostati, tema chiaro e scuro.
           </li>
         </ul>
-        <p>
-          {HAS_BREADBOARD ? (
-            <>
-              Questa è l'edizione con la vista breadboard. <a href="../">Apri l'edizione principale</a>, senza breadboard.
-            </>
-          ) : (
-            <>
-              Esiste anche un'edizione con la vista breadboard, in sviluppo: <a href="./breadboard/">aprila qui</a>.
-            </>
-          )}
-        </p>
         <p className="about-note">
           Sviluppato da zero dall'Ing. Di Filippo Davide sfruttando le possibilità offerte dall'ambiente di sviluppo del codice di Claude Code. Tutte le scelte progettuali, la direzione di sviluppo e la correzione dei bug sono frutto
           dell'esperienza dell'autore nel settore. Si tratta di un software per simulazioni didattiche e non di un software professionale. Si vedano i termini di licenza GPL v3 presenti in{' '}
@@ -102,7 +90,6 @@ export const LogoButton: React.FC = () => {
       <button className="logo-button" aria-label="Informazioni su EE_SIM_NextGen" title="Informazioni" onClick={() => setIsOpen(true)}>
         <Logo />
       </button>
-      {HAS_BREADBOARD && <span className="edition-tag">Breadboard</span>}
       {isOpen && <AboutPanel onClose={() => setIsOpen(false)} />}
     </>
   );

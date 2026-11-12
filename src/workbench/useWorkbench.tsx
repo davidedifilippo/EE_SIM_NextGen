@@ -3,8 +3,6 @@ import { BlockDef, Circuit, ComponentDef, Pt, Rotation, SpiceModel } from '../mo
 import { blockProblem, createBlock, flattenBlocks, knownBlock, registerBlocks, withUsedBlocks } from '../library/blocks';
 import { ProposedPin, replaceWithBlock, selectionBoundary } from '../library/blockFromSelection';
 import { addToBlockLibrary, loadBlockLibrary, saveBlockLibrary } from '../storage/blockLibrary';
-import { removeFromBoard, turnOnBoard } from '../breadboard/edit';
-import { HAS_BREADBOARD } from '../edition';
 import { canMirror, canRotate, getDevice, isVoltageSource } from '../library/devices';
 import { circuitForSaving, withLibraryModels } from '../library/models';
 import { Analysis, describeNodes, generateNetlist, sweepCount } from '../netlist/generate';
@@ -66,9 +64,6 @@ export function useWorkbench() {
     return blocks;
   });
   /** The selection about to become a block: the pins proposed, and what went wrong at the last try. */
-  /** Which drawing of the circuit is on screen: the schematic, or the parts mounted on the breadboard. */
-  const [chosenView, setView] = useState<'schematic' | 'breadboard'>('schematic');
-  const view = HAS_BREADBOARD ? chosenView : 'schematic';
   const [blockDraft, setBlockDraft] = useState<{ pins: ProposedPin[]; error: string | null } | null>(null);
   /** The circuit as engines and files need it, with the library models it uses. */
   const resolved = useMemo(() => withLibraryModels(circuit, library), [circuit, library]);
@@ -374,19 +369,13 @@ export function useWorkbench() {
   }, [undo, redo]);
 
   const deleteSelected = useCallback(() => {
-    // On the breadboard a part only comes out of it, back to the tray: it stays in the schematic
-    if (HAS_BREADBOARD && view === 'breadboard') {
-      handleChange(removeFromBoard(circuit, selectedIds));
-      setSelectedIds(new Set());
-      return;
-    }
     handleChange({
       ...circuit,
       elements: circuit.elements.filter((el) => !selectedIds.has(el.id)),
       wires: circuit.wires.filter((w) => !selectedIds.has(w.id)),
     });
     setSelectedIds(new Set());
-  }, [circuit, selectedIds, handleChange, view]);
+  }, [circuit, selectedIds, handleChange]);
 
   const selectAll = useCallback(() => setSelectedIds(new Set([...circuit.elements, ...circuit.wires].map((item) => item.id))), [circuit]);
 
@@ -398,17 +387,13 @@ export function useWorkbench() {
   }, [circuit, selectedIds, handleChange]);
 
   const rotateSelected = useCallback(() => {
-    if (HAS_BREADBOARD && view === 'breadboard') {
-      handleChange(turnOnBoard(circuit, selectedIds));
-      return;
-    }
     handleChange({
       ...circuit,
       elements: circuit.elements.map((el) =>
         selectedIds.has(el.id) && canRotate(getDevice(el.def)) ? { ...el, rot: ((el.rot + 90) % 360) as Rotation } : el,
       ),
     });
-  }, [circuit, selectedIds, handleChange, view]);
+  }, [circuit, selectedIds, handleChange]);
 
   const pasteClip = useCallback(
     (clip: Clip, move: Pt) => {
@@ -550,7 +535,7 @@ export function useWorkbench() {
     downloadCircuit({ ...forSaving, title });
   };
 
-  return { view, setView, blockLibrary, importBlockFile, removeBlock, blockDraft, setBlockDraft, startBlockFromSelection, createBlockFromSelection, openBlockAsCircuit, isSharing, setIsSharing, isSaving, setIsSaving, saveAs, forSaving, openCircuit, newCircuit, fileInputRef, openExample, openFile, undo, redo, history, redoStack, theme, setTheme, liveRunning, setLiveRunning, speed, speedChoice, setSpeedChoice, signalPeriod, showValues, setShowValues, isDc, analysisKind, setAnalysisKind, stop, setStop, step, setStep, sweptId, setDcSource, generators, dcFrom, setDcFrom, dcTo, setDcTo, dcStep, setDcStep, familyId, setDcFamilySource, dcFamilyFrom, setDcFamilyFrom, dcFamilyTo, setDcFamilyTo, dcFamilyStep, setDcFamilyStep, acFrom, setAcFrom, acTo, setAcTo, runSimulation, running, activeDef, setActiveDef, selectedIds, setSelectedIds, exampleHint, setExampleHint, resolved, documentId, circuit, handleChange, deleteSelected, rotateSelected, mirrorSelected, selectAll, copySelected, cutSelected, duplicateSelected, clipboard, paste, viewRef, overlay, labels, legendRef, live, library, importModels, removeModel, scopeIds, traces, setTraces, toggleProbe, traceLabels, errors, setErrors, run, setRun, isStale, closeResults };
+  return { blockLibrary, importBlockFile, removeBlock, blockDraft, setBlockDraft, startBlockFromSelection, createBlockFromSelection, openBlockAsCircuit, isSharing, setIsSharing, isSaving, setIsSaving, saveAs, forSaving, openCircuit, newCircuit, fileInputRef, openExample, openFile, undo, redo, history, redoStack, theme, setTheme, liveRunning, setLiveRunning, speed, speedChoice, setSpeedChoice, signalPeriod, showValues, setShowValues, isDc, analysisKind, setAnalysisKind, stop, setStop, step, setStep, sweptId, setDcSource, generators, dcFrom, setDcFrom, dcTo, setDcTo, dcStep, setDcStep, familyId, setDcFamilySource, dcFamilyFrom, setDcFamilyFrom, dcFamilyTo, setDcFamilyTo, dcFamilyStep, setDcFamilyStep, acFrom, setAcFrom, acTo, setAcTo, runSimulation, running, activeDef, setActiveDef, selectedIds, setSelectedIds, exampleHint, setExampleHint, resolved, documentId, circuit, handleChange, deleteSelected, rotateSelected, mirrorSelected, selectAll, copySelected, cutSelected, duplicateSelected, clipboard, paste, viewRef, overlay, labels, legendRef, live, library, importModels, removeModel, scopeIds, traces, setTraces, toggleProbe, traceLabels, errors, setErrors, run, setRun, isStale, closeResults };
 }
 
 export type Workbench = ReturnType<typeof useWorkbench>;

@@ -194,32 +194,6 @@ export interface Element {
   flip?: boolean;
   tag: string;
   props: Record<string, string | number>;
-  /** Where it is mounted on the breadboard; without it, it waits in the tray. */
-  bb?: BreadboardPlace;
-}
-
-/**
- * A part on the breadboard, in its units: 10 is one pitch of 2.54 mm. A part with two leads keeps the end of
- * each, which can be bent to any hole; the others go where their footprint says.
- */
-export interface BreadboardPlace {
-  x: number;
-  y: number;
-  rot: Rotation;
-  legs?: [Pt, Pt];
-}
-
-/** A jumper wire on the breadboard, from hole to hole. */
-export interface BreadboardWire {
-  id: string;
-  a: Pt;
-  b: Pt;
-  color: string;
-}
-
-/** What is on the breadboard beside the parts of the schematic. */
-export interface Breadboard {
-  wires: BreadboardWire[];
 }
 
 export interface Wire {
@@ -248,8 +222,6 @@ export interface Circuit {
   models: SpiceModel[];
   /** The blocks the circuit uses, those inside other blocks too. */
   blocks?: BlockDef[];
-  /** The breadboard view: where the parts are mounted is on each part, the jumpers are here. */
-  breadboard?: Breadboard;
   /**
    * Terminals joined as one node with no wire between them: the pin of a block and its flag inside, once
    * the block is opened; present, even empty, only on a circuit already opened. Never saved.

@@ -9,9 +9,6 @@ import { VitePWA } from 'vite-plugin-pwa';
  */
 const NGSPICE_WORKER = /\/assets\/ngspice\.worker-[\w-]+\.js$/;
 
-/** The edition with the breadboard is published in a folder of the main one, and installs as an app of its own. */
-const IS_BREADBOARD = process.env.VITE_EDITION === 'breadboard';
-
 export default defineConfig({
   plugins: [
     react(),
@@ -22,8 +19,8 @@ export default defineConfig({
       injectRegister: 'script-defer',
       includeAssets: ['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png'],
       manifest: {
-        name: IS_BREADBOARD ? 'EE_SIM Breadboard' : 'EE_SIM_NextGen',
-        short_name: IS_BREADBOARD ? 'EE_SIM BB' : 'EE_SIM',
+        name: 'EE_SIM_NextGen',
+        short_name: 'EE_SIM',
         description: 'Simulatore di circuiti elettronici nel browser',
         lang: 'it',
         start_url: './',
@@ -54,8 +51,6 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         // A shared circuit travels after #, which never reaches the server: the cached page opens it
         navigateFallback: 'index.html',
-        // The other edition lives in a folder of this one, with a page and a service worker of its own
-        ...(IS_BREADBOARD ? {} : { navigateFallbackDenylist: [/\/breadboard\//] }),
       },
     }),
   ],

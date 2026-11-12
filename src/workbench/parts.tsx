@@ -1,5 +1,4 @@
-import React, { lazy, Suspense, useMemo } from 'react';
-import { HAS_BREADBOARD } from '../edition';
+import React, { useMemo } from 'react';
 import { ComponentDef } from '../model/types';
 import { canRotate, getDevice } from '../library/devices';
 import { EXAMPLES } from '../samples/examples';
@@ -12,9 +11,6 @@ import { BlockDialog } from '../ui/BlockDialog';
 import { MAX_TRACES } from '../ui/scopeTraces';
 import { THEME_CHOICES } from '../ui/theme';
 import { Workbench } from './useWorkbench';
-
-/** Fetched when the view is first opened, and only in the edition that has it. */
-const BreadboardCanvas = HAS_BREADBOARD ? lazy(() => import('../ui/BreadboardCanvas').then((m) => ({ default: m.BreadboardCanvas }))) : null;
 
 /** Undo, redo and rotate, side by side under the thumb: the same three on every screen. */
 export const EditButtons: React.FC<{ wb: Workbench }> = ({ wb }) => {
@@ -142,23 +138,6 @@ export const CanvasArea: React.FC<{ wb: Workbench }> = ({ wb }) => (
       </p>
     )}
     {wb.resolved.elements.some((el) => (el.def === 'opamp' || getDevice(el.def)?.spice.kind === 'regulator') && el.props.model) && <p className="live-note">Animazione con il comportamento semplice: i modelli importati valgono per l'Analisi precisa</p>}
-    {BreadboardCanvas && wb.view === 'breadboard' ? (
-      <Suspense fallback={null}>
-      <BreadboardCanvas
-        key={`bb${wb.documentId}`}
-        circuit={wb.circuit}
-        onChange={wb.handleChange}
-        selectedIds={wb.selectedIds}
-        onSelectIds={wb.setSelectedIds}
-        activeDefToPlace={wb.activeDef}
-        onPlacedDef={() => wb.setActiveDef(null)}
-        onRotateSelected={wb.rotateSelected}
-        onDeleteSelected={wb.deleteSelected}
-        layout={wb.live.layout}
-        frameRef={wb.live.frameRef}
-      />
-      </Suspense>
-    ) : (
     <SchematicCanvas
       key={wb.documentId}
       circuit={wb.circuit}
@@ -180,8 +159,7 @@ export const CanvasArea: React.FC<{ wb: Workbench }> = ({ wb }) => (
       overlay={wb.overlay}
       labels={wb.labels}
     />
-    )}
-    {wb.circuit.elements.length > 0 && wb.view === 'schematic' && <LiveLegend ref={wb.legendRef} errors={wb.live.errors} />}
+    {wb.circuit.elements.length > 0 && <LiveLegend ref={wb.legendRef} errors={wb.live.errors} />}
     {wb.blockDraft && <BlockDialog pins={wb.blockDraft.pins} error={wb.blockDraft.error} onCreate={wb.createBlockFromSelection} onClose={() => wb.setBlockDraft(null)} />}
     <SourceStats circuit={wb.circuit} selectedIds={wb.selectedIds} />
   </div>
@@ -206,16 +184,4 @@ export const Properties: React.FC<{ wb: Workbench }> = ({ wb }) => (
     onToggleProbe={wb.toggleProbe}
     onOpenBlock={wb.openBlockAsCircuit}
   />
-);
-
-/** Schematic or breadboard: two drawings of the same circuit. */
-export const ViewSwitch: React.FC<{ wb: Workbench }> = ({ wb }) => (
-  <div className="view-switch" role="group" aria-label="Vista">
-    <button aria-pressed={wb.view === 'schematic'} className={wb.view === 'schematic' ? 'active' : ''} onClick={() => wb.setView('schematic')}>
-      Schema
-    </button>
-    <button aria-pressed={wb.view === 'breadboard'} className={wb.view === 'breadboard' ? 'active' : ''} onClick={() => wb.setView('breadboard')}>
-      Breadboard
-    </button>
-  </div>
 );

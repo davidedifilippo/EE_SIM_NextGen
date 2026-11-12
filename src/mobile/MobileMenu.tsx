@@ -1,6 +1,5 @@
 import React from 'react';
 import { ExamplesSelect, SpeedSelect, ThemeSelect, ValuesToggle } from '../workbench/parts';
-import { HAS_BREADBOARD } from '../edition';
 import { CONTROL_SIZES } from '../ui/layoutChoice';
 import { Workbench } from '../workbench/useWorkbench';
 
@@ -29,7 +28,6 @@ export const MobileMenu: React.FC<Props> = ({ wb, controlSize, onControlSize, on
         <button onClick={act(() => wb.setIsSaving(true))}>Salva…</button>
         <button onClick={act(() => wb.setIsSharing(true))}>Condividi</button>
         <hr />
-        {HAS_BREADBOARD && <button onClick={act(() => wb.setView(wb.view === 'schematic' ? 'breadboard' : 'schematic'))}>{wb.view === 'schematic' ? 'Vista breadboard' : 'Vista schema'}</button>}
         <SpeedSelect wb={wb} />
         <ValuesToggle wb={wb} />
         <ThemeSelect wb={wb} />

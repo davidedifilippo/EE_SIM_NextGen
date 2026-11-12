@@ -55,6 +55,20 @@ describe('circuit file', () => {
     expect(() => parseCircuitFile(content)).toThrow(INVALID_FILE);
   });
 
+  it('opens a file of the edition with the breadboard, without the breadboard', () => {
+    const file = edited((f) => {
+      f.version = 3;
+      const circuit = f.circuit as unknown as { elements: Record<string, unknown>[]; breadboard?: unknown };
+      circuit.elements[0].bb = { x: 0, y: 0, rot: 0 };
+      circuit.breadboard = { wires: [{ id: 'j1', a: { x: 0, y: 0 }, b: { x: 10, y: 0 }, color: '#dc2626' }] };
+    });
+    const circuit = parseCircuitFile(file);
+    expect(circuit.elements).toEqual(halfWaveRectifier().elements);
+    expect('breadboard' in circuit).toBe(false);
+    // Saved again, it is a file of before the breadboard
+    expect(JSON.parse(serializeCircuit(circuit)).version).toBe(1);
+  });
+
   it('says so when the file comes from a newer version', () => {
     expect(() => parseCircuitFile(edited((f) => void (f.version = 99)))).toThrow('più recente');
   });

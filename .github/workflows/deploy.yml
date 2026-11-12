@@ -28,8 +28,6 @@ jobs:
       # A failing test stops here: the site stays at the last good version
       - run: npm test
       - run: npm run build
-      # The edition with the breadboard, in a folder of the site: after the main one, which empties dist
-      - run: npm run build:breadboard
       - uses: actions/configure-pages@v5.0.0
       - uses: actions/upload-pages-artifact@v4.0.0
         with:
