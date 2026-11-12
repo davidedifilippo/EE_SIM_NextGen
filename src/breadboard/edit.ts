@@ -70,6 +70,9 @@ export function pressOnBoard(circuit: Circuit, id: string): Circuit | null {
   return null;
 }
 
+/** A push button held down, or let go: the same part as in the schematic, where its bar moves too. */
+export const holdOnBoard = (circuit: Circuit, id: string, isHeld: boolean): Circuit => updateElements(circuit, new Set([id]), (e) => ({ ...e, props: { ...e.props, pressed: isHeld ? '1' : '0' } }));
+
 export function addJumper(circuit: Circuit, a: Pt, b: Pt, id: string): Circuit {
   const wires = jumpersOf(circuit);
   return withJumpers(circuit, [...wires, { id, a, b, color: JUMPER_COLORS[wires.length % JUMPER_COLORS.length].value }]);

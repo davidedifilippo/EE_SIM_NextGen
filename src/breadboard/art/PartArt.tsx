@@ -137,10 +137,20 @@ const Trimmer = () => (
 );
 
 /** A 6 mm push button astride the groove: the pins on each side are one. */
-const Tactile = ({ isPressed }: { isPressed: boolean }) => (
+/**
+ * A push button of 6 mm astride the groove. The two pins of each side are one piece of metal, drawn as a bar
+ * from one to the other; the cap joins the two bars while the contact is closed, green then and red when
+ * open, and goes down under the finger.
+ */
+const Tactile = ({ isPressed, isClosed }: { isPressed: boolean; isClosed: boolean }) => (
   <>
     <rect x={-4} y={-4} width={28} height={38} rx={2} fill="#1f2937" />
-    <circle cx={10} cy={15} r={7} fill={isPressed ? '#4b5563' : '#111827'} stroke="#6b7280" strokeWidth={0.8} />
+    {[0, 20].map((x) => (
+      <line key={x} x1={x} y1={0} x2={x} y2={30} stroke="#cbd5e1" strokeWidth={2.2} strokeLinecap="round" />
+    ))}
+    {isClosed && <line x1={0} y1={15} x2={20} y2={15} stroke="#cbd5e1" strokeWidth={2.2} />}
+    {/* A press on the cap presses the button, and does not move it */}
+    <circle data-press="" cx={10} cy={15} r={isPressed ? 6 : 7.4} fill={isClosed ? '#16a34a' : '#dc2626'} stroke={isPressed ? '#f8fafc' : '#0f172a'} strokeWidth={isPressed ? 1.4 : 0.8} style={{ cursor: 'pointer' }} />
   </>
 );
 
@@ -354,7 +364,7 @@ export const PartArt: React.FC<Props> = ({ el, footprint, pins, isSelected }) =>
       body = turned(<Trimmer />);
       break;
     case 'tactile':
-      body = turned(<Tactile isPressed={el.props.pressed === '1'} />);
+      body = turned(<Tactile isPressed={el.props.pressed === '1'} isClosed={(el.def === 'pushnc') !== (el.props.pressed === '1')} />);
       break;
     case 'toggle':
       body = turned(<Toggle isOn={el.props.closed === '1'} />);

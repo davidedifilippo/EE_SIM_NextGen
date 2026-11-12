@@ -5,7 +5,7 @@ import { HOLES, holeAt } from './board';
 import { resistorBands } from './colorCode';
 import { compareWithSchematic, comparisonSummary } from './compare';
 import { footprintOf, isElectrolytic, pinPoints } from './footprints';
-import { pressOnBoard, removeFromBoard, turnedPlace, turnOnBoard } from './edit';
+import { holdOnBoard, pressOnBoard, removeFromBoard, turnedPlace, turnOnBoard } from './edit';
 import { supplyAmps, supplyVolts } from './art/PartArt';
 import { compileCircuit } from '../realtime/compile';
 import { LiveSimulation } from '../realtime/liveSimulation';
@@ -238,6 +238,14 @@ describe('the bench supply on the breadboard', () => {
 });
 
 describe('the switches on the breadboard', () => {
+  it('holds a push button down and lets it go, where it is mounted', () => {
+    const c: Circuit = { title: 't', elements: [{ ...part('s1', 'pushno', 0, 0, 0, 'S1'), bb: { x: 0, y: 40, rot: 0 } }], wires: [], models: [] };
+    const held = holdOnBoard(c, 's1', true);
+    expect(held.elements[0].props.pressed).toBe('1');
+    expect(held.elements[0].bb).toEqual(c.elements[0].bb);
+    expect(holdOnBoard(held, 's1', false).elements[0].props.pressed).toBe('0');
+  });
+
   it('a press closes and opens a switch, the same part as in the schematic', () => {
     const c: Circuit = { title: 't', elements: [{ ...part('s1', 'switch', 0, 0, 0, 'S1'), bb: { x: 0, y: 0, rot: 0 } }], wires: [], models: [] };
     const closed = pressOnBoard(c, 's1')!;

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BOARD_BOX, COLUMNS, GROOVE_Y, HOLES, holeAt, PITCH, RAILS, ROW_LABELS, snapToPitch } from '../breadboard/board';
 import { compareWithSchematic, comparisonSummary, isMounted } from '../breadboard/compare';
-import { pressOnBoard, addJumper, changeJumper, jumpersOf, movedPlace, placeAt, updateElements } from '../breadboard/edit';
+import { holdOnBoard, pressOnBoard, addJumper, changeJumper, jumpersOf, movedPlace, placeAt, updateElements } from '../breadboard/edit';
 import { footprintOf, pinPoints } from '../breadboard/footprints';
 import { BenchSupplyDefs, glowSpot, PartArt, SUPPLY_LAMP, supplyAmps, supplyVolts } from '../breadboard/art/PartArt';
 import { usePanZoom } from '../editor/usePanZoom';
@@ -25,7 +25,7 @@ interface Props {
   frameRef: React.MutableRefObject<LiveFrame | null>;
 }
 
-type Drag = { kind: 'part'; id: string; start: Pt; moved: boolean } | { kind: 'leg'; id: string; leg: 0 | 1 } | { kind: 'jumperEnd'; id: string; end: 'a' | 'b' } | { kind: 'newJumper'; from: Pt } | { kind: 'pan' };
+type Drag = { kind: 'part'; id: string; start: Pt; moved: boolean } | { kind: 'leg'; id: string; leg: 0 | 1 } | { kind: 'jumperEnd'; id: string; end: 'a' | 'b' } | { kind: 'newJumper'; from: Pt } | { kind: 'press'; id: string } | { kind: 'pan' };
 
 /** How long the line stays once everything is joined as in the schematic. */
 const OK_SHOWN_MS = 4000;
@@ -170,7 +170,12 @@ export const BreadboardCanvas: React.FC<Props> = ({ circuit, onChange, selectedI
     const data = target?.dataset ?? {};
     // The socket of an instrument: a jumper starts from the pin under it
     const socketPins = (e.target as SVGElement).closest('[data-socket]') && data.part ? pinsOf.get(data.part) : undefined;
-    if (socketPins?.length) {
+    if ((e.target as SVGElement).closest('[data-press]') && data.part) {
+      // The cap of a push button: held while the finger is down, and never in Annulla
+      onSelectIds(new Set([data.part]));
+      onChange(holdOnBoard(circuit, data.part, true), false);
+      setDrag({ kind: 'press', id: data.part });
+    } else if (socketPins?.length) {
       const nearest = socketPins.reduce((best, p) => (Math.hypot(p.at.x - world.x, p.at.y - world.y) < Math.hypot(best.at.x - world.x, best.at.y - world.y) ? p : best));
       setDrag({ kind: 'newJumper', from: nearest.at });
     } else if (data.leg) {
@@ -220,7 +225,9 @@ export const BreadboardCanvas: React.FC<Props> = ({ circuit, onChange, selectedI
 
   const handleUp = (e: React.PointerEvent) => {
     view.trackUp(e);
-    if (drag?.kind === 'newJumper' && pointer && (pointer.x !== drag.from.x || pointer.y !== drag.from.y)) {
+    if (drag?.kind === 'press') {
+      onChange(holdOnBoard(circuit, drag.id, false), false);
+    } else if (drag?.kind === 'newJumper' && pointer && (pointer.x !== drag.from.x || pointer.y !== drag.from.y)) {
       const id = `jumper_${Date.now()}`;
       onChange(addJumper(circuit, drag.from, pointer, id));
       onSelectIds(new Set([id]));
