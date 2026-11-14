@@ -122,7 +122,7 @@ describe('transistors against their datasheets', () => {
 
 describe('MOSFETs against their datasheets', () => {
   /** Rds(on) is read at a tenth of the test current of the datasheet, where the drop is small. */
-  const ON_CURRENT: Record<string, number> = { '2N7000': 0.05, BS170: 0.02, IRF540N: 1.6, IRF9540N: 1.1, IRLZ44N: 1.7 };
+  const ON_CURRENT: Record<string, number> = { '2N7000': 0.05, BS170: 0.02, IRF540N: 1.6, IRF9540N: 1.1, IRLZ44N: 1.7, IRL520: 0.55 };
 
   it.each(MOS_SHEETS.map((m) => [m.name, m] as const))('%s: threshold and on resistance, in both engines', async (name, sheet) => {
     const sign = sheet.type === 'NMOS' ? 1 : -1;

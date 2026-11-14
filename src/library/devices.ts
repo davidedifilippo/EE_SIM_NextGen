@@ -316,6 +316,38 @@ export const DEVICES: ComponentDef[] = [
     spice: { kind: 'bjt', collector: 'collector', base: 'base', emitter: 'emitter', modelProp: 'model', modelType: 'NPN' },
   },
   {
+    id: 'tip120',
+    category: 'Semiconduttori',
+    name: 'Darlington TIP120',
+    tagPrefix: 'Q',
+    searchTerms: 'darlington tip120 tip 120 npn transistor potenza bjt',
+    // C, B and E where an NPN has them: the pins of the inner schematic
+    terminals: [
+      { id: 'C', x: 20, y: -40 },
+      { id: 'B', x: -40, y: 0 },
+      { id: 'E', x: 20, y: 40 },
+    ],
+    // Two transistors: the first drives the base of the second, the collectors together
+    symbol: [
+      { t: 'circle', cx: 2, cy: 2, r: 30 },
+      { t: 'line', x1: -40, y1: 0, x2: -22, y2: 0 },
+      { t: 'line', x1: -22, y1: -11, x2: -22, y2: 11, w: 3 },
+      { t: 'line', x1: -22, y1: -5, x2: -8, y2: -16 },
+      { t: 'line', x1: -8, y1: -16, x2: 20, y2: -16 },
+      { t: 'line', x1: -22, y1: 5, x2: -8, y2: 16 },
+      { t: 'path', d: 'M -10 14.4 L -16.6 13.1 L -12.9 8.3 Z', fill: 'var(--sch-ink)' },
+      { t: 'line', x1: -8, y1: 16, x2: 2, y2: 16 },
+      { t: 'line', x1: 2, y1: 6, x2: 2, y2: 26, w: 3 },
+      { t: 'line', x1: 2, y1: 10, x2: 20, y2: 0 },
+      { t: 'line', x1: 20, y1: 0, x2: 20, y2: -40 },
+      { t: 'line', x1: 2, y1: 22, x2: 20, y2: 32 },
+      { t: 'path', d: 'M 16 29.8 L 7.1 29.4 L 10.9 22.4 Z', fill: 'var(--sch-ink)' },
+      { t: 'line', x1: 20, y1: 32, x2: 20, y2: 40 },
+    ],
+    props: [],
+    spice: { kind: 'userblock', blockId: 'tip120' },
+  },
+  {
     id: 'pnp',
     category: 'Semiconduttori',
     name: 'PNP',

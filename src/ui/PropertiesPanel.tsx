@@ -1,6 +1,8 @@
 import { TruthTableEditor } from './TruthTableEditor';
 import React from 'react';
 import { Circuit, Element, SpiceModel } from '../model/types';
+import { modelGroup } from '../library/standardModels';
+import { ratingRows } from '../library/ratings';
 import { blockId, canMirror, getDevice } from '../library/devices';
 import { ImportedModel } from '../library/modelImport';
 import { fitsModelType, modelsOfType } from '../library/models';
@@ -20,6 +22,38 @@ import { ModelImporter } from './ModelImporter';
 import { elementProbes, nodeWire, wireProbe } from './scopeTraces';
 import { SourceInspector } from './SourceInspector';
 import { RangeSlider, ValueSlider } from './ValueSlider';
+
+/**
+ * The models of a transistor in groups: signal, then power, then the generic ones and those imported. Other
+ * kinds of model stay one list.
+ */
+function groupedModels(models: SpiceModel[], type: string | undefined): { group: string | null; models: SpiceModel[] }[] {
+  if (type !== 'NPN' && type !== 'PNP' && type !== 'NMOS' && type !== 'PMOS') return [{ group: null, models }];
+  const groups = ['Segnale', 'Potenza', 'Altri'].map((group) => ({ group, models: models.filter((m) => (modelGroup(m.name) ?? 'Altri') === group) }));
+  return groups.filter((g) => g.models.length > 0);
+}
+
+/** The ratings of a part of the library from its datasheet; nothing for a generic or imported model. */
+const Ratings: React.FC<{ name: string; card?: string }> = ({ name, card }) => {
+  const ratings = ratingRows(name, card);
+  if (!ratings) return null;
+  return (
+    <div className="ratings">
+      <h3>Dati di targa</h3>
+      <dl>
+        {ratings.rows.map(([label, value]) => (
+          <React.Fragment key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </React.Fragment>
+        ))}
+      </dl>
+      <p className="hint">
+        Dal datasheet {ratings.maker}, a 25 °C.{ratings.isTransistor ? ' Per un PNP o un canale P tensioni e correnti sono negative.' : ''}
+      </p>
+    </div>
+  );
+};
 
 interface Props {
   circuit: Circuit;
@@ -172,11 +206,20 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
                   <select value={value} onChange={(e) => setValue(e.target.value)}>
                     {(isOpAmpModel || isRegulatorModel) && <option value="">{isOpAmpModel ? 'Ideale' : 'Semplice'}</option>}
                     {isBlock && !chosenCard && <option value="">Scegli…</option>}
-                    {options.map((m) => (
-                      <option key={m.name} value={m.name}>
-                        {m.name}
-                      </option>
-                    ))}
+                    {groupedModels(options, p.modelType).map(({ group, models }) => {
+                      const items = models.map((m) => (
+                        <option key={m.name} value={m.name}>
+                          {m.name}
+                        </option>
+                      ));
+                      return group ? (
+                        <optgroup key={group} label={group}>
+                          {items}
+                        </optgroup>
+                      ) : (
+                        <React.Fragment key="">{items}</React.Fragment>
+                      );
+                    })}
                   </select>
                 ) : (
                   <input value={value} onChange={(e) => setValue(e.target.value)} />
@@ -184,6 +227,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
                 {(def.spice.kind === 'passive' || def.spice.kind === 'isource' || (def.spice.kind === 'pot' && p.key === def.spice.valueProp)) && <ValueSlider value={value} label={p.label} onChange={setValue} />}
                 {p.type === 'range' && <RangeSlider value={value} label={p.label} min={p.min ?? 0} max={p.max ?? 100} step={p.step} onChange={setValue} />}
               </label>
+              {p.type === 'model' && <Ratings name={value} card={chosenCard} />}
               {p.type === 'model' && <ModelImporter library={library} onImport={addModels} onRemove={onRemoveModel} />}
               {isBlock && chosenCard && (
                 <p className="hint">Piedini, da sinistra in alto e poi a destra: {subcircuitPins(chosenCard).join(', ')}. Vale per l'Analisi precisa: con un sottocircuito l'animazione non parte.</p>
@@ -223,7 +267,17 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
           <button onClick={() => setInsideOf(single)}>Mostra l'interno</button>
         </>
       )}
-      {single && def?.spice.kind === 'userblock' && (
+      {single && def?.spice.kind === 'userblock' && !def.id.startsWith('block:') && (
+        <>
+          <p className="hint">
+            Darlington NPN: due transistor in cascata, con le resistenze di polarizzazione e il diodo fra emettitore e collettore, come nello schema interno del datasheet. Guadagno di circa 2000 a 3 A (almeno 1000);
+            fra base ed emettitore servono circa 1,4 V per condurre, e anche saturo resta circa 1 V fra collettore ed emettitore, per questo scalda più di un transistor singolo.
+          </p>
+          <Ratings name={def.id} />
+          <button onClick={() => setInsideOf(single)}>Mostra l'interno</button>
+        </>
+      )}
+      {single && def?.spice.kind === 'userblock' && def.id.startsWith('block:') && (
         <>
           <p className="hint">
             Piedini: {def.terminals.map((t) => t.id).join(', ')}. Nei due motori il blocco si apre nei suoi componenti, come se fossero disegnati qui; la massa interna è la massa del circuito. Interruttori, pulsanti,

@@ -1,6 +1,7 @@
 import { BlockDef, Circuit, ComponentDef, Element, SpiceModel, Wire } from '../model/types';
 import { terminalKey } from '../netlist/connectivity';
 import { getDevice, registerDevice, tableBox } from './devices';
+import { BUILT_IN_BLOCKS } from './darlington';
 
 /**
  * Blocks: whole circuits used as parts. The flags inside are the pins, on the left or on the right of the
@@ -95,7 +96,10 @@ export function registerBlocks(blocks: BlockDef[] | undefined) {
   }
 }
 
-export const knownBlock = (id: string) => known.get(id) ?? null;
+export const knownBlock = (id: string) => known.get(id) ?? BUILT_IN_BLOCKS.get(id) ?? null;
+
+/** What an element opens into: a block of the user, or a part of the library made of parts, as the TIP120. */
+const blockOf = (def: string) => (isBlockId(def) ? known.get(def) : BUILT_IN_BLOCKS.get(def));
 
 /** The ids of the blocks a circuit uses, those inside its blocks too. */
 export function usedBlockIds(circuit: Circuit, into = new Set<string>()): Set<string> {
@@ -153,7 +157,7 @@ const mergeModels = (own: SpiceModel[], added: SpiceModel[]) => {
  */
 export function flattenBlocks(circuit: Circuit): Circuit {
   // Already opened: the ties say so, even an empty list
-  if (circuit.ties !== undefined || !circuit.elements.some((el) => isBlockId(el.def))) return circuit;
+  if (circuit.ties !== undefined || !circuit.elements.some((el) => blockOf(el.def))) return circuit;
   registerBlocks(circuit.blocks);
   const counter = { next: 0 };
   const opened = open(circuit, counter);
@@ -167,8 +171,7 @@ function open(circuit: Circuit, counter: { next: number }): Pick<Circuit, 'eleme
   let models = circuit.models;
   for (const el of circuit.elements) {
     elements.push(el);
-    if (!isBlockId(el.def)) continue;
-    const block = known.get(el.def);
+    const block = blockOf(el.def);
     if (!block) continue;
     // Moved first, so that the blocks inside it go to regions of their own
     const dx = ++counter.next * REGION;

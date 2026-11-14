@@ -119,6 +119,8 @@ export interface BjtSheet {
   cob: number;
   ft: number;
   vceo: number;
+  /** A power transistor, in its own group of the menus. */
+  isPower: boolean;
 }
 
 /**
@@ -138,17 +140,17 @@ export function bjtCard(b: BjtSheet): string {
 
 export const BJT_SHEETS: BjtSheet[] = [
   // Small signal, gain group B: hFE 290 and VBE 0.66 V at 2 mA and 5 V
-  { name: 'BC547B', type: 'NPN', hfe: 290, ic: 2e-3, vce: 5, vbe: 0.66, ikf: 0.15, vaf: 100, rb: 10, rc: 1, re: 0.5, cob: 2e-12, ft: 300e6, vceo: 45 },
-  { name: 'BC557B', type: 'PNP', hfe: 290, ic: 2e-3, vce: 5, vbe: 0.66, ikf: 0.15, vaf: 60, rb: 10, rc: 1, re: 0.5, cob: 3e-12, ft: 150e6, vceo: 45 },
+  { name: 'BC547B', type: 'NPN', hfe: 290, ic: 2e-3, vce: 5, vbe: 0.66, ikf: 0.15, vaf: 100, rb: 10, rc: 1, re: 0.5, cob: 2e-12, ft: 300e6, isPower: false, vceo: 45 },
+  { name: 'BC557B', type: 'PNP', hfe: 290, ic: 2e-3, vce: 5, vbe: 0.66, ikf: 0.15, vaf: 60, rb: 10, rc: 1, re: 0.5, cob: 3e-12, ft: 150e6, isPower: false, vceo: 45 },
   // Medium current switches: hFE about 150 and VBE about 0.75 V at 150 mA and 10 V
-  { name: '2N2222A', type: 'NPN', hfe: 150, ic: 0.15, vce: 10, vbe: 0.75, ikf: 0.5, vaf: 100, rb: 10, rc: 0.3, re: 0.2, cob: 8e-12, ft: 300e6, vceo: 40 },
-  { name: '2N2907A', type: 'PNP', hfe: 150, ic: 0.15, vce: 10, vbe: 0.75, ikf: 0.5, vaf: 100, rb: 10, rc: 0.3, re: 0.2, cob: 8e-12, ft: 200e6, vceo: 60 },
+  { name: '2N2222A', type: 'NPN', hfe: 150, ic: 0.15, vce: 10, vbe: 0.75, ikf: 0.5, vaf: 100, rb: 10, rc: 0.3, re: 0.2, cob: 8e-12, ft: 300e6, isPower: false, vceo: 40 },
+  { name: '2N2907A', type: 'PNP', hfe: 150, ic: 0.15, vce: 10, vbe: 0.75, ikf: 0.5, vaf: 100, rb: 10, rc: 0.3, re: 0.2, cob: 8e-12, ft: 200e6, isPower: false, vceo: 60 },
   // Medium power: hFE about 100 and VBE about 0.7 V at 150 mA and 2 V
-  { name: 'BD139', type: 'NPN', hfe: 100, ic: 0.15, vce: 2, vbe: 0.7, ikf: 1, vaf: 100, rb: 5, rc: 0.1, re: 0.05, cob: 25e-12, ft: 190e6, vceo: 80 },
-  { name: 'BD140', type: 'PNP', hfe: 100, ic: 0.15, vce: 2, vbe: 0.7, ikf: 1, vaf: 100, rb: 5, rc: 0.1, re: 0.05, cob: 35e-12, ft: 190e6, vceo: 80 },
+  { name: 'BD139', type: 'NPN', hfe: 100, ic: 0.15, vce: 2, vbe: 0.7, ikf: 1, vaf: 100, rb: 5, rc: 0.1, re: 0.05, cob: 25e-12, ft: 190e6, isPower: true, vceo: 80 },
+  { name: 'BD140', type: 'PNP', hfe: 100, ic: 0.15, vce: 2, vbe: 0.7, ikf: 1, vaf: 100, rb: 5, rc: 0.1, re: 0.05, cob: 35e-12, ft: 190e6, isPower: true, vceo: 80 },
   // Power: hFE about 50 and VBE about 0.85 V at 1 A and 4 V
-  { name: 'TIP31C', type: 'NPN', hfe: 50, ic: 1, vce: 4, vbe: 0.85, ikf: 2, vaf: 100, rb: 2, rc: 0.05, re: 0.05, cob: 60e-12, ft: 3e6, vceo: 100 },
-  { name: 'TIP32C', type: 'PNP', hfe: 50, ic: 1, vce: 4, vbe: 0.85, ikf: 2, vaf: 100, rb: 2, rc: 0.05, re: 0.05, cob: 100e-12, ft: 3e6, vceo: 100 },
+  { name: 'TIP31C', type: 'NPN', hfe: 50, ic: 1, vce: 4, vbe: 0.85, ikf: 2, vaf: 100, rb: 2, rc: 0.05, re: 0.05, cob: 60e-12, ft: 3e6, isPower: true, vceo: 100 },
+  { name: 'TIP32C', type: 'PNP', hfe: 50, ic: 1, vce: 4, vbe: 0.85, ikf: 2, vaf: 100, rb: 2, rc: 0.05, re: 0.05, cob: 100e-12, ft: 3e6, isPower: true, vceo: 100 },
 ];
 
 /** How smooth the threshold of a VDMOS is, in volts: the default of ngspice. */
@@ -208,7 +210,27 @@ export const MOS_SHEETS: MosSheet[] = [
   { name: 'IRF9540N', type: 'PMOS', isPower: true, vth: 3, ithTest: 250e-6, rdson: 0.1, vgsOn: 10, rSeries: 0.05, vsd: 0.95, isd: 11, bv: 100, ciss: 1300e-12, crss: 140e-12 },
   // Logic level, for an Arduino pin: threshold 1.5 V, 25 milliohm at 5 V
   { name: 'IRLZ44N', type: 'NMOS', isPower: true, vth: 1.5, ithTest: 250e-6, rdson: 0.025, vgsOn: 5, rSeries: 0.015, vsd: 0.9, isd: 25, bv: 55, ciss: 1700e-12, crss: 140e-12 },
+  // Logic level, smaller: threshold 1.5 V (1 to 2), 0.27 ohm at 5 V; capacitances estimated for its size
+  { name: 'IRL520', type: 'NMOS', isPower: true, vth: 1.5, ithTest: 250e-6, rdson: 0.27, vgsOn: 5, rSeries: 0.08, vsd: 1, isd: 9.2, bv: 100, ciss: 440e-12, crss: 50e-12 },
 ];
+
+/**
+ * The two transistors and the diode inside a TIP120 Darlington. Estimated so that the whole part gives what
+ * its datasheet does: a gain of about 2000 at 3 A, VBE about 1.8 V there (2.5 V at most), and a saturation of
+ * about 1.2 V (2 V at most), never below the VBE of the output transistor.
+ */
+export const DARLINGTON_SHEETS: BjtSheet[] = [
+  { name: 'TIP120_Q1', type: 'NPN', hfe: 60, ic: 0.08, vce: 3, vbe: 0.75, ikf: 0.5, vaf: 100, rb: 10, rc: 0.5, re: 0.2, cob: 20e-12, ft: 10e6, vceo: 60, isPower: false },
+  { name: 'TIP120_Q2', type: 'NPN', hfe: 40, ic: 3, vce: 3, vbe: 1, ikf: 4, vaf: 100, rb: 2, rc: 0.05, re: 0.05, cob: 200e-12, ft: 4e6, vceo: 60, isPower: true },
+];
+export const DARLINGTON_DIODE: DiodeSheet = { name: 'TIP120_D', forward: [[0.1, 0.7], [1, 0.9], [3, 1.1]], bv: 100, ibv: 1e-6, cjo: 100e-12, tt: 1e-6 };
+
+/** Signal or power, for the groups of the menus; nothing for a model of no group. */
+export function modelGroup(name: string): 'Segnale' | 'Potenza' | null {
+  const sheet = BJT_SHEETS.find((b) => b.name === name) ?? MOS_SHEETS.find((m) => m.name === name);
+  if (sheet) return sheet.isPower ? 'Potenza' : 'Segnale';
+  return name === '2N3904' || name === '2N3906' ? 'Segnale' : null;
+}
 
 const named = (name: string, card: string): SpiceModel => ({ name, card });
 
