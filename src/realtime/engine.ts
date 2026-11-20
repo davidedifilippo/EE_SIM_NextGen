@@ -1418,7 +1418,13 @@ export class RealtimeEngine {
    * Takes over the running microcontrollers of an engine with another topology, by element and program:
    * rewiring the circuit does not reset the board, a new program does.
    */
-  adoptMcus(previous: RealtimeEngine) {
+  /**
+   * Before the operating point: it must be found with the pins as the running boards drive them, not as a
+   * fresh board would, or the first frame reads the difference as a current of hundreds of milliamperes. The
+   * inputs are given by the operating point itself; given now, from a solution not yet found, they could read
+   * a button as released for an instant.
+   */
+  adoptMcus(previous: RealtimeEngine, readsInputs = true) {
     this.compiled.devices.forEach((d, i) => {
       if (d.kind !== 'mcu') return;
       const id = this.compiled.elementIds[d.element];
@@ -1427,7 +1433,7 @@ export class RealtimeEngine {
       });
     });
     this.stampedStep = null;
-    this.updateMcuInputs();
+    if (readsInputs) this.updateMcuInputs();
   }
 
   /** What an Arduino shows: the LED L, the pins and the 5V beyond their maximum current, and what it wrote on the serial port since the last call. */

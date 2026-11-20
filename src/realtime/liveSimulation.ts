@@ -428,8 +428,8 @@ export class LiveSimulation {
         // New topology: a new operating point, but the sources carry on from the same time, and a
         // board with the same program goes on running it
         next.time = previous?.time ?? 0;
+        if (previous) next.adoptMcus(previous, false);
         next.initialize();
-        if (previous) next.adoptMcus(previous);
       }
     } catch (err) {
       this.engine = null;
@@ -509,13 +509,13 @@ export class LiveSimulation {
     this.hasRestarted = true;
     const next = new RealtimeEngine(previous.compiled);
     next.time = previous.time;
+    next.adoptMcus(previous, false);
     try {
       next.initialize();
     } catch (err) {
       if (err instanceof SolverError) return false;
       throw err;
     }
-    next.adoptMcus(previous);
     this.engine = next;
     this.failed = false;
     this.resolveProbes();
