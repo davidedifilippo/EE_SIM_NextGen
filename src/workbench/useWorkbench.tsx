@@ -35,6 +35,7 @@ import { OptoView } from '../ui/OptoView';
 import { SsrView } from '../ui/SsrView';
 import { StepRelayView } from '../ui/StepRelayView';
 import { FuseView } from '../ui/FuseView';
+import { BatteryView } from '../ui/BatteryView';
 import { LampGlow, LedGlow, LogicLevels, SegmentGlow } from '../ui/LogicView';
 import { regulatorSummaries, RegulatorSummary } from '../ui/regulatorPower';
 import { LiveLegendHandle } from '../ui/LiveControls';
@@ -149,6 +150,7 @@ export function useWorkbench() {
   const hasTimer = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'timer'), [resolved]);
   const hasOpto = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'opto'), [resolved]);
   const hasSsr = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'ssr'), [resolved]);
+  const hasLithium = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'lithium'), [resolved]);
   const hasFuse = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'fuse'), [resolved]);
   const hasStepRelay = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'steprelay'), [resolved]);
   const hasRelay = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'relay'), [resolved]);
@@ -168,6 +170,7 @@ export function useWorkbench() {
           {hasSsr && <SsrView circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasRelay && <RelayView circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasStepRelay && <StepRelayView circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
+          {hasLithium && <BatteryView circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasFuse && <FuseView circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasLed && <LedGlow circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasLamp && <LampGlow circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
@@ -175,7 +178,7 @@ export function useWorkbench() {
           {hasLogic && <LogicLevels circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
         </>
       ),
-    [showValues, isDc, hasMeter, hasRegulator, hasMotor, hasRelay, hasStepRelay, hasFuse, hasArduino, hasTimer, hasOpto, hasSsr, hasLed, hasLamp, hasDisplay, hasLogic, live.errors.length, resolved, live.layout, live.frameRef],
+    [showValues, isDc, hasMeter, hasRegulator, hasMotor, hasRelay, hasStepRelay, hasFuse, hasLithium, hasArduino, hasTimer, hasOpto, hasSsr, hasLed, hasLamp, hasDisplay, hasLogic, live.errors.length, resolved, live.layout, live.frameRef],
   );
 
   const latestCircuitForKeys = useRef(circuit);

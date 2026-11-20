@@ -23,6 +23,7 @@ import { elementProbes, nodeWire, wireProbe } from './scopeTraces';
 import { SourceInspector } from './SourceInspector';
 import { RangeSlider, ValueSlider } from './ValueSlider';
 import { useFuseStatus } from './FuseView';
+import { batteryTime, useBatteryStatus } from './BatteryView';
 import { formatEngineering } from './chartMath';
 import { parseSpiceValue } from '../netlist/values';
 
@@ -55,6 +56,33 @@ const Ratings: React.FC<{ name: string; card?: string }> = ({ name, card }) => {
         Dal datasheet {ratings.maker}, a 25 °C.{ratings.isTransistor ? ' Per un PNP o un canale P tensioni e correnti sono negative.' : ''}
       </p>
     </div>
+  );
+};
+
+/** How much is left in a lithium pack, how long it lasts at this current, and the way to charge it again at once. */
+const BatteryNote: React.FC<{ frameRef: React.MutableRefObject<LiveFrame | null>; index: number; ampHours: number; onRecharge: () => void }> = ({ frameRef, index, ampHours, onRecharge }) => {
+  const status = useBatteryStatus(frameRef, index);
+  return (
+    <>
+      {status && (
+        <div className="ratings">
+        <dl>
+          <dt>Carica</dt>
+          <dd>
+            {Math.floor(status.charge * 100)}%, {formatEngineering(status.charge * ampHours, 'Ah')}
+          </dd>
+          <dt>Autonomia a questa corrente</dt>
+          <dd>{status.isCut ? 'scarica' : status.autonomy === null ? 'non eroga' : batteryTime(status.autonomy)}</dd>
+        </dl>
+        </div>
+      )}
+      {status?.isCut && <p className="hint fuse-alert">Scarica: la protezione ha staccato l'uscita a 3,0 V per cella.</p>}
+      <button onClick={onRecharge}>Ricarica</button>
+      <p className="hint">
+        Cella al litio (LiPo o Li-ion): 4,2 V carica, 3,7 V a metà, 3,0 V scarica, lungo una curva tipica a 0,2C; resistenza interna di circa 50 mΩ per una cella da 1 Ah, meno per le più grandi. Stime. Con una velocità
+        della scarica accelerata la carica scorre più in fretta del resto del circuito: va bene in continua, dove il circuito cambia poco. L'Analisi precisa la considera carica.
+      </p>
+    </>
   );
 };
 
@@ -302,6 +330,14 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
           </p>
           <button onClick={() => setInsideOf(single)}>Mostra l'interno</button>
         </>
+      )}
+      {single && def?.spice.kind === 'lithium' && deviceIndex >= 0 && (
+        <BatteryNote
+          frameRef={frameRef}
+          index={deviceIndex}
+          ampHours={Number(single.props[def.spice.capacityProp]) || 0}
+          onRecharge={() => update({ props: { ...single.props, [def.spice.kind === 'lithium' ? def.spice.rechargeProp : 'recharge']: String(Date.now()) } })}
+        />
       )}
       {single && def?.spice.kind === 'fuse' && deviceIndex >= 0 && (
         <FuseNote frameRef={frameRef} index={deviceIndex} onReplace={() => update({ props: { ...single.props, [def.spice.kind === 'fuse' ? def.spice.resetProp : 'reset']: String(Date.now()) } })} />

@@ -12,6 +12,7 @@ import { CTR_CLASSES } from '../realtime/opto';
 import { CONTROL_OPTIONS, CURRENT_OPTIONS, TYPE_OPTIONS } from '../realtime/ssr';
 import { COIL_OPTIONS, StepVersion, VERSION_OPTIONS } from '../realtime/stepRelay';
 import { FUSE_RATING_OPTIONS, FUSE_TYPE_OPTIONS } from '../realtime/fuse';
+import { CAPACITY_OPTIONS, CELL_OPTIONS, PACE_OPTIONS } from '../realtime/lithium';
 
 
 /** One part for each number of pins, as terminals belong to the kind of part: half on the left, the rest on the right. */
@@ -244,6 +245,32 @@ export const DEVICES: ComponentDef[] = [
     ],
     'dc pila',
   ),
+  {
+    // A pack of lithium cells in series that runs down as it is used: its charge may run faster than the circuit
+    id: 'lithium',
+    category: 'Sorgenti',
+    name: 'Batteria al litio',
+    tagPrefix: 'B',
+    searchTerms: 'batteria litio lipo li-ion pacco celle 1s 2s 3s 4s 5s scarica capacità ah',
+    terminals: twoPin('pos', 'neg'),
+    symbol: [
+      ...leads(9),
+      { t: 'line', x1: -9, y1: -14, x2: -9, y2: 14 },
+      { t: 'line', x1: -3, y1: -7, x2: -3, y2: 7, w: 3 },
+      { t: 'line', x1: 3, y1: -14, x2: 3, y2: 14 },
+      { t: 'line', x1: 9, y1: -7, x2: 9, y2: 7, w: 3 },
+      { t: 'line', x1: -20, y1: -9, x2: -14, y2: -9, w: 1.2 },
+      { t: 'line', x1: -17, y1: -12, x2: -17, y2: -6, w: 1.2 },
+      { t: 'line', x1: 14, y1: -9, x2: 20, y2: -9, w: 1.2 },
+    ],
+    props: [
+      { key: 'cells', label: 'Celle in serie', type: 'choice', default: '3', options: CELL_OPTIONS },
+      { key: 'capacity', label: 'Capacità', type: 'choice', default: '2', options: CAPACITY_OPTIONS },
+      { key: 'pace', label: 'Velocità della scarica', type: 'choice', default: '3600', options: PACE_OPTIONS },
+      { key: 'recharge', label: 'Ricaricata', type: 'text', default: '0', isHidden: true },
+    ],
+    spice: { kind: 'lithium', pos: 'pos', neg: 'neg', cellsProp: 'cells', capacityProp: 'capacity', paceProp: 'pace', rechargeProp: 'recharge' },
+  },
   {
     id: 'vsource',
     category: 'Sorgenti',

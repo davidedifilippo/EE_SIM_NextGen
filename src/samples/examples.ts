@@ -591,6 +591,21 @@ const relayChangeover = (): Circuit => ({
 });
 
 /**
+ * A 3S pack of 2 Ah feeds a load of 12 W at 12 V, about 1 A: nearly two hours of battery, ten minutes of it
+ * a second.
+ */
+const lithiumExample = (): Circuit => ({
+  title: 'Batteria 3S che alimenta un carico',
+  elements: [
+    part('b1', 'lithium', 0, 40, 90, 'B1', { cells: '3', capacity: '2', pace: '600' }),
+    part('rl1', 'load', 200, 40, 90, 'RL1', { power: '12', volts: '12' }),
+    ground(100, 80),
+  ],
+  wires: [wire('w1', [0, 0], [200, 0]), wire('w2', [0, 80], [100, 80], [200, 80])],
+  models: [],
+});
+
+/**
  * A fuse of 2 A protects a 12 W lamp: closing S1 adds a load of 3 Ω, 4 A more, and the fuse blows in about
  * 0.3 s, taking the lamp down with it.
  */
@@ -688,6 +703,7 @@ export const EXAMPLES: Example[] = [
   { id: 'arduino_blink', title: 'Arduino: Blink', hint: 'Il programma Blink accende e spegne il LED L della scheda e il LED su D12 ogni secondo, in tempo reale. Nelle proprietà di A1 si cambia programma o se ne carica uno .hex', build: arduinoBlink },
   { id: 'arduino_pot', title: 'Arduino: potenziometro e LED', hint: 'Sposta il cursore di P1: Arduino legge A0 e regola con il PWM la luminosità del LED su D9. I valori compaiono nel Monitor seriale', build: arduinoPot },
   { id: 'arduino_lm35', title: 'Arduino: termometro LM35', hint: 'Cambia la temperatura di U1: Arduino legge A0 e scrive i gradi nel Monitor seriale ogni mezzo secondo', build: arduinoThermometer },
+  { id: 'lithium', title: 'Batteria 3S che alimenta un carico', hint: 'Il pacco da 2 Ah dà circa 1 A al carico: quasi due ore di batteria, a 10 minuti al secondo. Sopra B1 si vedono carica e tensione scendere; a vuoto la protezione stacca l\'uscita. Ricaricala dalle sue proprietà, dove si sceglie anche la velocità', build: lithiumExample },
   { id: 'fuse', title: 'Fusibile che protegge da un sovraccarico', hint: 'Chiudi S1: la corrente sale da 1 A a 5 A, oltre i 2 A del fusibile. F1 diventa rosso e in circa 0,3 s si interrompe, spegnendo anche la lampada. Apri S1 e sostituiscilo dalle sue proprietà', build: fuseExample },
   { id: 'relay_spdt', title: 'Relè SPDT che scambia due lampade', hint: 'A riposo il contatto 11–12 accende LP2. Chiudi S1: la bobina tira la lamina sul contatto 14, LP2 si spegne e si accende LP1', build: relayChangeover },
   { id: 'sensors', title: 'Sensori di temperatura LM35 e TMP36', hint: 'Sposta la temperatura nelle proprietà di U1 e U2: 10 mV per grado. LM35: 0 V a 0 °C; TMP36: 0,5 V a 0 °C', build: sensors },

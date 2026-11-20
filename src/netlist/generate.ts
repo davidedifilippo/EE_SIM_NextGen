@@ -23,6 +23,7 @@ import { MOTOR_LEAK, motorParamsOf } from '../realtime/motor';
 import { REGULATOR_GAIN, REGULATOR_LEAK, REGULATOR_STIFFNESS, regulatorParams } from '../realtime/regulator';
 import { passiveProblem, passiveValue } from './passive';
 import { FUSE_RESISTANCE } from '../realtime/fuse';
+import { lithiumSpec, packResistance, packVoltage } from '../realtime/lithium';
 
 export interface TranAnalysis {
   type: 'tran';
@@ -327,6 +328,14 @@ export function generateNetlist(drawn: Circuit, analysis: Analysis, kicked: Set<
           lines.push(`BS${k}${name} ${pin} ${common} I=${segmentExpression(`v(${pin})`, `v(${common})`, forward)}`);
           lines.push(`RS${k}${name} ${pin} ${common} ${SEGMENT_LEAK}`);
         });
+        break;
+      }
+      case 'lithium': {
+        // Full, as the animation starts it: the analysis does not follow it as it runs down
+        const spec = lithiumSpec(el.props[s.cellsProp], el.props[s.capacityProp], el.props[s.paceProp]);
+        const name = uniqueName('V', el.tag);
+        if (!spec) errors.push(`${el.tag}: celle o capacità non valide`);
+        else if (name) lines.push(`RI${name} ${node(s.pos)} xr${name} ${Number(packResistance(spec).toPrecision(6))}`, `${name} xr${name} ${node(s.neg)} DC ${Number(packVoltage(spec, 1).toPrecision(6))}`);
         break;
       }
       case 'fuse': {

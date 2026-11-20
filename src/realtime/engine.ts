@@ -14,6 +14,7 @@ import { ArduinoUno, LED_PIN, PIN_MAX_CURRENT, PinMode, SUPPLY_MAX_CURRENT, UNO_
 import { CONTACT_CLOSED, CONTACT_OPEN } from './switches';
 import { CURRENT_SOURCE_LEAK, OPAMP_GAIN, TRANSFORMER_WINDING_RESISTANCE } from '../netlist/generate';
 import { FUSE_MELT, FUSE_RESISTANCE, FUSE_RMS_TAU, FuseStatus, nextHeat } from './fuse';
+import { BatteryStatus, nextCharge, packResistance, packVoltage } from './lithium';
 
 /** Same default as SPICE: minimum conductance across a junction. */
 const GMIN = 1e-12;
@@ -245,6 +246,15 @@ export class RealtimeEngine {
   private readonly stepPulled: Uint8Array;
   private readonly stepIndex: Uint8Array;
   private readonly stepReadings: Float64Array;
+  /** For each lithium pack, its charge from 0 to 1, whether its protection has opened it, and the charging it is. */
+  private readonly batteryCharge: Float64Array;
+  private readonly batteryCut: Uint8Array;
+  private readonly batteryRecharge: string[];
+  /**
+   * Seconds of simulation for each real second, as the animation runs: what a pack whose charge runs faster
+   * than the circuit needs. 1 unless told, as in a test.
+   */
+  simPerReal = 1;
   /** For each fuse, its heat as a share of that of its rated current, whether it has blown, and the replacement it is. */
   private readonly fuseHeat: Float64Array;
   private readonly fuseSquare: Float64Array;
@@ -306,6 +316,9 @@ export class RealtimeEngine {
     this.stepPulled = new Uint8Array(devices.length);
     this.stepIndex = new Uint8Array(devices.length);
     this.stepReadings = new Float64Array(devices.length * 3);
+    this.batteryCharge = new Float64Array(devices.length).fill(1);
+    this.batteryCut = new Uint8Array(devices.length);
+    this.batteryRecharge = devices.map((d) => (d.kind === 'lithium' ? d.recharge : ''));
     this.fuseHeat = new Float64Array(devices.length);
     this.fuseSquare = new Float64Array(devices.length);
     this.fuseBlown = new Uint8Array(devices.length);
@@ -379,6 +392,11 @@ export class RealtimeEngine {
           this.addBranchColumns(d.a, d.b, d.branch);
           // V(a) - V(b) - r*i = e, with i the current entering a: a battery sinks as it delivers
           base[d.branch * n + d.branch] = -d.r;
+          break;
+        case 'lithium':
+          // As a source behind its resistance; opened by its protection, a resistance as of an open contact
+          this.addBranchColumns(d.a, d.b, d.branch);
+          base[d.branch * n + d.branch] = -(this.batteryCut[i] ? CONTACT_OPEN : packResistance(d.spec));
           break;
         case 'opamp':
           this.addBranchColumns(d.a, d.b, d.branch);
@@ -530,7 +548,7 @@ export class RealtimeEngine {
   private branchStart(): number {
     let first = this.n;
     for (const d of this.compiled.devices) {
-      if ((d.kind === 'inductor' || d.kind === 'vsource' || d.kind === 'opamp' || d.kind === 'transformer' || d.kind === 'motor' || d.kind === 'relay' || d.kind === 'steprelay' || d.kind === 'mcu') && d.branch < first) first = d.branch;
+      if ((d.kind === 'inductor' || d.kind === 'vsource' || d.kind === 'lithium' || d.kind === 'opamp' || d.kind === 'transformer' || d.kind === 'motor' || d.kind === 'relay' || d.kind === 'steprelay' || d.kind === 'mcu') && d.branch < first) first = d.branch;
       if (d.kind === 'ctransformer' && d.branches[0] < first) first = d.branches[0];
     }
     return first;
@@ -591,6 +609,9 @@ export class RealtimeEngine {
           break;
         case 'vsource':
           rhs[d.branch] = d.wave(t) * sourceScale;
+          break;
+        case 'lithium':
+          rhs[d.branch] = this.batteryCut[i] ? 0 : packVoltage(d.spec, this.batteryCharge[i]) * sourceScale;
           break;
         case 'isource':
           if (d.a >= 0) rhs[d.a] -= d.current * sourceScale;
@@ -1232,6 +1253,34 @@ export class RealtimeEngine {
   }
 
   /**
+   * Runs the charge of each lithium pack down with the current it gives over h, faster than the circuit if its
+   * pace says so; up with a current into it. Empty, its protection opens it, and the matrix changes.
+   */
+  private updateBatteries(h: number): boolean {
+    let hasCut = false;
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind !== 'lithium' || this.batteryCut[i]) return;
+      // The current of the branch enters the positive pole: what the pack gives is the opposite
+      this.batteryCharge[i] = nextCharge(d.spec, this.batteryCharge[i], -this.x[d.branch], h, this.simPerReal);
+      if (this.batteryCharge[i] > 0) return;
+      this.batteryCut[i] = 1;
+      hasCut = true;
+    });
+    if (hasCut) this.stampedStep = null;
+    return hasCut;
+  }
+
+  /** A lithium pack: its charge, whether its protection has opened it, and how long it lasts at its current. */
+  batteryStatus(index: number): BatteryStatus | null {
+    const d = this.compiled.devices[index];
+    if (d?.kind !== 'lithium') return null;
+    const charge = this.batteryCharge[index];
+    const delivered = -this.x[d.branch];
+    const isCut = this.batteryCut[index] === 1;
+    return { charge, isCut, autonomy: !isCut && delivered > 1e-6 ? (charge * d.spec.ampHours * 3600) / delivered : null };
+  }
+
+  /**
    * Warms each fuse with its current over h, and blows it past its melting heat: from then on it is open, and
    * the matrix changes. True if one blew.
    */
@@ -1426,6 +1475,8 @@ export class RealtimeEngine {
     this.stepPulled.fill(0);
     this.stepIndex.fill(0);
     this.stepReadings.fill(0);
+    this.batteryCharge.fill(1);
+    this.batteryCut.fill(0);
     this.fuseHeat.fill(0);
     this.fuseSquare.fill(0);
     this.fuseBlown.fill(0);
@@ -1512,6 +1563,13 @@ export class RealtimeEngine {
     this.stepPulled.set(previous.stepPulled);
     this.stepIndex.set(previous.stepIndex);
     this.stepReadings.set(previous.stepReadings);
+    // A pack keeps its charge, unless it was charged again: then it is full
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind !== 'lithium' || previous.batteryRecharge[i] !== d.recharge) return;
+      this.batteryCharge[i] = previous.batteryCharge[i];
+      this.batteryCut[i] = previous.batteryCut[i];
+    });
+    this.simPerReal = previous.simPerReal;
     // A fuse goes on as it was, unless it was put back in: then it is a new one, cold
     this.compiled.devices.forEach((d, i) => {
       if (d.kind !== 'fuse' || previous.fuseReset[i] !== d.reset) return;
@@ -1562,6 +1620,7 @@ export class RealtimeEngine {
       this.updateTimers();
       this.updateSsrs(h);
       this.updateFuses(h);
+      this.updateBatteries(h);
       this.updateStepRelays(h, true);
       this.updateLamps(h);
       this.updateMcuInputs();
@@ -1600,6 +1659,7 @@ export class RealtimeEngine {
         return d.current;
       case 'inductor':
       case 'vsource':
+      case 'lithium':
       case 'opamp':
       case 'transformer':
       case 'motor':

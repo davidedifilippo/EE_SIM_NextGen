@@ -144,6 +144,8 @@ export type SpiceDef =
    */
   | { kind: 'relay'; coil1: string; coil2: string; c1: string; c2: string; nc?: string; spec: RelaySpec }
   /** A solid state relay: the input from plus to minus, the triac output from out1 to out2; its version in three properties. */
+  /** A lithium pack: rechargeProp changes when it is charged again, to full. */
+  | { kind: 'lithium'; pos: string; neg: string; cellsProp: string; capacityProp: string; paceProp: string; rechargeProp: string }
   /** resetProp changes when a blown fuse is put back in: a new fuse, cold. */
   | { kind: 'fuse'; a: string; b: string; ratingProp: string; typeProp: string; resetProp: string }
   | { kind: 'ssr'; plus: string; minus: string; out1: string; out2: string; currentProp: string; typeProp: string; controlProp: string }

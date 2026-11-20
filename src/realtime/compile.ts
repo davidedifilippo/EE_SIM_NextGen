@@ -26,6 +26,7 @@ import { parseSpiceValue } from '../netlist/values';
 import { parseWaveform, Waveform } from './waveform';
 import { passiveProblem, passiveValue } from '../netlist/passive';
 import { fuseSpec, FuseSpec } from './fuse';
+import { lithiumSpec, LithiumSpec } from './lithium';
 
 /** Thermal voltage at 27 °C, the temperature SPICE assumes. */
 const THERMAL_VOLTAGE = 0.025865;
@@ -124,6 +125,7 @@ export type CompiledDevice =
    * A solid state relay: the input from a (+) to b (−) as its impedance; the triac from c to d, on or off
    * as the engine decides between steps; the snubber from c to the inner node s, then its capacitor to d.
    */
+  | { kind: 'lithium'; element: number; a: NodeIndex; b: NodeIndex; spec: LithiumSpec; recharge: string; branch: number }
   | { kind: 'fuse'; element: number; a: NodeIndex; b: NodeIndex; spec: FuseSpec; reset: string }
   | { kind: 'ssr'; element: number; a: NodeIndex; b: NodeIndex; c: NodeIndex; d: NodeIndex; s: NodeIndex; spec: SsrSpec }
   /**
@@ -396,6 +398,16 @@ export function compileCircuit(drawn: Circuit): CompileResult {
         const [a, ways] = [node(s.common), s.ways.map(node)];
         const g = contactResistances(s.switchKind, el.props).map((r) => 1 / r);
         pending.push({ element, needsBranch: false, build: () => ({ kind: 'switch', element, a, b: ways[0], ways, g }) });
+        break;
+      }
+      case 'lithium': {
+        const spec = lithiumSpec(el.props[s.cellsProp], el.props[s.capacityProp], el.props[s.paceProp]);
+        if (!spec) {
+          errors.push(`${el.tag}: celle o capacità non valide`);
+          break;
+        }
+        const [a, b] = [node(s.pos), node(s.neg)];
+        pending.push({ element, needsBranch: true, build: (branch) => ({ kind: 'lithium', element, a, b, spec, recharge: String(el.props[s.rechargeProp] ?? '0'), branch }) });
         break;
       }
       case 'fuse': {
