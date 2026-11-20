@@ -24,6 +24,7 @@ import { ctTransformerParams } from './ctTransformer';
 import { internalResistance, sourceSpec } from '../netlist/source';
 import { parseSpiceValue } from '../netlist/values';
 import { parseWaveform, Waveform } from './waveform';
+import { passiveProblem, passiveValue } from '../netlist/passive';
 
 /** Thermal voltage at 27 °C, the temperature SPICE assumes. */
 const THERMAL_VOLTAGE = 0.025865;
@@ -317,9 +318,9 @@ export function compileCircuit(drawn: Circuit): CompileResult {
 
     switch (s.kind) {
       case 'passive': {
-        const value = parseSpiceValue(String(el.props[s.valueProp] ?? ''));
-        if (value === null || value <= 0) {
-          errors.push(`${el.tag}: valore non valido "${el.props[s.valueProp] ?? ''}"`);
+        const value = passiveValue(el, s);
+        if (value === null) {
+          errors.push(passiveProblem(el, s));
           break;
         }
         const [a, b] = [node(s.a), node(s.b)];

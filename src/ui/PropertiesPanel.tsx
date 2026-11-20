@@ -22,6 +22,8 @@ import { ModelImporter } from './ModelImporter';
 import { elementProbes, nodeWire, wireProbe } from './scopeTraces';
 import { SourceInspector } from './SourceInspector';
 import { RangeSlider, ValueSlider } from './ValueSlider';
+import { formatEngineering } from './chartMath';
+import { parseSpiceValue } from '../netlist/values';
 
 /**
  * The models of a transistor in groups: signal, then power, then the generic ones and those imported. Other
@@ -52,6 +54,18 @@ const Ratings: React.FC<{ name: string; card?: string }> = ({ name, card }) => {
         Dal datasheet {ratings.maker}, a 25 °C.{ratings.isTransistor ? ' Per un PNP o un canale P tensioni e correnti sono negative.' : ''}
       </p>
     </div>
+  );
+};
+
+/** What a load given by its rating is in the circuit: a resistance, and the current it takes at its rated voltage. */
+const RatedLoadNote: React.FC<{ element: Element; power: string; volts: string }> = ({ element, power, volts }) => {
+  const [p, v] = [parseSpiceValue(String(element.props[power] ?? '')), parseSpiceValue(String(element.props[volts] ?? ''))];
+  if (!p || p <= 0 || !v || v <= 0) return <p className="hint">Scrivi una potenza e una tensione maggiori di zero.</p>;
+  return (
+    <p className="hint">
+      Un carico resistivo: equivale a {formatEngineering((v * v) / p, 'Ω')} e alla tensione nominale assorbe {formatEngineering(p / v, 'A')}. Con un'altra tensione la resistenza resta la stessa, e la potenza cambia con il
+      quadrato della tensione.
+    </p>
   );
 };
 
@@ -224,7 +238,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
                 ) : (
                   <input value={value} onChange={(e) => setValue(e.target.value)} />
                 )}
-                {(def.spice.kind === 'passive' || def.spice.kind === 'isource' || (def.spice.kind === 'pot' && p.key === def.spice.valueProp)) && <ValueSlider value={value} label={p.label} onChange={setValue} />}
+                {((def.spice.kind === 'passive' && !def.spice.rated) || def.spice.kind === 'isource' || (def.spice.kind === 'pot' && p.key === def.spice.valueProp)) && <ValueSlider value={value} label={p.label} onChange={setValue} />}
                 {p.type === 'range' && <RangeSlider value={value} label={p.label} min={p.min ?? 0} max={p.max ?? 100} step={p.step} onChange={setValue} />}
               </label>
               {p.type === 'model' && <Ratings name={value} card={chosenCard} />}
@@ -267,6 +281,7 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
           <button onClick={() => setInsideOf(single)}>Mostra l'interno</button>
         </>
       )}
+      {single && def?.spice.kind === 'passive' && def.spice.rated && <RatedLoadNote element={single} power={def.spice.rated.powerProp} volts={def.spice.rated.voltsProp} />}
       {single && def?.spice.kind === 'userblock' && !def.id.startsWith('block:') && (
         <>
           <p className="hint">

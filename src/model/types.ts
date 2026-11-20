@@ -115,7 +115,8 @@ export type ModelType = 'D' | 'NPN' | 'PNP' | 'NMOS' | 'PMOS' | 'OPAMP' | 'SUBCK
 /** How a component maps to SPICE. Terminal order follows the SPICE card. */
 export type SpiceDef =
   | { kind: 'ground'; terminal: string }
-  | { kind: 'passive'; prefix: 'R' | 'C' | 'L'; a: string; b: string; valueProp: string }
+  /** With rated, a load given by its rated power and voltage: a resistance of V²/P. */
+  | { kind: 'passive'; prefix: 'R' | 'C' | 'L'; a: string; b: string; valueProp: string; rated?: { powerProp: string; voltsProp: string } }
   | { kind: 'vsource'; pos: string; neg: string }
   /** The current goes through it from a to b. */
   | { kind: 'isource'; a: string; b: string; valueProp: string }

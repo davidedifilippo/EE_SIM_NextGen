@@ -184,6 +184,21 @@ export const DEVICES: ComponentDef[] = [
     spice: { kind: 'passive', prefix: 'R', a: 'a', b: 'b', valueProp: 'value' },
   },
   {
+    // A household or bench load given by its plate, as an oven of 500 W at 230 V: a resistance of V²/P
+    id: 'load',
+    category: 'Passivi',
+    name: 'Utilizzatore generico',
+    tagPrefix: 'RL',
+    searchTerms: 'utilizzatore carico elettrodomestico fornetto forno stufa scaldabagno frigo potenza tensione nominale',
+    terminals: twoPin('a', 'b'),
+    symbol: [...leads(20), { t: 'rect', x: -20, y: -8, w: 40, h: 16, fill: 'var(--sch-part)' }],
+    props: [
+      { key: 'power', label: 'Potenza nominale (W)', type: 'text', default: '500' },
+      { key: 'volts', label: 'Tensione nominale (V)', type: 'text', default: '230' },
+    ],
+    spice: { kind: 'passive', prefix: 'R', a: 'a', b: 'b', valueProp: 'power', rated: { powerProp: 'power', voltsProp: 'volts' } },
+  },
+  {
     id: 'capacitor',
     category: 'Passivi',
     name: 'Condensatore',

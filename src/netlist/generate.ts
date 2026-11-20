@@ -21,6 +21,7 @@ import { SEGMENT_LEAK, segmentColor, segmentExpression } from '../realtime/displ
 import { ctTransformerParams } from '../realtime/ctTransformer';
 import { MOTOR_LEAK, motorParamsOf } from '../realtime/motor';
 import { REGULATOR_GAIN, REGULATOR_LEAK, REGULATOR_STIFFNESS, regulatorParams } from '../realtime/regulator';
+import { passiveProblem, passiveValue } from './passive';
 
 export interface TranAnalysis {
   type: 'tran';
@@ -202,9 +203,11 @@ export function generateNetlist(drawn: Circuit, analysis: Analysis, kicked: Set<
 
     switch (s.kind) {
       case 'passive': {
-        const value = String(el.props[s.valueProp] ?? '').trim();
+        // A load by its rating goes in as the resistance it has; any other as written, with its suffix
+        const rated = s.rated ? passiveValue(el, s) : null;
+        const value = s.rated ? (rated === null ? '' : String(Number(rated.toPrecision(6)))) : String(el.props[s.valueProp] ?? '').trim();
         if (!SPICE_VALUE.test(value)) {
-          errors.push(`${el.tag}: valore non valido "${value}"`);
+          errors.push(passiveProblem(el, s));
           break;
         }
         const name = uniqueName(s.prefix, el.tag);
