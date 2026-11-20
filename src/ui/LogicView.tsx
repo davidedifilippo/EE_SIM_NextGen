@@ -5,6 +5,7 @@ import { LiveFrame, LiveLayout } from '../realtime/liveSimulation';
 import { SEGMENT_LINES, segmentColor } from '../realtime/display7';
 import { localToWorld } from '../utils/geometry';
 import { LAMP_OVERVOLTAGE, lampBrightness, lampRating } from '../realtime/lamp';
+import { ledLight, ledPercent, ledRated } from './ledLight';
 
 interface Props {
   circuit: Circuit;
@@ -91,7 +92,7 @@ export const LedGlow: React.FC<Props> = ({ circuit, layout, frameRef }) => {
       // The parts inside a block have no drawing of their own
       const el = byId.get(device.elementId);
       if (!el) return [];
-      return el.def === 'led' ? [{ el, index, color: LED_COLORS[String(el.props.model)] ?? LED_COLORS.LED_ROSSO }] : [];
+      return el.def === 'led' ? [{ el, index, color: LED_COLORS[String(el.props.model)] ?? LED_COLORS.LED_ROSSO, rated: ledRated(el.props.rated) }] : [];
     });
   }, [circuit, layout]);
 
@@ -99,13 +100,21 @@ export const LedGlow: React.FC<Props> = ({ circuit, layout, frameRef }) => {
     const root = rootRef.current;
     if (!root) return;
     const glows = [...root.querySelectorAll<SVGCircleElement>('circle')];
+    const percents = [...root.querySelectorAll<SVGTextElement>('text')];
+    // Held over a few refreshes, so that a PWM reads as a steady number
+    const held = new Float64Array(leds.length).fill(NaN);
     const refresh = () => {
       const frame = frameRef.current;
       if (!frame) return;
       // The mean since the last frame: a PWM faster than the frames shows as a dimmer light, not a flicker
-      leds.forEach(({ index }, i) => {
+      leds.forEach(({ index, rated }, i) => {
         const mean = frame.glowMean[index];
-        glows[i]?.setAttribute('opacity', String(0.75 * ledBrightness(Number.isNaN(mean) ? frame.deviceCurrent[index] : mean)));
+        const current = Math.max(0, Number.isNaN(mean) ? frame.deviceCurrent[index] : mean);
+        held[i] = Number.isNaN(held[i]) ? current : held[i] + 0.4 * (current - held[i]);
+        glows[i]?.setAttribute('opacity', String(0.75 * ledLight(held[i], rated)));
+        const percent = ledPercent(held[i], rated);
+        if (percents[i]) percents[i].textContent = percent < 0.5 ? '' : `${Math.round(percent)}%`;
+        percents[i]?.setAttribute('fill', percent > 100.5 ? 'var(--sch-alert)' : 'var(--sch-ink)');
       });
     };
     refresh();
@@ -117,6 +126,19 @@ export const LedGlow: React.FC<Props> = ({ circuit, layout, frameRef }) => {
     <g ref={rootRef} pointerEvents="none" data-testid="led-glow">
       {leds.map(({ el, color }) => (
         <circle key={el.id} cx={el.x} cy={el.y} r={17} fill={color} opacity={0} style={{ filter: `drop-shadow(0 0 6px ${color})` }} />
+      ))}
+      {/* Its light as a share of the rated current: below one lying down, beside one standing up */}
+      {leds.map(({ el }) => (
+        <text
+          key={el.id}
+          x={el.rot % 180 === 0 ? el.x : el.x - 16}
+          y={el.rot % 180 === 0 ? el.y + 30 : el.y + 4}
+          textAnchor={el.rot % 180 === 0 ? 'middle' : 'end'}
+          fontSize={11}
+          fontWeight={700}
+          fill="var(--sch-ink)"
+          style={{ paintOrder: 'stroke', stroke: 'var(--sch-halo)', strokeWidth: 3, strokeLinejoin: 'round' }}
+        />
       ))}
     </g>
   );

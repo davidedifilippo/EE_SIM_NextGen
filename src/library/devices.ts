@@ -332,6 +332,8 @@ export const DEVICES: ComponentDef[] = [
           { value: 'LED_BIANCO', label: 'Bianco' },
         ],
       },
+      // What 100% of its light means beside it: 20 mA for the common 5 mm ones
+      { key: 'rated', label: 'Corrente nominale (mA)', type: 'text', default: '20' },
     ],
     spice: { kind: 'diode', anode: 'anode', cathode: 'cathode', modelProp: 'model' },
   },

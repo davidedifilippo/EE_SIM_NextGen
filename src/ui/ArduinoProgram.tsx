@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Element } from '../model/types';
 import { parseIntelHex } from '../realtime/intelHex';
-import { CUSTOM_SKETCH } from '../samples/arduino/sketches';
+import { CUSTOM_SKETCH, SKETCHES } from '../samples/arduino/sketches';
 
 /** Loading a program into the board, and its reset button. */
 export const ArduinoProgram: React.FC<{ element: Element; onLoad: (name: string, hex: string) => void; onReset: () => void }> = ({ element, onLoad, onReset }) => {
@@ -35,6 +35,7 @@ export const ArduinoProgram: React.FC<{ element: Element; onLoad: (name: string,
           onLoad(file.name, text);
         }}
       />
+      {!isCustom && SKETCHES.find((s) => s.value === element.props.sketch) && <p className="hint">{SKETCHES.find((s) => s.value === element.props.sketch)!.pins}</p>}
       {isCustom && element.props.hexName && <p className="hint">Caricato: {String(element.props.hexName)}</p>}
       {error && <p className="hint" style={{ color: 'var(--error-text)' }}>{error}</p>}
       <p className="hint">
