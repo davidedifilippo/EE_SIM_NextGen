@@ -25,6 +25,7 @@ import { internalResistance, sourceSpec } from '../netlist/source';
 import { parseSpiceValue } from '../netlist/values';
 import { parseWaveform, Waveform } from './waveform';
 import { passiveProblem, passiveValue } from '../netlist/passive';
+import { fuseSpec, FuseSpec } from './fuse';
 
 /** Thermal voltage at 27 °C, the temperature SPICE assumes. */
 const THERMAL_VOLTAGE = 0.025865;
@@ -123,6 +124,7 @@ export type CompiledDevice =
    * A solid state relay: the input from a (+) to b (−) as its impedance; the triac from c to d, on or off
    * as the engine decides between steps; the snubber from c to the inner node s, then its capacitor to d.
    */
+  | { kind: 'fuse'; element: number; a: NodeIndex; b: NodeIndex; spec: FuseSpec; reset: string }
   | { kind: 'ssr'; element: number; a: NodeIndex; b: NodeIndex; c: NodeIndex; d: NodeIndex; s: NodeIndex; spec: SsrSpec }
   /**
    * A step relay: the coil from a (A1) to b (A2), its resistance to the inner node m, then the inductance as a
@@ -394,6 +396,16 @@ export function compileCircuit(drawn: Circuit): CompileResult {
         const [a, ways] = [node(s.common), s.ways.map(node)];
         const g = contactResistances(s.switchKind, el.props).map((r) => 1 / r);
         pending.push({ element, needsBranch: false, build: () => ({ kind: 'switch', element, a, b: ways[0], ways, g }) });
+        break;
+      }
+      case 'fuse': {
+        const spec = fuseSpec(el.props[s.ratingProp], el.props[s.typeProp]);
+        if (!spec) {
+          errors.push(`${el.tag}: corrente nominale non valida`);
+          break;
+        }
+        const [a, b] = [node(s.a), node(s.b)];
+        pending.push({ element, needsBranch: false, build: () => ({ kind: 'fuse', element, a, b, spec, reset: String(el.props[s.resetProp] ?? '0') }) });
         break;
       }
       case 'pot': {

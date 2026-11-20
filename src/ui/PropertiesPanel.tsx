@@ -22,6 +22,7 @@ import { ModelImporter } from './ModelImporter';
 import { elementProbes, nodeWire, wireProbe } from './scopeTraces';
 import { SourceInspector } from './SourceInspector';
 import { RangeSlider, ValueSlider } from './ValueSlider';
+import { useFuseStatus } from './FuseView';
 import { formatEngineering } from './chartMath';
 import { parseSpiceValue } from '../netlist/values';
 
@@ -54,6 +55,27 @@ const Ratings: React.FC<{ name: string; card?: string }> = ({ name, card }) => {
         Dal datasheet {ratings.maker}, a 25 °C.{ratings.isTransistor ? ' Per un PNP o un canale P tensioni e correnti sono negative.' : ''}
       </p>
     </div>
+  );
+};
+
+/** How a fuse is now, and the way to put a blown one back in: a new fuse, cold. */
+const FuseNote: React.FC<{ frameRef: React.MutableRefObject<LiveFrame | null>; index: number; onReplace: () => void }> = ({ frameRef, index, onReplace }) => {
+  const status = useFuseStatus(frameRef, index);
+  return (
+    <>
+      <p className={status?.isBlown || status?.isOver ? 'hint fuse-alert' : 'hint'}>
+        {status?.isBlown
+          ? 'Interrotto: la corrente è rimasta oltre la nominale abbastanza a lungo da fondere il filo. Togli la causa, poi sostituiscilo.'
+          : status?.isOver
+            ? `In sovraccarico: si sta scaldando, al ${Math.round(status.heat * 100)}% della fusione.`
+            : 'Integro.'}
+      </p>
+      {status?.isBlown && <button onClick={onReplace}>Sostituisci il fusibile</button>}
+      <p className="hint">
+        Non interviene mai alla corrente nominale né a 1,5 volte; oltre 1,8 volte si fonde, tanto prima quanto più la corrente è alta: un rapido (F) in circa 0,2 s a 2,75 volte e 13 ms a 10 volte, un ritardato (T) dieci
+        volte più lento. Tempi stimati con un solo modello termico, dentro le finestre della norma IEC 60127. L'Analisi precisa lo considera integro.
+      </p>
+    </>
   );
 };
 
@@ -280,6 +302,9 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
           </p>
           <button onClick={() => setInsideOf(single)}>Mostra l'interno</button>
         </>
+      )}
+      {single && def?.spice.kind === 'fuse' && deviceIndex >= 0 && (
+        <FuseNote frameRef={frameRef} index={deviceIndex} onReplace={() => update({ props: { ...single.props, [def.spice.kind === 'fuse' ? def.spice.resetProp : 'reset']: String(Date.now()) } })} />
       )}
       {single && def?.spice.kind === 'passive' && def.spice.rated && <RatedLoadNote element={single} power={def.spice.rated.powerProp} volts={def.spice.rated.voltsProp} />}
       {single && def?.spice.kind === 'userblock' && !def.id.startsWith('block:') && (

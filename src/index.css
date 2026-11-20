@@ -667,6 +667,11 @@ button.close-results {
   outline-offset: 2px;
 }
 
+.hint.fuse-alert {
+  color: var(--sch-alert);
+  font-weight: 600;
+}
+
 /* The ratings of a part, from its datasheet: two columns, the value beside its name */
 .ratings {
   margin: 4px 0 8px;

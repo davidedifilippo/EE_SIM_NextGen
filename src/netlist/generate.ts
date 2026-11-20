@@ -22,6 +22,7 @@ import { ctTransformerParams } from '../realtime/ctTransformer';
 import { MOTOR_LEAK, motorParamsOf } from '../realtime/motor';
 import { REGULATOR_GAIN, REGULATOR_LEAK, REGULATOR_STIFFNESS, regulatorParams } from '../realtime/regulator';
 import { passiveProblem, passiveValue } from './passive';
+import { FUSE_RESISTANCE } from '../realtime/fuse';
 
 export interface TranAnalysis {
   type: 'tran';
@@ -326,6 +327,12 @@ export function generateNetlist(drawn: Circuit, analysis: Analysis, kicked: Set<
           lines.push(`BS${k}${name} ${pin} ${common} I=${segmentExpression(`v(${pin})`, `v(${common})`, forward)}`);
           lines.push(`RS${k}${name} ${pin} ${common} ${SEGMENT_LEAK}`);
         });
+        break;
+      }
+      case 'fuse': {
+        // Whole, as the animation starts it: the analysis does not follow it as it warms and blows
+        const name = uniqueName('R', el.tag);
+        if (name) lines.push(`${name} ${node(s.a)} ${node(s.b)} ${FUSE_RESISTANCE}`);
         break;
       }
       case 'switch': {

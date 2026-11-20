@@ -13,6 +13,7 @@ import { nextTimerState, supplyResistance, TIMER_INPUT_RESISTANCE, TIMER_OFF_RES
 import { ArduinoUno, LED_PIN, PIN_MAX_CURRENT, PinMode, SUPPLY_MAX_CURRENT, UNO_PINS, UNO_SUPPLY_RESISTANCE, UNO_VCC } from './arduino';
 import { CONTACT_CLOSED, CONTACT_OPEN } from './switches';
 import { CURRENT_SOURCE_LEAK, OPAMP_GAIN, TRANSFORMER_WINDING_RESISTANCE } from '../netlist/generate';
+import { FUSE_MELT, FUSE_RESISTANCE, FUSE_RMS_TAU, FuseStatus, nextHeat } from './fuse';
 
 /** Same default as SPICE: minimum conductance across a junction. */
 const GMIN = 1e-12;
@@ -244,6 +245,11 @@ export class RealtimeEngine {
   private readonly stepPulled: Uint8Array;
   private readonly stepIndex: Uint8Array;
   private readonly stepReadings: Float64Array;
+  /** For each fuse, its heat as a share of that of its rated current, whether it has blown, and the replacement it is. */
+  private readonly fuseHeat: Float64Array;
+  private readonly fuseSquare: Float64Array;
+  private readonly fuseBlown: Uint8Array;
+  private readonly fuseReset: string[];
   private readonly ssrControl: Uint8Array;
   private readonly ssrOn: Uint8Array;
   private readonly ssrLast: Float64Array;
@@ -300,6 +306,10 @@ export class RealtimeEngine {
     this.stepPulled = new Uint8Array(devices.length);
     this.stepIndex = new Uint8Array(devices.length);
     this.stepReadings = new Float64Array(devices.length * 3);
+    this.fuseHeat = new Float64Array(devices.length);
+    this.fuseSquare = new Float64Array(devices.length);
+    this.fuseBlown = new Uint8Array(devices.length);
+    this.fuseReset = devices.map((d) => (d.kind === 'fuse' ? d.reset : ''));
     this.ssrControl = new Uint8Array(devices.length);
     this.ssrOn = new Uint8Array(devices.length);
     this.ssrLast = new Float64Array(devices.length * 2);
@@ -408,6 +418,9 @@ export class RealtimeEngine {
           break;
         case 'switch':
           d.ways.forEach((way, k) => this.addG(d.a, way, d.g[k]));
+          break;
+        case 'fuse':
+          this.addG(d.a, d.b, 1 / (this.fuseBlown[i] ? CONTACT_OPEN : FUSE_RESISTANCE));
           break;
         case 'mcu': {
           // The 5V of the board, then each pin behind the resistance of its mode
@@ -1218,6 +1231,34 @@ export class RealtimeEngine {
     return hasChanged;
   }
 
+  /**
+   * Warms each fuse with its current over h, and blows it past its melting heat: from then on it is open, and
+   * the matrix changes. True if one blew.
+   */
+  private updateFuses(h: number): boolean {
+    let hasBlown = false;
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind !== 'fuse' || this.fuseBlown[i]) return;
+      const current = (this.voltage(d.a) - this.voltage(d.b)) / FUSE_RESISTANCE;
+      this.fuseHeat[i] = nextHeat(d.spec, this.fuseHeat[i], current, h);
+      const keep = Math.exp(-h / FUSE_RMS_TAU);
+      this.fuseSquare[i] = keep * this.fuseSquare[i] + (1 - keep) * current * current;
+      if (this.fuseHeat[i] < FUSE_MELT) return;
+      this.fuseBlown[i] = 1;
+      hasBlown = true;
+    });
+    if (hasBlown) this.stampedStep = null;
+    return hasBlown;
+  }
+
+  /** A fuse: whether it is beyond its rating, whether it has blown, and how near it is to melting. */
+  fuseStatus(index: number): FuseStatus | null {
+    const d = this.compiled.devices[index];
+    if (d?.kind !== 'fuse') return null;
+    const heat = this.fuseHeat[index];
+    return { isOver: !this.fuseBlown[index] && this.fuseSquare[index] > d.spec.rating ** 2, isBlown: this.fuseBlown[index] === 1, heat: Math.min(1, heat / FUSE_MELT) };
+  }
+
   /** A solid state relay: its control and its triac, and what is beyond its ratings. */
   ssrStatus(index: number): SsrStatus | null {
     const d = this.compiled.devices[index];
@@ -1385,6 +1426,9 @@ export class RealtimeEngine {
     this.stepPulled.fill(0);
     this.stepIndex.fill(0);
     this.stepReadings.fill(0);
+    this.fuseHeat.fill(0);
+    this.fuseSquare.fill(0);
+    this.fuseBlown.fill(0);
     this.ssrControl.fill(0);
     this.ssrOn.fill(0);
     this.ssrLast.fill(0);
@@ -1468,6 +1512,13 @@ export class RealtimeEngine {
     this.stepPulled.set(previous.stepPulled);
     this.stepIndex.set(previous.stepIndex);
     this.stepReadings.set(previous.stepReadings);
+    // A fuse goes on as it was, unless it was put back in: then it is a new one, cold
+    this.compiled.devices.forEach((d, i) => {
+      if (d.kind !== 'fuse' || previous.fuseReset[i] !== d.reset) return;
+      this.fuseHeat[i] = previous.fuseHeat[i];
+      this.fuseSquare[i] = previous.fuseSquare[i];
+      this.fuseBlown[i] = previous.fuseBlown[i];
+    });
     this.ssrControl.set(previous.ssrControl);
     this.ssrOn.set(previous.ssrOn);
     this.ssrLast.set(previous.ssrLast);
@@ -1510,6 +1561,7 @@ export class RealtimeEngine {
       this.updateRelays();
       this.updateTimers();
       this.updateSsrs(h);
+      this.updateFuses(h);
       this.updateStepRelays(h, true);
       this.updateLamps(h);
       this.updateMcuInputs();
@@ -1569,6 +1621,7 @@ export class RealtimeEngine {
       case 'timer':
       case 'opto':
       case 'ssr':
+      case 'fuse':
       case 'display7':
       case 'bridge':
         return this.terminalCurrents(index)[0];
@@ -1664,6 +1717,10 @@ export class RealtimeEngine {
       if (d.c4 === null) return [coil + i2, -coil, -i2];
       const i4 = (this.voltage(d.a) - this.voltage(d.c4)) / (to4 ? CONTACT_CLOSED : CONTACT_OPEN);
       return [coil + i2 + i4, -coil, -i2, -i4];
+    }
+    if (d.kind === 'fuse') {
+      const current = (this.voltage(d.a) - this.voltage(d.b)) / (this.fuseBlown[index] ? CONTACT_OPEN : FUSE_RESISTANCE);
+      return [current, -current];
     }
     if (d.kind === 'ssr') {
       // Into the input and out of it; into 1 through the triac and the snubber, out of 2

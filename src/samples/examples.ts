@@ -591,6 +591,24 @@ const relayChangeover = (): Circuit => ({
 });
 
 /**
+ * A fuse of 2 A protects a 12 W lamp: closing S1 adds a load of 3 Ω, 4 A more, and the fuse blows in about
+ * 0.3 s, taking the lamp down with it.
+ */
+const fuseExample = (): Circuit => ({
+  title: 'Fusibile che protegge da un sovraccarico',
+  elements: [
+    part('v1', 'dcsupply', 0, 40, 90, 'V1', { amplitude: '12' }),
+    part('f1', 'fuse', 80, 0, 0, 'F1', { rating: '2', type: 'F' }),
+    part('lp1', 'lamp', 200, 40, 90, 'LP1', { power: '12', volts: '12' }),
+    part('s1', 'switch', 360, 0, 0, 'S1'),
+    part('r1', 'resistor', 400, 40, 90, 'R1', { value: '3' }),
+    ground(120, 80),
+  ],
+  wires: [wire('w1', [0, 0], [40, 0]), wire('w2', [120, 0], [200, 0], [320, 0]), wire('w3', [0, 80], [120, 80], [200, 80], [400, 80])],
+  models: [],
+});
+
+/**
  * A solid state relay switches a 60 W lamp on the 230 V mains: a switch on 5 V gives its input. Zero-cross
  * or random in its properties, to see on the oscilloscope where the current of the lamp starts.
  */
@@ -670,6 +688,7 @@ export const EXAMPLES: Example[] = [
   { id: 'arduino_blink', title: 'Arduino: Blink', hint: 'Il programma Blink accende e spegne il LED L della scheda e il LED su D12 ogni secondo, in tempo reale. Nelle proprietà di A1 si cambia programma o se ne carica uno .hex', build: arduinoBlink },
   { id: 'arduino_pot', title: 'Arduino: potenziometro e LED', hint: 'Sposta il cursore di P1: Arduino legge A0 e regola con il PWM la luminosità del LED su D9. I valori compaiono nel Monitor seriale', build: arduinoPot },
   { id: 'arduino_lm35', title: 'Arduino: termometro LM35', hint: 'Cambia la temperatura di U1: Arduino legge A0 e scrive i gradi nel Monitor seriale ogni mezzo secondo', build: arduinoThermometer },
+  { id: 'fuse', title: 'Fusibile che protegge da un sovraccarico', hint: 'Chiudi S1: la corrente sale da 1 A a 5 A, oltre i 2 A del fusibile. F1 diventa rosso e in circa 0,3 s si interrompe, spegnendo anche la lampada. Apri S1 e sostituiscilo dalle sue proprietà', build: fuseExample },
   { id: 'relay_spdt', title: 'Relè SPDT che scambia due lampade', hint: 'A riposo il contatto 11–12 accende LP2. Chiudi S1: la bobina tira la lamina sul contatto 14, LP2 si spegne e si accende LP1', build: relayChangeover },
   { id: 'sensors', title: 'Sensori di temperatura LM35 e TMP36', hint: 'Sposta la temperatura nelle proprietà di U1 e U2: 10 mV per grado. LM35: 0 V a 0 °C; TMP36: 0,5 V a 0 °C', build: sensors },
   { id: 'regulator', title: 'Regolatore 7805', hint: '5 V sul carico da 100 Ω: guarda la potenza e la temperatura del regolatore', build: regulator },

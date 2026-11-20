@@ -11,6 +11,7 @@ import { StepRelayStatus } from './stepRelay';
 import { RealtimeEngine, SolverError } from './engine';
 import { buildWireGraph, solveWireCurrents, WireGraph } from './wireGraph';
 import { flattenBlocks, isInsideBlock } from '../library/blocks';
+import { FuseStatus } from './fuse';
 
 export interface LiveDevice {
   elementId: string;
@@ -82,6 +83,7 @@ export interface LiveFrame {
   optos: (string[] | null)[];
   /** Each solid state relay: whether its control is active and its triac on, and what is beyond its ratings. */
   ssrs: (SsrStatus | null)[];
+  fuses: (FuseStatus | null)[];
   /** Each step relay: its sequence, its contacts, what is beyond its ratings. */
   stepRelays: (StepRelayStatus | null)[];
   /** Each relay: whether its contact is closed. */
@@ -124,6 +126,8 @@ const terminalsOf = (s: Exclude<SpiceDef, { kind: 'ground' }>): string[] => {
   switch (s.kind) {
     case 'userblock':
       return [];
+    case 'fuse':
+      return [s.a, s.b];
     case 'regulator':
       return [s.input, s.output, s.ref];
     case 'block':
@@ -587,6 +591,7 @@ export class LiveSimulation {
     const timers = devices.map((_, i) => engine.timerStatus(i));
     const optos = devices.map((_, i) => engine.optoStatus(i));
     const ssrs = devices.map((_, i) => engine.ssrStatus(i));
+    const fuses = devices.map((_, i) => engine.fuseStatus(i));
     const stepRelays = devices.map((_, i) => engine.stepRelayStatus(i));
     const glowMean = new Float64Array(devices.length).fill(NaN);
     for (const i of this.leds) glowMean[i] = this.ledSteps > 0 ? this.ledSum[i] / this.ledSteps : engine.deviceCurrent(i);
@@ -597,6 +602,6 @@ export class LiveSimulation {
     for (const i of this.lamps) lampRms[i] = Number.isNaN(this.lampSquares[i]) ? Math.abs(this.lampVoltage(i)) : Math.sqrt(this.lampSquares[i]);
     this.ledSum.fill(0);
     this.ledSteps = 0;
-    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, relays, mcus, timers, optos, ssrs, stepRelays, glowMean, lampLight, lampRms, logic, scope: this.takeSamples() };
+    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, relays, mcus, timers, optos, ssrs, fuses, stepRelays, glowMean, lampLight, lampRms, logic, scope: this.takeSamples() };
   }
 }

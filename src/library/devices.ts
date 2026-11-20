@@ -11,6 +11,7 @@ import { NE555, TLC555 } from '../realtime/timerSpecs';
 import { CTR_CLASSES } from '../realtime/opto';
 import { CONTROL_OPTIONS, CURRENT_OPTIONS, TYPE_OPTIONS } from '../realtime/ssr';
 import { COIL_OPTIONS, StepVersion, VERSION_OPTIONS } from '../realtime/stepRelay';
+import { FUSE_RATING_OPTIONS, FUSE_TYPE_OPTIONS } from '../realtime/fuse';
 
 
 /** One part for each number of pins, as terminals belong to the kind of part: half on the left, the rest on the right. */
@@ -222,13 +223,14 @@ export const DEVICES: ComponentDef[] = [
     props: [{ key: 'value', label: 'Induttanza', type: 'text', default: '10m' }],
     spice: { kind: 'passive', prefix: 'L', a: 'a', b: 'b', valueProp: 'value' },
   },
-  // A bench supply is close to ideal; a battery is not, and gives its current only through its own resistance
+  // Both start ideal, with no internal resistance, as a source is first met in a lesson; a real battery gets
+  // its own in the properties
   dcSource('dcsupply', 'Alimentazione continua', '12', '0', SOURCE_BODY, 'dc alimentatore'),
   dcSource(
     'battery',
     'Batteria',
     '9',
-    '1',
+    '0',
     [
       ...leads(9),
       // Two cells: the long plate is the positive one
@@ -959,6 +961,23 @@ const POTENTIOMETER: ComponentDef = {
 
 /** A lamp as the IEC draws it, a circle with a cross; its rating in two fields, power and voltage. */
 const LAMP_CROSS = 16 / Math.SQRT2;
+/** A fuse as the IEC draws it: a box with the wire through it. */
+const FUSE: ComponentDef = {
+  id: 'fuse',
+  category: 'Passivi',
+  name: 'Fusibile',
+  tagPrefix: 'F',
+  searchTerms: 'fusibile fuse protezione sovracorrente rapido ritardato',
+  terminals: twoPin('a', 'b'),
+  symbol: [...leads(20), { t: 'rect', x: -20, y: -7, w: 40, h: 14, fill: 'var(--sch-part)' }, { t: 'line', x1: -20, y1: 0, x2: 20, y2: 0 }],
+  props: [
+    { key: 'rating', label: 'Corrente nominale', type: 'choice', default: '1', options: FUSE_RATING_OPTIONS },
+    { key: 'type', label: 'Tipo', type: 'choice', default: 'F', options: FUSE_TYPE_OPTIONS },
+    { key: 'reset', label: 'Sostituito', type: 'text', default: '0', isHidden: true },
+  ],
+  spice: { kind: 'fuse', a: 'a', b: 'b', ratingProp: 'rating', typeProp: 'type', resetProp: 'reset' },
+};
+
 const LAMP: ComponentDef = {
   id: 'lamp',
   category: 'Passivi',
@@ -1382,7 +1401,7 @@ const SENSORS = [
   sensorDevice('TMP36', { offset: 0.5, slope: 0.01, tempProp: 'temp', iMax: 10e-3, dropout: 1, vMin: 2.7, vMax: 5.5, vAbsMax: 7 }, 50e-6, [-40, 125]),
 ];
 
-DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, LAMP, OPTO, ...RELAYS, ...STEP_RELAYS, SSR_AQG, ARDUINO_UNO, ...PORTS, ...COMPOSITES, ...TIMERS);
+DEVICES.push(BRIDGE, CT_TRANSFORMER, ...REGULATORS, ...SENSORS, ...MOTORS, ...LOGIC, DISPLAY7, ...TRUTH_TABLES, ...SWITCHES, POTENTIOMETER, FUSE, LAMP, OPTO, ...RELAYS, ...STEP_RELAYS, SSR_AQG, ARDUINO_UNO, ...PORTS, ...COMPOSITES, ...TIMERS);
 for (let count = MIN_BLOCK_PINS; count <= MAX_BLOCK_PINS; count++) DEVICES.push(blockDevice(count));
 
 const byId = new Map(DEVICES.map((d) => [d.id, d]));
