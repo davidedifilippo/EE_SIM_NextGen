@@ -14,6 +14,7 @@ import { flattenBlocks, isInsideBlock } from '../library/blocks';
 import { FuseStatus } from './fuse';
 import { BatteryStatus } from './lithium';
 import { LIVE_STEPS_PER_SECOND } from './liveRate';
+import { SignalWindows } from './rms';
 
 export interface LiveDevice {
   elementId: string;
@@ -79,6 +80,18 @@ export interface LiveFrame {
   /** For each lamp, its light as a share of the rated one, from its filament; NaN for the other parts. */
   lampLight: Float64Array;
   lampRms: Float64Array;
+  /**
+   * Mean and RMS over whole periods, as a meter reads them, NaN until the first window: of each wire to ground,
+   * of each device (from its first terminal to its second, and through it), and along each run of dots.
+   */
+  edgeMean: Float64Array;
+  edgeRms: Float64Array;
+  deviceVoltageMean: Float64Array;
+  deviceVoltageRms: Float64Array;
+  deviceCurrentMean: Float64Array;
+  deviceCurrentRms: Float64Array;
+  dotMean: Float64Array;
+  dotRms: Float64Array;
   /** Each 555: whether its output is high, and what is beyond its limits. */
   timers: ({ isHigh: boolean; warnings: string[] } | null)[];
   /** Each optocoupler: what it takes beyond its absolute maxima. */
@@ -283,6 +296,22 @@ export type LoadResult = { ok: true } | { ok: false; errors: string[] };
 /** With no generator to give a period, how long the RMS voltage of a lamp takes to follow it, in seconds. */
 const LAMP_RMS_TIME = 0.05;
 
+/**
+ * The current along each run of dots of a device, from the currents into its terminals. Nothing for a part
+ * inside a block, whose current reaches the sheet through the pins.
+ */
+function setDotCurrents(d: CompiledCircuit['devices'][number], currents: number[], firstDot: number, dotCurrent: Float64Array) {
+  if (firstDot < 0) return;
+  if (d.kind === 'logic' || d.kind === 'display7' || d.kind === 'bridge' || d.kind === 'mcu') currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
+  // From A1 through the coil, and to each contact: what leaves by A2, 2 and 4
+  else if (d.kind === 'steprelay') currents.slice(1).forEach((current, k) => (dotCurrent[firstDot + k] = -current));
+  else if (d.kind === 'ctransformer') [dotCurrent[firstDot], dotCurrent[firstDot + 1], dotCurrent[firstDot + 2]] = [currents[0], currents[2], -currents[4]];
+  else if (d.kind === 'relay' && currents.length === 5) [dotCurrent[firstDot], dotCurrent[firstDot + 1], dotCurrent[firstDot + 2]] = [currents[0], -currents[3], -currents[4]];
+  else if (currents.length === 2) dotCurrent[firstDot] = currents[0];
+  else if (currents.length === 4) [dotCurrent[firstDot], dotCurrent[firstDot + 1]] = [currents[0], currents[2]];
+  else currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
+}
+
 /** The running simulation behind the animation, independent of how it is scheduled. */
 export class LiveSimulation {
   private engine: RealtimeEngine | null = null;
@@ -308,6 +337,15 @@ export class LiveSimulation {
   private leds: number[] = [];
   private lamps: number[] = [];
   private ledSum = new Float64Array(0);
+  /** The windows behind the means and RMS of the frame, and what each step reads into them. */
+  private edgeWindows = new SignalWindows(0);
+  private voltageWindows = new SignalWindows(0);
+  private currentWindows = new SignalWindows(0);
+  private dotWindows = new SignalWindows(0);
+  private readEdges = new Float64Array(0);
+  private readVoltages = new Float64Array(0);
+  private readCurrents = new Float64Array(0);
+  private readDots = new Float64Array(0);
   private lampSquares = new Float64Array(0);
   private ledSteps = 0;
 
@@ -443,6 +481,15 @@ export class LiveSimulation {
     this.leds = compiled.elementIds.flatMap((id, i) => (defOf(id) === 'led' ? [i] : []));
     this.lamps = compiled.elementIds.flatMap((id, i) => (defOf(id) === 'lamp' ? [i] : []));
     this.ledSum = new Float64Array(compiled.devices.length);
+    // A new version of the circuit starts its readings again
+    this.edgeWindows = new SignalWindows(this.layout.edgeNode.length);
+    this.voltageWindows = new SignalWindows(compiled.devices.length);
+    this.currentWindows = new SignalWindows(compiled.devices.length);
+    this.dotWindows = new SignalWindows(this.layout.dots.length);
+    this.readEdges = new Float64Array(this.layout.edgeNode.length);
+    this.readVoltages = new Float64Array(compiled.devices.length);
+    this.readCurrents = new Float64Array(compiled.devices.length);
+    this.readDots = new Float64Array(this.layout.dots.length);
     // Pressing a button loads the circuit again: each lamp keeps the mean it had, as a fresh start from the
     // voltage of that instant would read the peak of an alternating one as its RMS
     const squares = new Map(previous?.compiled.elementIds.map((id, i) => [id, this.lampSquares[i]]) ?? []);
@@ -476,6 +523,7 @@ export class LiveSimulation {
       }
       if (this.leds.length + this.lamps.length > 0) this.ledSteps++;
       this.meters.forEach((meter) => meter.window.add(meter.read(), h, window));
+      this.readSignals(h, window);
       if (this.readers.length > 0) {
         this.sampleTimes.push(this.engine.time);
         this.readers.forEach((read, i) => this.sampleValues[i].push(read()));
@@ -483,6 +531,24 @@ export class LiveSimulation {
       if ((done & 7) === 0 && performance.now() - start > budgetMs) break;
     }
     return done;
+  }
+
+  /** Reads every wire, device and run of dots into the windows of their mean and RMS. */
+  private readSignals(h: number, window: number) {
+    const { engine, layout } = this;
+    if (!engine || !layout) return;
+    const { edgeNode } = layout;
+    for (let e = 0; e < edgeNode.length; e++) this.readEdges[e] = engine.nodeVoltage(edgeNode[e]);
+    engine.compiled.devices.forEach((d, i) => {
+      const currents = engine.terminalCurrents(i);
+      this.readCurrents[i] = currents[0];
+      this.readVoltages[i] = engine.nodeVoltage(d.a) - engine.nodeVoltage(d.b);
+      setDotCurrents(d, currents, layout.devices[i].firstDot, this.readDots);
+    });
+    this.edgeWindows.add(this.readEdges, h, window);
+    this.voltageWindows.add(this.readVoltages, h, window);
+    this.currentWindows.add(this.readCurrents, h, window);
+    this.dotWindows.add(this.readDots, h, window);
   }
 
   /** The voltage across a lamp now. */
@@ -557,17 +623,7 @@ export class LiveSimulation {
       if (d.kind === 'opto') deviceVbe[i] = engine.nodeVoltage(d.c) - engine.nodeVoltage(d.e);
       if (d.kind === 'ssr') deviceVbe[i] = engine.nodeVoltage(d.c) - engine.nodeVoltage(d.d);
       if (d.kind === 'steprelay') deviceVbe[i] = engine.nodeVoltage(d.a) - engine.nodeVoltage(d.c2);
-      const { firstDot } = layout.devices[i];
-      if (firstDot < 0) {
-        // Inside a block: what it takes reaches the sheet through the pins
-      } else if (d.kind === 'logic' || d.kind === 'display7' || d.kind === 'bridge' || d.kind === 'mcu') currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
-      // From A1 through the coil, and to each contact: what leaves by A2, 2 and 4
-      else if (d.kind === 'steprelay') currents.slice(1).forEach((current, k) => (dotCurrent[firstDot + k] = -current));
-      else if (d.kind === 'ctransformer') [dotCurrent[firstDot], dotCurrent[firstDot + 1], dotCurrent[firstDot + 2]] = [currents[0], currents[2], -currents[4]];
-      else if (d.kind === 'relay' && currents.length === 5) [dotCurrent[firstDot], dotCurrent[firstDot + 1], dotCurrent[firstDot + 2]] = [currents[0], -currents[3], -currents[4]];
-      else if (currents.length === 2) dotCurrent[firstDot] = currents[0];
-      else if (currents.length === 4) [dotCurrent[firstDot], dotCurrent[firstDot + 1]] = [currents[0], currents[2]];
-      else currents.forEach((current, k) => (dotCurrent[firstDot + k] = current));
+      setDotCurrents(d, currents, layout.devices[i].firstDot, dotCurrent);
       // The wires give each terminal the current that enters it
       currents.forEach((current, k) => {
         const vertex = deviceVertices[i][k];
@@ -611,6 +667,14 @@ export class LiveSimulation {
     for (const i of this.lamps) lampRms[i] = Number.isNaN(this.lampSquares[i]) ? Math.abs(this.lampVoltage(i)) : Math.sqrt(this.lampSquares[i]);
     this.ledSum.fill(0);
     this.ledSteps = 0;
-    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, relays, mcus, timers, optos, ssrs, fuses, batteries, stepRelays, glowMean, lampLight, lampRms, logic, scope: this.takeSamples() };
+    return { time: engine.time, edgeVoltage, edgeCurrent, deviceCurrent, deviceVoltage, deviceVbe, dotCurrent, meterMean, meterAc, regulators, motors, relays, mcus, timers, optos, ssrs, fuses, batteries, stepRelays, glowMean, lampLight, lampRms, logic,
+      edgeMean: this.edgeWindows.mean.slice(),
+      edgeRms: this.edgeWindows.rms.slice(),
+      deviceVoltageMean: this.voltageWindows.mean.slice(),
+      deviceVoltageRms: this.voltageWindows.rms.slice(),
+      deviceCurrentMean: this.currentWindows.mean.slice(),
+      deviceCurrentRms: this.currentWindows.rms.slice(),
+      dotMean: this.dotWindows.mean.slice(),
+      dotRms: this.dotWindows.rms.slice(), scope: this.takeSamples() };
   }
 }

@@ -160,7 +160,7 @@ export function useWorkbench() {
       live.errors.length === 0 &&
       live.layout && (
         <>
-          {showValues && isDc && <DcValues circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
+          {showValues && <DcValues circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasMeter && <MeterReadings circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasRegulator && <RegulatorStatus circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasMotor && <MotorView circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}

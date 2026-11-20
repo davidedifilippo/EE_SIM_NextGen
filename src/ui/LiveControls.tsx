@@ -5,6 +5,7 @@ import { sourceSpec } from '../netlist/source';
 import { LiveFrame } from '../realtime/liveSimulation';
 import { waveformStats } from '../realtime/waveform';
 import { formatEngineering, pickTimeUnit } from './chartMath';
+import { hasMean, isVarying, VARYING_FLOOR } from '../realtime/rms';
 
 export { SPEEDS } from '../realtime/liveRate';
 
@@ -114,6 +115,16 @@ export const LiveReadout: React.FC<{
       if (!frame) return;
       const volts = (v: number | undefined) => formatEngineering(v ?? 0, 'V');
       const amps = (i: number | undefined) => formatEngineering(i ?? 0, 'A');
+      /**
+       * A value as it is now while it holds still; while it varies, alternating or PWM, its RMS over whole
+       * periods, and its mean too when that is not nothing.
+       */
+      const reading = (label: string, unit: 'V' | 'A', now: number, mean: number, rms: number, s = 1): [string, string][] =>
+        isVarying(mean, rms, VARYING_FLOOR[unit])
+          ? [[`${label} efficace`, formatEngineering(rms, unit)], ...(hasMean(mean, rms, VARYING_FLOOR[unit]) ? ([[`${label} media`, formatEngineering(s * mean, unit)]] as [string, string][]) : [])]
+          : [[label, formatEngineering(s * now, unit)]];
+      const voltage = (s = 1) => reading('Tensione', 'V', frame.deviceVoltage[deviceIndex], frame.deviceVoltageMean[deviceIndex], frame.deviceVoltageRms[deviceIndex], s);
+      const current = (s = 1) => reading('Corrente', 'A', frame.deviceCurrent[deviceIndex], frame.deviceCurrentMean[deviceIndex], frame.deviceCurrentRms[deviceIndex], s);
       const regulator = frame.regulators[deviceIndex];
       const relay = frame.relays[deviceIndex];
       const timer = frame.timers[deviceIndex];
@@ -168,17 +179,9 @@ export const LiveReadout: React.FC<{
               [isChangeover ? 'I comune' : 'I contatto', amps(frame.dotCurrent[relayFirstDot + 1] + (isChangeover ? frame.dotCurrent[relayFirstDot + 2] : 0))],
             ]
           : isLamp
-          ? [
-              ['Tensione', volts(frame.deviceVoltage[deviceIndex])],
-              ['Corrente', amps(frame.deviceCurrent[deviceIndex])],
-              ['Potenza', formatEngineering(frame.glowMean[deviceIndex], 'W')],
-            ]
+          ? [...voltage(), ...current(), ['Potenza', formatEngineering(frame.glowMean[deviceIndex], 'W')]]
           : isPot
-          ? [
-              ['Tensione', volts(frame.deviceVoltage[deviceIndex])],
-              ['Corrente', amps(frame.deviceCurrent[deviceIndex])],
-              ['Cursore', volts(frame.deviceVbe[deviceIndex])],
-            ]
+          ? [...voltage(), ...current(), ['Cursore', volts(frame.deviceVbe[deviceIndex])]]
           : 
         regulator && regulatorFirstDot !== null
           ? [
@@ -207,20 +210,17 @@ export const LiveReadout: React.FC<{
             ]
           : frame.motors[deviceIndex]
           ? [
-              ['Tensione', volts(frame.deviceVoltage[deviceIndex])],
-              ['Corrente', amps(frame.deviceCurrent[deviceIndex])],
+              ...voltage(),
+              ...current(),
               ['Velocità', `${frame.motors[deviceIndex]!.state === 'stalled' ? 0 : Math.round(frame.motors[deviceIndex]!.rpm)} giri/min`],
             ]
           : transistorFirstDot === null
-          ? [
-              ['Tensione', volts(sign * frame.deviceVoltage[deviceIndex])],
-              ['Corrente', amps(sign * frame.deviceCurrent[deviceIndex])],
-            ]
+          ? [...voltage(sign), ...current(sign)]
           : [
-              ['Vce', volts(frame.deviceVoltage[deviceIndex])],
+              ...reading('Vce', 'V', frame.deviceVoltage[deviceIndex], frame.deviceVoltageMean[deviceIndex], frame.deviceVoltageRms[deviceIndex]),
               ['Vbe', volts(frame.deviceVbe[deviceIndex])],
-              ['Ic', amps(frame.dotCurrent[transistorFirstDot])],
-              ['Ib', amps(frame.dotCurrent[transistorFirstDot + 1])],
+              ...reading('Ic', 'A', frame.dotCurrent[transistorFirstDot], frame.dotMean[transistorFirstDot], frame.dotRms[transistorFirstDot]),
+              ...reading('Ib', 'A', frame.dotCurrent[transistorFirstDot + 1], frame.dotMean[transistorFirstDot + 1], frame.dotRms[transistorFirstDot + 1]),
             ],
       );
     };

@@ -3,6 +3,7 @@ import { Circuit } from '../model/types';
 import { LiveFrame, LiveLayout } from '../realtime/liveSimulation';
 import { formatEngineering } from './chartMath';
 import { currentLabels, currentText, nodeLabels } from './dcLabels';
+import { isVarying, VARYING_FLOOR } from '../realtime/rms';
 
 interface Props {
   circuit: Circuit;
@@ -29,11 +30,16 @@ export const DcValues: React.FC<Props> = ({ circuit, layout, frameRef }) => {
     const refresh = () => {
       const frame = frameRef.current;
       if (!frame || frame.edgeVoltage.length !== layout.edgeNode.length || frame.dotCurrent.length !== layout.dots.length) return;
+      // A signal that varies, alternating or PWM, by its RMS over whole periods; a steady one by its value
       nodes.forEach((label, i) => {
-        nodeTexts[i].textContent = formatEngineering(frame.edgeVoltage[label.edge], 'V');
+        const [mean, rms] = [frame.edgeMean[label.edge], frame.edgeRms[label.edge]];
+        nodeTexts[i].textContent = isVarying(mean, rms, VARYING_FLOOR.V) ? `${formatEngineering(rms, 'V')} eff` : formatEngineering(frame.edgeVoltage[label.edge], 'V');
       });
       currents.forEach((label, i) => {
-        currentTexts[i].textContent = currentText(label.name, layout.dots[label.dot], frame.dotCurrent[label.dot]);
+        const [mean, rms] = [frame.dotMean[label.dot], frame.dotRms[label.dot]];
+        currentTexts[i].textContent = isVarying(mean, rms, VARYING_FLOOR.A)
+          ? `${label.name ? `${label.name} ` : ''}${formatEngineering(rms, 'A')} eff`
+          : currentText(label.name, layout.dots[label.dot], frame.dotCurrent[label.dot]);
       });
     };
     refresh();
