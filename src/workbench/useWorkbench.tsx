@@ -42,6 +42,7 @@ import { LiveLegendHandle } from '../ui/LiveControls';
 import { liveTraces, nextSlot, ScopeTrace, traceLabel } from '../ui/scopeTraces';
 import { useLiveSimulation } from '../ui/useLiveSimulation';
 import { automaticSpeed, fastestPeriod } from '../realtime/liveRate';
+import { ShortedParts } from '../ui/ShortedParts';
 
 export type Run =
   | { kind: 'tran'; result: TranResult; series: Series[]; regulators: RegulatorSummary[]; netlist: string }
@@ -156,8 +157,11 @@ export function useWorkbench() {
   const hasRelay = useMemo(() => resolved.elements.some((el) => getDevice(el.def)?.spice.kind === 'relay'), [resolved]);
   const hasDisplay = useMemo(() => resolved.elements.some((el) => el.def === 'display7'), [resolved]);
   const labels = useMemo(
-    () =>
-      live.errors.length === 0 &&
+    () => (
+      <>
+        {/* Whatever the animation does: a part a wire joins across is in the schematic itself */}
+        <ShortedParts circuit={circuit} />
+        {live.errors.length === 0 &&
       live.layout && (
         <>
           {showValues && <DcValues circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
@@ -177,8 +181,10 @@ export function useWorkbench() {
           {hasDisplay && <SegmentGlow circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
           {hasLogic && <LogicLevels circuit={resolved} layout={live.layout} frameRef={live.frameRef} />}
         </>
-      ),
-    [showValues, isDc, hasMeter, hasRegulator, hasMotor, hasRelay, hasStepRelay, hasFuse, hasLithium, hasArduino, hasTimer, hasOpto, hasSsr, hasLed, hasLamp, hasDisplay, hasLogic, live.errors.length, resolved, live.layout, live.frameRef],
+      )}
+      </>
+    ),
+    [circuit, showValues, isDc, hasMeter, hasRegulator, hasMotor, hasRelay, hasStepRelay, hasFuse, hasLithium, hasArduino, hasTimer, hasOpto, hasSsr, hasLed, hasLamp, hasDisplay, hasLogic, live.errors.length, resolved, live.layout, live.frameRef],
   );
 
   const latestCircuitForKeys = useRef(circuit);

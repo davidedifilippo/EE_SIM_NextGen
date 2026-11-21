@@ -26,6 +26,7 @@ import { useFuseStatus } from './FuseView';
 import { batteryTime, useBatteryStatus } from './BatteryView';
 import { formatEngineering } from './chartMath';
 import { parseSpiceValue } from '../netlist/values';
+import { shortedParts } from '../editor/shorted';
 
 /**
  * The models of a transistor in groups: signal, then power, then the generic ones and those imported. Other
@@ -330,6 +331,12 @@ export const PropertiesPanel: React.FC<Props> = ({ circuit, selectedIds, onChang
           </p>
           <button onClick={() => setInsideOf(single)}>Mostra l'interno</button>
         </>
+      )}
+      {single && shortedParts(circuit).includes(single.id) && (
+        <p className="hint fuse-alert">
+          Un filo collega fra loro i due terminali: la corrente passa nel filo e non nel componente, che così non conta. Succede appoggiando un componente su un filo già tracciato: spostalo, togli il tratto di filo fra
+          i terminali e ricollegalo in serie.
+        </p>
       )}
       {single && def?.spice.kind === 'lithium' && deviceIndex >= 0 && (
         <BatteryNote
