@@ -58,11 +58,60 @@ export function followMove({ pts, moving, pins }: WireFollower, dx: number, dy: 
   return pts.map((p, i) => (moving.includes(i) ? shifted(p) : p));
 }
 
-/** Finds the wires attached to the given terminals. otherPoints are the terminals of the other parts. */
-export function wireFollowers(wires: Wire[], terminals: Pt[], otherPoints: Pt[]): WireFollower[] {
+/**
+ * The terminals of moving parts that touch a terminal of a part that stays, joined with no wire between,
+ * as a source standing on its ground: the joint stays where it is, with its wires, and a wire grows from
+ * it to the terminal that leaves.
+ */
+export const heldJoints = (moving: Pt[], staying: Pt[]): Pt[] => moving.filter((t) => staying.some((s) => dist(s, t) < 2));
+
+/** The wire from a held joint to its terminal moved by (dx, dy): along the part first, then across; null before it moved. */
+export function bridgeWire(id: string, joint: Pt, dx: number, dy: number): Wire | null {
+  if (dx === 0 && dy === 0) return null;
+  const moved = { x: joint.x + dx, y: joint.y + dy };
+  return { id, pts: simplify([moved, { x: moved.x, y: joint.y }, joint]) };
+}
+
+/**
+ * A wire that followed a part may end going back over the wire it joins: the line along the bottom of a
+ * circuit, lifted with its part, goes back down the side it meets. The two then meet at the corner instead,
+ * and the other wire is shortened, as if compressed, rather than covered. Only where nothing else is
+ * attached to the stretch that goes. terminals are those of all the parts, where they now are.
+ */
+export function foldBack(wires: Wire[], movedIds: Set<string>, terminals: Pt[]): Wire[] {
+  const out = wires.map((w) => ({ ...w }));
+  const tipsOf = (w: Wire) => [w.pts[0], w.pts[w.pts.length - 1]];
+  for (const w of out) {
+    if (!movedIds.has(w.id)) continue;
+    for (const atEnd of [true, false]) {
+      const pts = w.pts;
+      if (pts.length < 3) break;
+      const [far, corner] = atEnd ? [pts[pts.length - 1], pts[pts.length - 2]] : [pts[0], pts[1]];
+      if (terminals.some((t) => same(t, far))) continue;
+      const joined = out.filter((v) => v !== w && tipsOf(v).some((tip) => same(tip, far)));
+      if (joined.length !== 1 || movedIds.has(joined[0].id)) continue;
+      const v = joined[0];
+      const fromStart = same(v.pts[0], far);
+      const next = fromStart ? v.pts[1] : v.pts[v.pts.length - 2];
+      if (same(corner, far) || !isPointOnSegment(corner, far, next, TOLERANCE)) continue;
+      if (same(corner, next) && v.pts.length === 2) continue;
+      const others = [...terminals, ...out.filter((u) => u !== w && u !== v).flatMap(tipsOf)];
+      if (others.some((p) => isPointOnSegment(p, far, corner, TOLERANCE) && !same(p, corner))) continue;
+      w.pts = atEnd ? pts.slice(0, -1) : pts.slice(1);
+      v.pts = simplify(fromStart ? [corner, ...v.pts.slice(1)] : [...v.pts.slice(0, -1), corner]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Finds the wires attached to the given terminals. otherPoints are the terminals of the other parts;
+ * the held joints stay, with their wires.
+ */
+export function wireFollowers(wires: Wire[], terminals: Pt[], otherPoints: Pt[], held: Pt[] = []): WireFollower[] {
   const followers: WireFollower[] = [];
   for (const wire of wires) {
-    const moving = wire.pts.flatMap((p, i) => (terminals.some((t) => dist(t, p) < 2) ? [i] : []));
+    const moving = wire.pts.flatMap((p, i) => (terminals.some((t) => dist(t, p) < 2) && !held.some((h) => dist(h, p) < 2) ? [i] : []));
     if (moving.length === 0) continue;
     const otherTips = wires.filter((w) => w !== wire).flatMap((w) => [w.pts[0], w.pts[w.pts.length - 1]]);
     followers.push({ wireId: wire.id, pts: wire.pts, moving, pins: [...otherPoints, ...otherTips] });

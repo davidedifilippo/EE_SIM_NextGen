@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Pt } from '../model/types';
 import { isPointOnSegment } from '../utils/geometry';
-import { anchoredWires, followMove, isShortWire, routeWire, selectionBounds, wireEndingAt, wireFollowers, wireLength } from './wireRouting';
+import { anchoredWires, bridgeWire, followMove, foldBack, heldJoints, isShortWire, routeWire, selectionBounds, wireEndingAt, wireFollowers, wireLength } from './wireRouting';
 
 const pt = (x: number, y: number): Pt => ({ x, y });
 const isOrthogonal = (pts: Pt[]) => pts.slice(1).every((p, i) => p.x === pts[i].x || p.y === pts[i].y);
@@ -187,5 +187,40 @@ describe('routeWire', () => {
   it('adds no corner where the points are already in line', () => {
     expect(routeWire({ pt: pt(0, 40), out: down }, { pt: pt(0, 120), out: up }, [])).toEqual([pt(0, 40), pt(0, 120)]);
     expect(routeWire({ pt: pt(0, 0), out: null }, { pt: pt(50, 0), out: null }, [])).toEqual([pt(0, 0), pt(50, 0)]);
+  });
+});
+
+describe('a source lifted off its ground', () => {
+  // V1 has its − terminal on a ground at (60, 410), where the bottom line starts; the line turns up
+  // the right side as a wire of its own
+  const line = { id: 'line', pts: [pt(60, 410), pt(720, 410)] };
+  const side = { id: 'side', pts: [pt(720, 410), pt(720, 210)] };
+
+  it('leaves the joint, and its wires, where they are, and grows a wire to the terminal', () => {
+    const held = heldJoints([pt(60, 410), pt(60, 330)], [pt(60, 410)]);
+    expect(held).toEqual([pt(60, 410)]);
+    expect(wireFollowers([line, side], [pt(60, 410), pt(60, 330)], [pt(60, 410)], held)).toEqual([]);
+    expect(bridgeWire('b', held[0], 0, -50)).toEqual({ id: 'b', pts: [pt(60, 360), pt(60, 410)] });
+    expect(bridgeWire('b', held[0], 40, -50)?.pts).toEqual([pt(100, 360), pt(100, 410), pt(60, 410)]);
+    expect(bridgeWire('b', held[0], 0, 0)).toBeNull();
+  });
+
+  it('without a ground, lifts the line and shortens the side rather than going back down it', () => {
+    const [follower] = wireFollowers([line, side], [pt(60, 410)], []);
+    const lifted = { ...line, pts: followMove(follower, 0, -50) };
+    expect(lifted.pts).toEqual([pt(60, 360), pt(720, 360), pt(720, 410)]);
+    const [l, s] = foldBack([lifted, side], new Set(['line']), [pt(60, 360)]);
+    expect(l.pts).toEqual([pt(60, 360), pt(720, 360)]);
+    expect(s.pts).toEqual([pt(720, 360), pt(720, 210)]);
+  });
+
+  it('keeps the side whole where something else is attached to the stretch that would go', () => {
+    const lifted = { ...line, pts: [pt(60, 360), pt(720, 360), pt(720, 410)] };
+    const branch = { id: 'branch', pts: [pt(720, 390), pt(800, 390)] };
+    const wires = foldBack([lifted, side, branch], new Set(['line']), []);
+    expect(wires[0].pts).toEqual(lifted.pts);
+    expect(wires[1].pts).toEqual(side.pts);
+    // Nor when a terminal sits at the corner it would leave
+    expect(foldBack([lifted, side], new Set(['line']), [pt(720, 410)])[1].pts).toEqual(side.pts);
   });
 });

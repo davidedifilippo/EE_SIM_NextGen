@@ -6,7 +6,7 @@ import { canMirror, canRotate, createElement, getDevice } from '../library/devic
 import { Box, dist, isElementInBox, isPointInBox, isPointOnSegment, isWireInBox, localToWorld, snap, snapPt } from '../utils/geometry';
 import { ContextMenu, MenuItem } from './ContextMenu';
 import { getBounds, Renderer } from './Renderer';
-import { anchoredWires, followMove, isShortWire, RouteEnd, routeWire, selectionBounds, wireEndingAt, WireFollower, wireFollowers } from './wireRouting';
+import { anchoredWires, bridgeWire, followMove, foldBack, heldJoints, isShortWire, RouteEnd, routeWire, selectionBounds, wireEndingAt, WireFollower, wireFollowers } from './wireRouting';
 
 interface Props {
   circuit: Circuit;
@@ -44,6 +44,9 @@ type DragState =
       origWires: Wire[];
       origElements: Element[];
       pushes: RailPush[];
+      /** Terminals standing on those of parts that stay: a wire grows between them, with this id prefix. */
+      held: Pt[];
+      bridgeId: string;
       wasSelectedAtStart: boolean;
       isDragging: boolean;
       hasRecordedHistory: boolean;
@@ -75,8 +78,12 @@ type DragState =
       startScreen: Pt;
       origElemPositions: Map<string, Pt>;
       origWirePts: Map<string, Pt[]>;
+      origWires: Wire[];
+      origElements: Element[];
       /** Wires outside the selection, attached to what moves. */
       followers: WireFollower[];
+      held: Pt[];
+      bridgeId: string;
       isDragging: boolean;
       hasRecordedHistory: boolean;
     }
@@ -87,6 +94,17 @@ const MAX_ZOOM = 4;
 
 /** Screen pixels a press must travel to count as a drag and not as a tap. */
 const DRAG_THRESHOLD = 4;
+
+/**
+ * The wires during a move, once the followers moved: a wire grows from each held joint to its terminal, and
+ * a follower that comes back over the wire it joins shortens it instead. elements are where they now are.
+ */
+function settleWires(wires: Wire[], followers: WireFollower[], held: Pt[], bridgeId: string, dx: number, dy: number, elements: Element[]): Wire[] {
+  const terminals = elements.flatMap((el) => (getDevice(el.def)?.terminals ?? []).map((t) => localToWorld(el.x, el.y, t, el.rot, el.flip)));
+  const folded = foldBack(wires, new Set(followers.map((f) => f.wireId)), terminals);
+  const bridges = held.flatMap((joint, k) => bridgeWire(`${bridgeId}${k}`, joint, dx, dy) ?? []);
+  return [...folded, ...bridges];
+}
 
 /** A finger held still this long starts a selection area on the empty sheet, and opens the menu on a part. */
 export const LONG_PRESS_MS = 400;
@@ -615,12 +633,23 @@ export const SchematicCanvas: React.FC<Props> = ({
             const orig = drag.origElemPositions.get(el.id);
             return orig ? { ...el, x: orig.x + snapDx, y: orig.y + snapDy } : el;
           }),
-          wires: circuit.wires.map((w) => {
-            const orig = drag.origWirePts.get(w.id);
-            if (orig) return { ...w, pts: orig.map((p) => ({ x: p.x + snapDx, y: p.y + snapDy })) };
-            const follower = drag.followers.find((f) => f.wireId === w.id);
-            return follower ? { ...w, pts: followMove(follower, snapDx, snapDy) } : w;
-          }),
+          wires: settleWires(
+            drag.origWires.map((w) => {
+              const orig = drag.origWirePts.get(w.id);
+              if (orig) return { ...w, pts: orig.map((p) => ({ x: p.x + snapDx, y: p.y + snapDy })) };
+              const follower = drag.followers.find((f) => f.wireId === w.id);
+              return follower ? { ...w, pts: followMove(follower, snapDx, snapDy) } : w;
+            }),
+            drag.followers,
+            drag.held,
+            drag.bridgeId,
+            snapDx,
+            snapDy,
+            drag.origElements.map((el) => {
+              const orig = drag.origElemPositions.get(el.id);
+              return orig ? { ...el, x: orig.x + snapDx, y: orig.y + snapDy } : el;
+            }),
+          ),
         },
         record,
       );
@@ -634,10 +663,18 @@ export const SchematicCanvas: React.FC<Props> = ({
           ...circuit,
           elements: pushed.elements.map((el) => (el.id === drag.id ? { ...el, x: newX, y: newY } : el)),
           // Wires stay attached to the terminals of the moved element
-          wires: pushed.wires.map((w) => {
-            const follower = drag.followers.find((f) => f.wireId === w.id);
-            return follower ? { ...w, pts: followMove(follower, moveX, moveY) } : w;
-          }),
+          wires: settleWires(
+            pushed.wires.map((w) => {
+              const follower = drag.followers.find((f) => f.wireId === w.id);
+              return follower ? { ...w, pts: followMove(follower, moveX, moveY) } : w;
+            }),
+            drag.followers,
+            drag.held,
+            drag.bridgeId,
+            moveX,
+            moveY,
+            pushed.elements.map((el) => (el.id === drag.id ? { ...el, x: newX, y: newY } : el)),
+          ),
         },
         record,
       );
@@ -722,7 +759,8 @@ export const SchematicCanvas: React.FC<Props> = ({
 
     const wholeWires = selectedWires.filter((w) => !anchored.has(w.id));
     const origWirePts = new Map<string, Pt[]>(wholeWires.map((w) => [w.id, w.pts.map((p) => ({ ...p }))]));
-    const followers = wireFollowers([...otherWires, ...selectedWires.filter((w) => anchored.has(w.id))], movingTerminals, stayingTerminals);
+    const held = heldJoints(movingTerminals, stayingTerminals);
+    const followers = wireFollowers([...otherWires, ...selectedWires.filter((w) => anchored.has(w.id))], movingTerminals, stayingTerminals, held);
 
     dragRef.current = {
       type: 'selection-move',
@@ -730,6 +768,10 @@ export const SchematicCanvas: React.FC<Props> = ({
       origElemPositions,
       origWirePts,
       followers,
+      origWires: circuit.wires,
+      origElements: circuit.elements,
+      held,
+      bridgeId: `wire_${Date.now()}_held`,
       isDragging: false,
       hasRecordedHistory: false,
     };
@@ -772,7 +814,8 @@ export const SchematicCanvas: React.FC<Props> = ({
 
     const terminalsOf = (el: Element) => (getDevice(el.def)?.terminals ?? []).map((t) => localToWorld(el.x, el.y, t, el.rot, el.flip));
     const otherTerminals = circuit.elements.filter((el) => el.id !== elem.id).flatMap(terminalsOf);
-    const followers = wireFollowers(circuit.wires, terminalsOf(elem), otherTerminals);
+    const held = heldJoints(terminalsOf(elem), otherTerminals);
+    const followers = wireFollowers(circuit.wires, terminalsOf(elem), otherTerminals, held);
     const pushes = planRailPushes(circuit, elem.id, new Set(followers.map((f) => f.wireId)));
     dragRef.current = {
       type: 'element',
@@ -783,6 +826,8 @@ export const SchematicCanvas: React.FC<Props> = ({
       origWires: circuit.wires,
       origElements: circuit.elements,
       pushes,
+      held,
+      bridgeId: `wire_${Date.now()}_held`,
       wasSelectedAtStart: isAlreadySelected,
       isDragging: false,
       hasRecordedHistory: false,
