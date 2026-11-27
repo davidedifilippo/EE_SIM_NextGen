@@ -295,6 +295,11 @@ export type LoadResult = { ok: true } | { ok: false; errors: string[] };
 
 /** With no generator to give a period, how long the RMS voltage of a lamp takes to follow it, in seconds. */
 const LAMP_RMS_TIME = 0.05;
+/**
+ * The longest step with an Arduino in the circuit: about 40 points in a period of the PWM of D9 and D10
+ * (490 Hz), 20 in one of D5 and D6 (980 Hz). The board itself costs much more than the finer steps.
+ */
+export const MCU_MAX_STEP = 50e-6;
 
 /**
  * The current along each run of dots of a device, from the currents into its terminals. Nothing for a part
@@ -505,32 +510,42 @@ export class LiveSimulation {
     if (!this.engine || this.failed) return 0;
     const start = performance.now();
     let done = 0;
-    const window = readingWindow(this.period, h);
     // The animation runs h for each of its steps, so many a second: how fast against real time, for a battery
     // whose charge goes by real time
     this.engine.simPerReal = h * LIVE_STEPS_PER_SECOND;
+    // A board in the circuit steps finer: its PWM has its edges in the right place, and a square shape on the oscilloscope
+    const pieces = this.engine.compiled.devices.some((d) => d.kind === 'mcu') ? Math.max(1, Math.ceil(h / MCU_MAX_STEP - 1e-9)) : 1;
+    const piece = h / pieces;
+    // The window of the readings goes by the steps of the animation, however finely they are cut
+    const window = readingWindow(this.period, h);
     // The square of each lamp voltage follows its mean over two periods of the slowest generator, however
     // fast the animation runs: on alternating current a frame can hold only a slice of a period
-    const keep = Math.exp(-h / (2 * (this.period ?? LAMP_RMS_TIME)));
+    const keep = Math.exp(-piece / (2 * (this.period ?? LAMP_RMS_TIME)));
     while (done < steps) {
-      this.engine.step(h);
+      for (let k = 0; k < pieces; k++) this.stepOnce(piece, window, keep);
       done++;
-      for (const i of this.leds) this.ledSum[i] += this.engine.deviceCurrent(i);
-      for (const i of this.lamps) {
-        this.ledSum[i] += this.lampPower(i);
-        const square = this.lampVoltage(i) ** 2;
-        this.lampSquares[i] = Number.isNaN(this.lampSquares[i]) ? square : keep * this.lampSquares[i] + (1 - keep) * square;
-      }
-      if (this.leds.length + this.lamps.length > 0) this.ledSteps++;
-      this.meters.forEach((meter) => meter.window.add(meter.read(), h, window));
-      this.readSignals(h, window);
-      if (this.readers.length > 0) {
-        this.sampleTimes.push(this.engine.time);
-        this.readers.forEach((read, i) => this.sampleValues[i].push(read()));
-      }
       if ((done & 7) === 0 && performance.now() - start > budgetMs) break;
     }
     return done;
+  }
+
+  /** One step of the engine, and what is read after it: lights, meters, values and the oscilloscope. */
+  private stepOnce(h: number, window: number, keep: number) {
+    const engine = this.engine!;
+    engine.step(h);
+    for (const i of this.leds) this.ledSum[i] += engine.deviceCurrent(i);
+    for (const i of this.lamps) {
+      this.ledSum[i] += this.lampPower(i);
+      const square = this.lampVoltage(i) ** 2;
+      this.lampSquares[i] = Number.isNaN(this.lampSquares[i]) ? square : keep * this.lampSquares[i] + (1 - keep) * square;
+    }
+    if (this.leds.length + this.lamps.length > 0) this.ledSteps++;
+    this.meters.forEach((meter) => meter.window.add(meter.read(), h, window));
+    this.readSignals(h, window);
+    if (this.readers.length > 0) {
+      this.sampleTimes.push(engine.time);
+      this.readers.forEach((read, i) => this.sampleValues[i].push(read()));
+    }
   }
 
   /** Reads every wire, device and run of dots into the windows of their mean and RMS. */

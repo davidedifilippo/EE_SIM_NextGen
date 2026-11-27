@@ -3,7 +3,7 @@ import { getDevice } from '../library/devices';
 import { Circuit } from '../model/types';
 import { EXAMPLES } from '../samples/examples';
 import { compileCircuit } from './compile';
-import { LiveSimulation } from './liveSimulation';
+import { LiveSimulation, MCU_MAX_STEP } from './liveSimulation';
 import { hasMean, isVarying, VARYING_FLOOR } from './rms';
 import { circuitFromNets, Part } from './testCircuits';
 
@@ -63,6 +63,35 @@ describe('RMS and mean over whole periods', () => {
     expect(frame.deviceVoltageMean[r]).toBeCloseTo(5 * share, 1);
     expect(isVarying(frame.deviceVoltageMean[r], frame.deviceVoltageRms[r], VARYING_FLOOR.V)).toBe(true);
     expect(hasMean(frame.deviceVoltageMean[r], frame.deviceVoltageRms[r], VARYING_FLOOR.V)).toBe(true);
+  });
+
+  it('in real time the PWM is cut fine: pulses of the same width, as the oscilloscope must show them', () => {
+    const ids = getDevice('arduino_uno')!.terminals.map((t) => t.id);
+    const net: Record<string, string> = { '5V': 'vcc', GND: '0', A0: 'a0', D9: 'd9' };
+    const c = circuitFromNets('t', [
+      { def: 'arduino_uno', tag: 'A1', nets: ids.map((id) => net[id] ?? `nc_${id}`), props: { sketch: 'potenziometro', hex: '', hexName: '', resets: '0' } },
+      { def: 'resistor', tag: 'RA', nets: ['vcc', 'a0'], props: { value: '10k' } },
+      { def: 'resistor', tag: 'RB', nets: ['a0', '0'], props: { value: '10k' } },
+      { def: 'resistor', tag: 'RL', nets: ['d9', '0'], props: { value: '10k' } },
+    ] as unknown as Part[]);
+    const sim = new LiveSimulation();
+    expect(sim.load(c)).toEqual({ ok: true });
+    sim.advance(240, 1 / 2400, 1e6);
+    sim.setProbes([{ id: 'p', kind: 'voltage', elementId: 'rl' }], 1);
+    sim.frame();
+    sim.advance(240, 1 / 2400, 1e6);
+    const { time, values } = sim.frame()!.scope!;
+    expect(time[1] - time[0]).toBeLessThanOrEqual(MCU_MAX_STEP);
+    // Widths of the pulses, between the crossings of half the swing
+    const [rises, falls]: number[][] = [[], []];
+    for (let i = 1; i < time.length; i++) {
+      if (values[0][i - 1] < 2.5 && values[0][i] >= 2.5) rises.push(time[i]);
+      if (values[0][i - 1] >= 2.5 && values[0][i] < 2.5 && rises.length > 0) falls.push(time[i]);
+    }
+    const widths = falls.map((t, k) => t - rises[k]);
+    expect(widths.length).toBeGreaterThan(30);
+    const period = 1 / 490.2;
+    for (const w of widths) expect(Math.abs(w - (127 / 255) * period)).toBeLessThan(1.5 * MCU_MAX_STEP);
   });
 
   it('the half-wave rectifier: its load has a mean and an RMS, both worth reading', () => {
