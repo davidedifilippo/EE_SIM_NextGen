@@ -5,6 +5,7 @@ import { generateNetlist } from '../netlist/generate';
 import { getDevice } from '../library/devices';
 import { compileCircuit } from './compile';
 import { RealtimeEngine } from './engine';
+import { LiveSimulation } from './liveSimulation';
 import { KGF_CM, motorParams, motorState } from './motor';
 import { circuitFromNets, Part } from './testCircuits';
 
@@ -98,5 +99,45 @@ describe('a start in both engines', () => {
     expect(samples[0]).toBeGreaterThan(1.5);
     expect(samples[4]).toBeCloseTo(0.5, 1);
     samples.forEach((value, k) => expect(value).toBeCloseTo(ng[k], 2));
+  });
+});
+
+describe('a motor driven by PWM, with a diode across it', () => {
+  // Arduino at half PWM on D9, a TIP120 and the IG22 with a light load: the current of the diode dies out in
+  // each pause, and the motor is left with no path but its own back EMF
+  const ids = getDevice('arduino_uno')!.terminals.map((t) => t.id);
+  const net: Record<string, string> = { '5V': 'vcc5', GND: '0', A0: 'a0', D9: 'd9' };
+  const circuit = () =>
+    circuitFromNets('t', [
+      { def: 'arduino_uno', tag: 'A1', nets: ids.map((id) => net[id] ?? `nc_${id}`), props: { sketch: 'potenziometro', hex: '', hexName: '', resets: '0' } },
+      { def: 'resistor', tag: 'RA', nets: ['vcc5', 'a0'], props: { value: '10k' } },
+      { def: 'resistor', tag: 'RB', nets: ['a0', '0'], props: { value: '10k' } },
+      { def: 'resistor', tag: 'R1', nets: ['d9', 'b'], props: { value: '330' } },
+      { def: 'tip120', tag: 'Q1', nets: ['c', 'b', '0'], props: {} },
+      { def: 'motor_ig22', tag: 'M1', nets: ['v12', 'c'], props: { load: '0.3' } },
+      { def: 'diode', tag: 'D1', nets: ['c', 'v12'], props: { model: '1N4007' } },
+      { def: 'dcsupply', tag: 'V1', nets: ['v12', '0'], props: { shape: 'dc', amplitude: '12', rint: '0' } },
+    ] as unknown as Part[]);
+
+  it('rests on its back EMF once the diode stops, without swinging from step to step', () => {
+    const sim = new LiveSimulation();
+    expect(sim.load(circuit())).toEqual({ ok: true });
+    sim.advance(2400, 1 / 2400, 1e6);
+    sim.setProbes(
+      [
+        { id: 'v', kind: 'voltage', elementId: 'm1' },
+        { id: 'i', kind: 'current', elementId: 'd1' },
+      ],
+      1,
+    );
+    sim.frame();
+    sim.advance(24, 1 / 2400, 1e6);
+    const [volts, diode] = sim.frame()!.scope!.values;
+    // In the pause, with the transistor off (the motor below 10 V) and the diode no longer conducting (the
+    // motor above its drop), from the second step after the one where the current of the diode ends
+    const isPaused = (k: number) => Math.abs(diode[k]) < 1e-6 && volts[k] > -0.5 && volts[k] < 10;
+    const resting = [...volts.keys()].filter((k) => k > 1 && isPaused(k) && isPaused(k - 1) && isPaused(k - 2));
+    expect(resting.length).toBeGreaterThan(20);
+    for (const k of resting) expect(Math.abs(volts[k] - volts[k - 1])).toBeLessThan(0.1);
   });
 });

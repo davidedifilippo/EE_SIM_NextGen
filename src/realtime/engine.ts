@@ -43,6 +43,10 @@ const OPTO_KNEE_STEP = 0.1;
 
 /** A failed step is retried at half the size, up to this many times. */
 const MAX_HALVINGS = 8;
+/** Below this the voltage of an inductance swinging from step to step is only the noise of Newton. */
+const RINGING_FLOOR = 1e-3;
+/** A turn of the voltage of an inductance this many times its change at the step before: not a smooth signal. */
+const SUDDEN_TURN = 3;
 
 export class SolverError extends Error {}
 
@@ -282,6 +286,17 @@ export class RealtimeEngine {
 
   /** Step the base matrix is stamped for; 0 means the DC operating point. */
   private stampedStep: number | null = null;
+  /**
+   * A step of backward Euler on the inductances, in place of the trapezoids: taken again when one rings. Cut
+   * off by a diode that stops, an inductance left with no path has nothing to fix its voltage, and the
+   * trapezoids swing it from one sign to the other at every step, round the true value, for ever. A step of
+   * Euler sets it from the change of its current and so stops it, as SPICE does after a sudden change.
+   */
+  private damped = false;
+  private stampedDamped = false;
+  /** The voltage of each inductance two steps back, and of the second winding of a transformer. */
+  private readonly vBefore: Float64Array;
+  private readonly vBefore2: Float64Array;
   private luValid = false;
 
   constructor(readonly compiled: CompiledCircuit) {
@@ -296,6 +311,8 @@ export class RealtimeEngine {
     this.vPrev = new Float64Array(devices.length);
     this.iPrev = new Float64Array(devices.length);
     this.vPrev2 = new Float64Array(devices.length);
+    this.vBefore = new Float64Array(devices.length);
+    this.vBefore2 = new Float64Array(devices.length);
     this.iPrev2 = new Float64Array(devices.length);
     this.vIter = new Float64Array(devices.length);
     this.vIterBc = new Float64Array(devices.length);
@@ -371,8 +388,10 @@ export class RealtimeEngine {
 
   /** The part of the matrix that depends only on the step size. */
   private stampBase(h: number) {
-    if (this.stampedStep === h) return;
+    if (this.stampedStep === h && this.stampedDamped === this.damped) return;
     const { base, n } = this;
+    // The inductances over h on the trapezoids, over h once with backward Euler
+    const kL = this.damped ? 1 : 2;
     base.fill(0);
     for (let i = 0; i < n; i++) base[i * n + i] = 0;
 
@@ -386,7 +405,7 @@ export class RealtimeEngine {
           break;
         case 'inductor':
           this.addBranchColumns(d.a, d.b, d.branch);
-          base[d.branch * n + d.branch] = h > 0 ? (-2 * d.l) / h : 0;
+          base[d.branch * n + d.branch] = h > 0 ? (-kL * d.l) / h : 0;
           break;
         case 'vsource':
           this.addBranchColumns(d.a, d.b, d.branch);
@@ -407,7 +426,7 @@ export class RealtimeEngine {
         case 'motor':
           // R and L as one branch from a to e; the inertia from e to b, with a leak for when nothing drives it
           this.addBranchColumns(d.a, d.e, d.branch);
-          base[d.branch * n + d.branch] = -(d.params.r + (h > 0 ? (2 * d.params.l) / h : 0));
+          base[d.branch * n + d.branch] = -(d.params.r + (h > 0 ? (kL * d.params.l) / h : 0));
           if (h > 0) this.addG(d.e, d.b, (2 * d.params.c) / h);
           this.addG(d.e, d.b, 1 / MOTOR_LEAK);
           break;
@@ -425,10 +444,10 @@ export class RealtimeEngine {
           this.addBranchColumns(d.cp, d.d, d.branch2);
           if (h > 0) {
             // Each winding sees its own inductance and the mutual one, in the trapezoidal companion
-            base[d.branch * n + d.branch] = (-2 * d.l1) / h;
-            base[d.branch * n + d.branch2] = (-2 * d.m) / h;
-            base[d.branch2 * n + d.branch] = (-2 * d.m) / h;
-            base[d.branch2 * n + d.branch2] = (-2 * d.l2) / h;
+            base[d.branch * n + d.branch] = (-kL * d.l1) / h;
+            base[d.branch * n + d.branch2] = (-kL * d.m) / h;
+            base[d.branch2 * n + d.branch] = (-kL * d.m) / h;
+            base[d.branch2 * n + d.branch2] = (-kL * d.l2) / h;
           }
           break;
         case 'diode':
@@ -479,7 +498,7 @@ export class RealtimeEngine {
           this.addG(d.a, d.m, 1 / d.spec.coilResistance);
           this.addG(d.m, d.b, 1 / d.spec.coilLoss);
           this.addBranchColumns(d.m, d.b, d.branch);
-          base[d.branch * n + d.branch] = h > 0 ? (-2 * d.spec.coilInductance) / h : 0;
+          base[d.branch * n + d.branch] = h > 0 ? (-kL * d.spec.coilInductance) / h : 0;
           const [to2, to4] = d.spec.sequences[this.stepIndex[i]];
           this.addG(d.a, d.c2, 1 / (to2 ? CONTACT_CLOSED : CONTACT_OPEN));
           if (d.c4 !== null) this.addG(d.a, d.c4, 1 / (to4 ? CONTACT_CLOSED : CONTACT_OPEN));
@@ -501,7 +520,7 @@ export class RealtimeEngine {
         case 'relay':
           // The coil as one branch, R and L together as on the motor; the contact as it stands
           this.addBranchColumns(d.a, d.b, d.branch);
-          base[d.branch * n + d.branch] = -(d.spec.coilResistance + (h > 0 ? (2 * d.spec.coilInductance) / h : 0));
+          base[d.branch * n + d.branch] = -(d.spec.coilResistance + (h > 0 ? (kL * d.spec.coilInductance) / h : 0));
           this.addG(d.c, d.d, 1 / (this.relayClosed[i] ? CONTACT_CLOSED : CONTACT_OPEN));
           if (d.nc !== null) this.addG(d.c, d.nc, 1 / (this.relayClosed[i] ? CONTACT_OPEN : CONTACT_CLOSED));
           break;
@@ -542,6 +561,7 @@ export class RealtimeEngine {
     const branchStart = this.branchStart();
     for (let i = 0; i < branchStart; i++) base[i * n + i] += NODE_SHUNT;
     this.stampedStep = h;
+    this.stampedDamped = this.damped;
     this.luValid = false;
   }
 
@@ -557,6 +577,9 @@ export class RealtimeEngine {
   private stampRhs(t: number, h: number, sourceScale: number) {
     const { rhs } = this;
     rhs.fill(0);
+    // Backward Euler forgets the voltage of the last step: only the current carries over
+    const kL = this.damped ? 1 : 2;
+    const keep = this.damped ? 0 : 1;
     this.compiled.devices.forEach((d, i) => {
       switch (d.kind) {
         case 'capacitor':
@@ -567,7 +590,7 @@ export class RealtimeEngine {
           }
           break;
         case 'inductor':
-          rhs[d.branch] = h > 0 ? ((-2 * d.l) / h) * this.iPrev[i] - this.vPrev[i] : 0;
+          rhs[d.branch] = h > 0 ? ((-kL * d.l) / h) * this.iPrev[i] - keep * this.vPrev[i] : 0;
           break;
         case 'mcu': {
           rhs[d.branch] = UNO_VCC * sourceScale;
@@ -597,10 +620,10 @@ export class RealtimeEngine {
           break;
         case 'relay':
         case 'steprelay':
-          rhs[d.branch] = h > 0 ? ((-2 * d.spec.coilInductance) / h) * this.iPrev[i] - this.vPrev[i] : 0;
+          rhs[d.branch] = h > 0 ? ((-kL * d.spec.coilInductance) / h) * this.iPrev[i] - keep * this.vPrev[i] : 0;
           break;
         case 'motor':
-          rhs[d.branch] = h > 0 ? ((-2 * d.params.l) / h) * this.iPrev[i] - this.vPrev[i] : 0;
+          rhs[d.branch] = h > 0 ? ((-kL * d.params.l) / h) * this.iPrev[i] - keep * this.vPrev[i] : 0;
           if (h > 0) {
             const ieq = ((2 * d.params.c) / h) * this.vPrev2[i] + this.iPrev2[i];
             if (d.e >= 0) rhs[d.e] += ieq;
@@ -634,8 +657,8 @@ export class RealtimeEngine {
           break;
         case 'transformer':
           if (h > 0) {
-            rhs[d.branch] = ((-2 * d.l1) / h) * this.iPrev[i] + ((-2 * d.m) / h) * this.iPrev2[i] - this.vPrev[i];
-            rhs[d.branch2] = ((-2 * d.m) / h) * this.iPrev[i] + ((-2 * d.l2) / h) * this.iPrev2[i] - this.vPrev2[i];
+            rhs[d.branch] = ((-kL * d.l1) / h) * this.iPrev[i] + ((-kL * d.m) / h) * this.iPrev2[i] - keep * this.vPrev[i];
+            rhs[d.branch2] = ((-kL * d.m) / h) * this.iPrev[i] + ((-kL * d.l2) / h) * this.iPrev2[i] - keep * this.vPrev2[i];
           }
           break;
       }
@@ -1065,6 +1088,8 @@ export class RealtimeEngine {
 
   /** Records the accepted point as the history of the companion models. */
   private commit(h: number) {
+    this.vBefore.set(this.vPrev);
+    this.vBefore2.set(this.vPrev2);
     this.compiled.devices.forEach((d: CompiledDevice, i) => {
       if (d.kind === 'capacitor') {
         const v = this.voltage(d.a) - this.voltage(d.b);
@@ -1609,6 +1634,33 @@ export class RealtimeEngine {
     });
   }
 
+  /**
+   * Whether an inductance rings on the trapezoids: its voltage turns over to about its opposite, either at
+   * once, with a jump far bigger than the change before it, as when a diode has just cut it off, or for
+   * the second step running. A sine never does either, not even through zero, with a few steps a period.
+   */
+  private isRinging(): boolean {
+    const turns = (now: number, last: number) => now * last < 0 && Math.abs(now + last) < 0.5 * Math.max(Math.abs(now), Math.abs(last));
+    const swings = (now: number, last: number, before: number) =>
+      Math.abs(now) > RINGING_FLOOR && turns(now, last) && (turns(last, before) || Math.abs(now - last) > SUDDEN_TURN * Math.abs(last - before));
+    return this.compiled.devices.some((d, i) => {
+      switch (d.kind) {
+        case 'inductor':
+          return swings(this.voltage(d.a) - this.voltage(d.b), this.vPrev[i], this.vBefore[i]);
+        case 'motor':
+          return swings(this.voltage(d.a) - this.voltage(d.e) - d.params.r * this.x[d.branch], this.vPrev[i], this.vBefore[i]);
+        case 'relay':
+          return swings(this.voltage(d.a) - this.voltage(d.b) - d.spec.coilResistance * this.x[d.branch], this.vPrev[i], this.vBefore[i]);
+        case 'steprelay':
+          return swings(this.voltage(d.m) - this.voltage(d.b), this.vPrev[i], this.vBefore[i]);
+        case 'transformer':
+          return swings(this.voltage(d.ap) - this.voltage(d.b), this.vPrev[i], this.vBefore[i]) || swings(this.voltage(d.cp) - this.voltage(d.d), this.vPrev2[i], this.vBefore2[i]);
+        default:
+          return false;
+      }
+    });
+  }
+
   /** Advances by h, splitting the step if Newton does not converge. */
   step(h: number, depth = 0) {
     // The program runs once over the whole step: the halves of a refused step keep its outputs
@@ -1620,7 +1672,23 @@ export class RealtimeEngine {
     const startIterBridge = this.vIterBridge.slice();
     const startOpAmpState = this.opAmpState.slice();
     const startRegulatorState = this.regulatorState.slice();
-    if (this.solve(this.time + h, h, 1)) {
+    const restore = () => {
+      this.x.set(this.start);
+      this.vIter.set(startIter);
+      this.vIterBc.set(startIterBc);
+      this.vIterBody.set(startIterBody);
+      this.vIterBridge.set(startIterBridge);
+      this.opAmpState.set(startOpAmpState);
+      this.regulatorState.set(startRegulatorState);
+    };
+    let solved = this.solve(this.time + h, h, 1);
+    if (solved && h > 0 && this.isRinging()) {
+      restore();
+      this.damped = true;
+      solved = this.solve(this.time + h, h, 1);
+    }
+    this.damped = false;
+    if (solved) {
       this.commit(h);
       this.updateRelays();
       this.updateTimers();
@@ -1636,13 +1704,7 @@ export class RealtimeEngine {
       return;
     }
     if (depth >= MAX_HALVINGS) throw new SolverError('La simulazione non converge');
-    this.x.set(this.start);
-    this.vIter.set(startIter);
-    this.vIterBc.set(startIterBc);
-    this.vIterBody.set(startIterBody);
-    this.vIterBridge.set(startIterBridge);
-    this.opAmpState.set(startOpAmpState);
-    this.regulatorState.set(startRegulatorState);
+    restore();
     this.step(h / 2, depth + 1);
     this.step(h / 2, depth + 1);
   }
